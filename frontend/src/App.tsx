@@ -24,6 +24,17 @@ import type {
 const ASSISTANT_DRAFT_ID = "assistant-draft";
 const INITIAL_CHAT_MODEL = "openai:deepseek-chat";
 const INITIAL_REASONING_MODEL = "openai:deepseek-reasoner";
+const LANDING_TITLES = [
+  "你好，同志，有什么需要帮助的吗？",
+  "今天想让模型帮你做什么？",
+  "这次想先解决哪个问题？",
+  "给我一个目标，我来帮你拆。",
+  "今天这件事，我们从哪一步开始？",
+] as const;
+
+function pickLandingTitle() {
+  return LANDING_TITLES[Math.floor(Math.random() * LANDING_TITLES.length)];
+}
 
 function createFallbackModelOption(id: string): ModelOption {
   if (id === INITIAL_CHAT_MODEL) {
@@ -98,6 +109,8 @@ export default function App() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingReasoning, setStreamingReasoning] = useState("");
   const [thinkingExpanded, setThinkingExpanded] = useState(false);
+  const [landingHeroAnimated, setLandingHeroAnimated] = useState(false);
+  const [landingTitle] = useState(() => pickLandingTitle());
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const lastDesktopRef = useRef(window.innerWidth >= 768);
@@ -569,6 +582,7 @@ export default function App() {
             isStreaming={isStreaming}
             model={selectedModel}
             models={availableModels}
+            onAnimationComplete={() => setLandingHeroAnimated(true)}
             onChangeDraft={setDraft}
             onModelChange={handleModelChange}
             onSend={() => void handleSend()}
@@ -576,8 +590,10 @@ export default function App() {
             onToggleRag={() => setRagEnabled((value) => !value)}
             onToggleThinking={handleToggleThinking}
             ragEnabled={ragEnabled}
+            shouldAnimate={!landingHeroAnimated}
             thinkingAvailable={thinkingAvailable}
             thinkingEnabled={thinkingEnabled}
+            title={landingTitle}
           />
         ) : (
           <ConversationView

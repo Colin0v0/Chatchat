@@ -1,4 +1,4 @@
-﻿import {
+import {
   MessageSquarePlus,
   MoreHorizontal,
   PanelLeftOpen,
@@ -49,14 +49,13 @@ interface SidebarActionProps {
   onClick?: () => void;
 }
 
-interface DesktopRailProps {
-  onNewChat: () => void;
-}
-
 interface SidebarContentProps
   extends Omit<SidebarProps, "open" | "isDesktop" | "onToggleSidebar"> {
   alignToRail?: boolean;
+  desktopPinned?: boolean;
 }
+
+const DESKTOP_SIDEBAR_MOTION = "duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)]";
 
 function SidebarAction({
   icon,
@@ -67,16 +66,24 @@ function SidebarAction({
   onChange,
   onClick,
 }: SidebarActionProps) {
-  const paddingClass = alignToRail ? "pl-3 pr-4" : "px-4";
+  const paddingClass = alignToRail ? (isInput ? "pl-5 pr-4" : "pl-3 pr-4") : "px-4";
 
   if (isInput) {
     return (
       <label
-        className={`flex h-12 items-center gap-3 rounded-[8px] border border-app-border bg-app-panel-strong ${paddingClass} text-app-muted`}
+        className={`flex h-12 items-center rounded-[8px] border border-app-border bg-app-panel-strong text-app-muted ${
+          alignToRail ? "pl-0 pr-4" : `${paddingClass} gap-3`
+        }`}
       >
-        <span className="shrink-0">{icon}</span>
+        <span
+          className={alignToRail ? "flex h-full w-9 shrink-0 items-center justify-center" : "shrink-0"}
+        >
+          {icon}
+        </span>
         <input
-          className="w-full bg-transparent text-[15px] placeholder:text-app-muted"
+          className={`w-full bg-transparent text-[15px] placeholder:text-app-muted ${
+            alignToRail ? "min-w-0 pl-3" : ""
+          }`}
           onChange={(event) => onChange?.(event.target.value)}
           placeholder={label}
           value={value}
@@ -97,57 +104,107 @@ function SidebarAction({
   );
 }
 
-function RailButton({
+function IconTooltipButton({
   icon,
   label,
-  showTooltip = true,
-  alignWithAction = false,
+  tall = false,
   onClick,
 }: {
   icon: ReactNode;
   label: string;
-  showTooltip?: boolean;
-  alignWithAction?: boolean;
+  tall?: boolean;
   onClick?: () => void;
 }) {
-  const sizeClass = alignWithAction ? "h-12 w-9" : "h-9 w-9";
-
   return (
-    <div className="group relative flex items-center">
+    <div className="group relative flex items-center justify-center">
       <button
         aria-label={label}
-        className={`flex ${sizeClass} items-center justify-center rounded-[8px] text-app-muted transition hover:text-app-text`}
+        className={`flex ${tall ? "h-12 w-9" : "h-9 w-9"} items-center justify-center rounded-[8px] text-app-muted transition hover:text-app-text`}
         onClick={onClick}
         type="button"
       >
         {icon}
       </button>
 
-      {showTooltip ? (
+      <div className="pointer-events-none absolute left-[calc(100%+10px)] top-1/2 z-30 -translate-y-1/2 whitespace-nowrap rounded-lg bg-app-accent px-3 py-2 text-[13px] font-medium text-white opacity-0 shadow-[0_10px_24px_rgba(59,43,28,0.18)] transition duration-150 group-hover:opacity-100">
+        <span>{label}</span>
+      </div>
+    </div>
+  );
+}
+
+function DesktopPinnedNewChatButton({
+  open,
+  onClick,
+}: {
+  open: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <div className="group relative h-12">
+      <button
+        aria-label="New chat"
+        className="absolute inset-y-0 left-0 z-20 flex h-12 w-9 items-center justify-center rounded-[8px] text-app-muted transition hover:text-app-text"
+        onClick={onClick}
+        type="button"
+      >
+        <MessageSquarePlus className="size-4" />
+      </button>
+
+      <button
+        aria-hidden={!open}
+        className={`absolute inset-y-0 left-0 w-full overflow-hidden rounded-[8px] border border-app-border bg-app-panel-strong text-left text-app-muted transition-[background-color,color,opacity] ${DESKTOP_SIDEBAR_MOTION} ${
+          open
+            ? "pointer-events-auto opacity-100"
+            : "pointer-events-none opacity-0"
+        }`}
+        onClick={onClick}
+        tabIndex={open ? 0 : -1}
+        type="button"
+      >
+        <span className="flex h-full items-center whitespace-nowrap pl-12 pr-4 text-[15px] tracking-[-0.02em]">
+          New chat
+        </span>
+      </button>
+
+      {!open ? (
         <div className="pointer-events-none absolute left-[calc(100%+10px)] top-1/2 z-30 -translate-y-1/2 whitespace-nowrap rounded-lg bg-app-accent px-3 py-2 text-[13px] font-medium text-white opacity-0 shadow-[0_10px_24px_rgba(59,43,28,0.18)] transition duration-150 group-hover:opacity-100">
-          <span>{label}</span>
+          <span>New chat</span>
         </div>
       ) : null}
     </div>
   );
 }
 
-function DesktopRail({ onNewChat }: DesktopRailProps) {
+function DesktopPinnedHeader({
+  open,
+  onNewChat,
+}: {
+  open: boolean;
+  onNewChat: () => void;
+}) {
   return (
-    <div className="flex h-full flex-col bg-app-sidebar px-2 py-4">
-      <div className="flex h-9 items-center justify-center">
-        <div className="flex h-9 w-9 items-center justify-center text-[18px] font-semibold text-app-accent-strong">
+    <div className="absolute top-4 right-2 left-[10px] z-10">
+      <div className="relative h-9">
+        <div className="absolute inset-y-0 left-0 flex h-9 w-9 items-center justify-center rounded-[8px] bg-app-accent-soft text-[18px] font-semibold text-app-accent-strong">
           C
+        </div>
+
+        <div
+          aria-hidden={!open}
+          className={`min-w-0 pl-12 transition-opacity ${DESKTOP_SIDEBAR_MOTION} ${
+            open ? "opacity-100" : "pointer-events-none opacity-0"
+          }`}
+        >
+          <div className="truncate text-[15px] font-semibold tracking-[-0.02em]">Chatchat</div>
+          <div className="truncate text-[13px] tracking-[0.08em] text-app-muted lowercase">
+            reasoning workspace
+          </div>
         </div>
       </div>
 
-      <div className="mt-4 flex justify-center">
-        <RailButton
-          alignWithAction
-          icon={<MessageSquarePlus className="size-4" />}
-          label="New chat"
-          onClick={onNewChat}
-        />
+      <div className="mt-4">
+        <DesktopPinnedNewChatButton onClick={onNewChat} open={open} />
       </div>
     </div>
   );
@@ -256,13 +313,14 @@ function SidebarContent({
   onDelete,
   onSelect,
   alignToRail = false,
+  desktopPinned = false,
 }: SidebarContentProps) {
   const [menuConversationId, setMenuConversationId] = useState<number | null>(null);
   const [dialogState, setDialogState] = useState<SidebarDialogState>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
-  const horizontalPadding = alignToRail ? "px-2" : "px-4";
   const sectionPadding = alignToRail ? "px-2" : "px-4";
   const headingPadding = alignToRail ? "px-3" : "px-4";
+  const contentTopPadding = desktopPinned ? "pt-[132px]" : "pt-4";
 
   useEffect(() => {
     function handlePointerDown(event: MouseEvent) {
@@ -291,39 +349,52 @@ function SidebarContent({
 
   return (
     <>
-      <div className="flex h-full flex-col gap-4 bg-app-sidebar py-4">
-        <div className={`flex min-w-0 items-center gap-3 ${horizontalPadding} -mt-0.5`}>
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[8px] bg-app-accent-soft text-[18px] font-semibold text-app-accent-strong">
-            C
-          </div>
-          <div className="min-w-0">
-            <div className="truncate text-[15px] font-semibold tracking-[-0.02em]">
-              Chatchat
+      <div className={`flex h-full flex-col bg-app-sidebar ${contentTopPadding} pb-4`}>
+        {!desktopPinned ? (
+          <div className="flex min-w-0 flex-col gap-4 px-4">
+            <div className="flex min-w-0 items-center gap-3 -mt-0.5">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[8px] bg-app-accent-soft text-[18px] font-semibold text-app-accent-strong">
+                C
+              </div>
+              <div className="min-w-0">
+                <div className="truncate text-[15px] font-semibold tracking-[-0.02em]">
+                  Chatchat
+                </div>
+                <div className="truncate text-[13px] tracking-[0.08em] text-app-muted lowercase">
+                  reasoning workspace
+                </div>
+              </div>
             </div>
-            <div className="truncate text-[13px] tracking-[0.08em] text-app-muted lowercase">
-              reasoning workspace
+
+            <div className="flex flex-col gap-3">
+              <SidebarAction
+                icon={<MessageSquarePlus className="size-4" />}
+                label="New chat"
+                onClick={onNewChat}
+              />
+              <SidebarAction
+                icon={<Search className="size-4" />}
+                isInput
+                label="Search chats"
+                onChange={onQueryChange}
+                value={query}
+              />
             </div>
           </div>
-        </div>
+        ) : (
+          <div className={sectionPadding}>
+            <SidebarAction
+              alignToRail
+              icon={<Search className="size-4" />}
+              isInput
+              label="Search chats"
+              onChange={onQueryChange}
+              value={query}
+            />
+          </div>
+        )}
 
-        <div className={`flex flex-col gap-3 ${sectionPadding}`}>
-          <SidebarAction
-            alignToRail={alignToRail}
-            icon={<MessageSquarePlus className="size-4" />}
-            label="New chat"
-            onClick={onNewChat}
-          />
-          <SidebarAction
-            alignToRail={alignToRail}
-            icon={<Search className="size-4" />}
-            isInput
-            label="Search chats"
-            onChange={onQueryChange}
-            value={query}
-          />
-        </div>
-
-        <div className="flex min-h-0 flex-1 flex-col gap-3">
+        <div className="mt-4 flex min-h-0 flex-1 flex-col gap-3">
           <div className={`${headingPadding} text-[13px] font-semibold tracking-[0.14em] text-app-muted uppercase`}>
             Recent
           </div>
@@ -339,8 +410,7 @@ function SidebarContent({
               <div className={`flex flex-col gap-2 ${sectionPadding}`}>
                 {items.length === 0 ? (
                   <div className="px-3 py-2 text-[14px] text-app-muted">
-                    还没有对话，先发第一条消息。
-                  </div>
+                    闂備礁鎼ˇ顐﹀疾濠婂棙鎳岄梻浣圭湽閸庨亶骞婂Ο渚殨闁割煈鍋勭欢鐐测攽閻樻煡顎楁繛鍫熸倐閺岋綁鎮╅崣澶婎槱缂備胶绮崝妤€危閹邦兘鏀介悗锝庝簽椤ρ囨⒑閸撴彃浜濈紒璇插€诲濠囨惞閸︻厾锛滃┑掳鍊曢敃銈夊储閸濄儳纾奸柡鍐ｅ亾闁圭鍟块锝夊醇閺囩偟鍔撮梺鍛婂姦閳ь剦鍨崕鐢稿蓟閻旂⒈鏁囩憸宥夋倶濞戙垺鐓?                 </div>
                 ) : null}
 
                 {items.map((item) => {
@@ -471,11 +541,11 @@ function DesktopSidebarToggle({
   return (
     <button
       aria-label={open ? "Collapse sidebar" : "Expand sidebar"}
-      className="absolute bottom-4 left-[10px] z-20 flex h-9 w-9 items-center justify-center rounded-[8px] text-app-muted transition hover:text-app-text"
+      className={`absolute bottom-4 left-[10px] z-20 flex h-9 w-9 items-center justify-center rounded-[8px] text-app-muted outline-none transition-colors ${DESKTOP_SIDEBAR_MOTION} hover:text-app-text focus:outline-none focus-visible:outline-none focus-visible:ring-0`}
       onClick={onToggle}
       type="button"
     >
-      <PanelLeftOpen className={`size-4 transition-transform ${open ? "rotate-180" : ""}`} />
+      <PanelLeftOpen className={`size-4 transition-transform ${DESKTOP_SIDEBAR_MOTION} ${open ? "rotate-180" : ""}`} />
     </button>
   );
 }
@@ -509,11 +579,19 @@ export function Sidebar({
   return (
     <>
       <div
-        className={`relative hidden h-full overflow-visible border-r border-app-border bg-app-sidebar transition-[width] duration-300 ease-out md:block ${
+        className={`relative hidden h-full overflow-visible border-r border-app-border bg-app-sidebar transition-[width] ${DESKTOP_SIDEBAR_MOTION} md:block ${
           open ? "w-[280px]" : "w-[56px]"
         }`}
       >
-        {open ? <SidebarContent {...contentProps} alignToRail /> : <DesktopRail onNewChat={onNewChat} />}
+        <DesktopPinnedHeader onNewChat={onNewChat} open={open} />
+        <div
+          aria-hidden={!open}
+          className={`h-full overflow-hidden transition-opacity ${DESKTOP_SIDEBAR_MOTION} ${
+            open ? "opacity-100" : "pointer-events-none opacity-0"
+          }`}
+        >
+          <SidebarContent {...contentProps} alignToRail desktopPinned />
+        </div>
         <DesktopSidebarToggle onToggle={onToggleSidebar} open={open} />
       </div>
 
@@ -539,4 +617,6 @@ export function Sidebar({
     </>
   );
 }
+
+
 
