@@ -1,0 +1,103 @@
+@import url("https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap");
+@import "tailwindcss";
+
+@theme {
+  --font-sans:
+    "Outfit", "Noto Sans SC", ui-sans-serif, system-ui, sans-serif;
+  --color-app-bg: #f3f0e8;
+  --color-app-panel: #fffdf9;
+  --color-app-panel-soft: #f4ecdf;
+  --color-app-panel-strong: #ffffff;
+  --color-app-sidebar: #f7f1e6;
+  --color-app-border: rgba(25, 22, 18, 0.12);
+  --color-app-border-strong: rgba(25, 22, 18, 0.18);
+  --color-app-text: #161310;
+  --color-app-muted: #756c63;
+  --color-app-accent: #9d8f7e;
+  --color-app-accent-soft: #eee7dc;
+  --color-app-accent-strong: #5f5448;
+  --color-app-danger: #7f241d;
+}
+
+@layer base {
+  * {
+    @apply box-border;
+  }
+
+  html,
+  body,
+  #root {
+    @apply min-h-full;
+  }
+
+  body {
+    @apply min-h-screen bg-app-bg font-sans text-app-text antialiased;
+  }
+
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+  }
+
+  button {
+    @apply cursor-pointer;
+  }
+
+  input,
+  textarea {
+    @apply outline-none;
+  }
+
+  ::selection {
+    @apply bg-app-accent text-white;
+  }
+
+  .app-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(95, 84, 72, 0.58) var(--color-app-panel);
+  }
+
+  .app-scrollbar-sidebar {
+    scrollbar-color: rgba(95, 84, 72, 0.58) var(--color-app-sidebar);
+  }
+
+  .app-scrollbar::-webkit-scrollbar {
+    width: 10px;
+  }
+
+  .app-scrollbar::-webkit-scrollbar-track {
+    background: var(--color-app-panel);
+  }
+
+  .app-scrollbar-sidebar::-webkit-scrollbar-track {
+    background: var(--color-app-sidebar);
+  }
+
+  .app-scrollbar::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background: rgba(95, 84, 72, 0.58);
+    background-clip: padding-box;
+  }
+
+  .app-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgba(95, 84, 72, 0.72);
+    background-clip: padding-box;
+  }
+}
+
+@keyframes thinking-dot {
+  0%,
+  80%,
+  100% {
+    opacity: 0.22;
+    text-shadow: 0 0 0 rgba(157, 143, 126, 0);
+  }
+
+  40% {
+    opacity: 1;
+    text-shadow: 0 0 10px rgba(157, 143, 126, 0.45);
+  }
+}
