@@ -1,5 +1,5 @@
-﻿import { Check, Copy, RotateCcw, ThumbsDown, ThumbsUp } from "lucide-react";
-import { useState } from "react";
+import { Check, Copy, RotateCcw, ThumbsDown, ThumbsUp } from "lucide-react";
+import { useState, type ReactNode } from "react";
 
 import { MarkdownMessage } from "./markdown/MarkdownMessage";
 import { ThinkingPanel } from "./thinking/ThinkingPanel";
@@ -45,15 +45,36 @@ function renderMessageContent(content: string) {
   ));
 }
 
+function ActionIconButton({
+  ariaLabel,
+  children,
+  onClick,
+}: {
+  ariaLabel: string;
+  children: ReactNode;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      aria-label={ariaLabel}
+      className="flex h-8 w-8 items-center justify-center rounded-lg text-app-muted transition hover:text-app-text"
+      onClick={onClick}
+      type="button"
+    >
+      {children}
+    </button>
+  );
+}
+
 function AssistantActions({
   content,
   messageId,
-  disabled = false,
+  hidden = false,
   onRetry,
 }: {
   content: string;
   messageId: number | string;
-  disabled?: boolean;
+  hidden?: boolean;
   onRetry?: (messageId: number) => void;
 }) {
   const [copied, setCopied] = useState(false);
@@ -68,47 +89,36 @@ function AssistantActions({
     }
   }
 
+  if (hidden) {
+    return null;
+  }
+
   return (
-    <div className={`mt-3 flex items-center gap-3 text-app-muted ${disabled ? "hidden" : ""}`}>
-      <button
-        aria-label="Copy response"
-        className="flex h-8 w-8 items-center justify-center rounded-lg transition hover:text-app-text"
-        onClick={() => void handleCopy()}
-        type="button"
-      >
+    <div className="mt-3 flex items-center gap-3 text-app-muted">
+      <ActionIconButton ariaLabel="Copy response" onClick={() => void handleCopy()}>
         {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
-      </button>
-      <button
-        aria-label="Good response"
-        className="flex h-8 w-8 items-center justify-center rounded-lg transition hover:text-app-text"
-        type="button"
-      >
+      </ActionIconButton>
+      <ActionIconButton ariaLabel="Good response">
         <ThumbsUp className="size-4" />
-      </button>
-      <button
-        aria-label="Bad response"
-        className="flex h-8 w-8 items-center justify-center rounded-lg transition hover:text-app-text"
-        type="button"
-      >
+      </ActionIconButton>
+      <ActionIconButton ariaLabel="Bad response">
         <ThumbsDown className="size-4" />
-      </button>
-      <button
-        aria-label="Retry response"
-        className="flex h-8 w-8 items-center justify-center rounded-lg transition hover:text-app-text"
+      </ActionIconButton>
+      <ActionIconButton
+        ariaLabel="Retry response"
         onClick={() => {
           if (typeof messageId === "number") {
             onRetry?.(messageId);
           }
         }}
-        type="button"
       >
         <RotateCcw className="size-4" />
-      </button>
+      </ActionIconButton>
     </div>
   );
 }
 
-function UserActions({ content }: { content: string }) {
+function UserActions({ content, hidden = false }: { content: string; hidden?: boolean }) {
   const [copied, setCopied] = useState(false);
 
   async function handleCopy() {
@@ -121,8 +131,12 @@ function UserActions({ content }: { content: string }) {
     }
   }
 
+  if (hidden) {
+    return null;
+  }
+
   return (
-    <div className="group-hover:opacity-100 mt-1 mb-3 flex items-center justify-end opacity-0 transition duration-150">
+    <div className="mt-1 mb-3 flex items-center justify-end opacity-0 transition duration-150 group-hover:opacity-100">
       <button
         aria-label="Copy message"
         className="flex h-9 w-9 items-center justify-center rounded-xl text-app-muted transition hover:text-app-text"
@@ -147,13 +161,12 @@ export function MessageList({
   onToggleThinkingTrace,
 }: MessageListProps) {
   const activeThinkingMessageId = isStreaming
-    ? [...items]
-        .reverse()
-        .find((item) => item.role === "assistant" && !item.content.trim())?.id
+    ? [...items].reverse().find((item) => item.role === "assistant" && !item.content.trim())?.id
     : null;
   const activeStreamingAssistantId = isStreaming
     ? [...items].reverse().find((item) => item.role === "assistant")?.id
     : null;
+  const hideActions = isStreaming;
 
   return (
     <div className="mx-auto flex w-full max-w-[920px] flex-col pb-6">
@@ -189,7 +202,7 @@ export function MessageList({
                 <div className="rounded-[20px] bg-app-panel-soft px-4 py-2.5 text-right text-[15px] leading-7 text-app-accent-strong">
                   {renderMessageContent(item.content)}
                 </div>
-                <UserActions content={item.content} />
+                <UserActions content={item.content} hidden={hideActions} />
               </div>
             </article>
           );
@@ -221,7 +234,7 @@ export function MessageList({
               {!isEmptyAssistant ? (
                 <AssistantActions
                   content={item.content}
-                  disabled={item.id === activeStreamingAssistantId}
+                  hidden={hideActions || item.id === activeStreamingAssistantId}
                   messageId={item.id}
                   onRetry={onRetry}
                 />

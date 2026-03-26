@@ -1,9 +1,9 @@
 import { Check, Copy } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { memo, useMemo, useState, type ReactNode } from "react";
 
 import { MermaidBlock } from "./MermaidBlock";
 
-export function CodeBlock({
+function CodeBlockComponent({
   className,
   children,
 }: {
@@ -11,8 +11,8 @@ export function CodeBlock({
   children: ReactNode;
 }) {
   const [copied, setCopied] = useState(false);
-  const language = className?.replace(/^language-/, "") || "text";
-  const code = String(children).replace(/\n$/, "");
+  const language = useMemo(() => className?.replace(/^language-/, "") || "text", [className]);
+  const code = useMemo(() => String(children).replace(/\n$/, ""), [children]);
 
   async function handleCopy() {
     try {
@@ -31,9 +31,7 @@ export function CodeBlock({
   return (
     <div className="mb-4 overflow-hidden rounded-[20px] border border-app-border bg-[#f6f1e8] last:mb-0">
       <div className="flex items-center justify-between border-b border-app-border bg-[#efe6d8] px-4 py-2.5">
-        <span className="text-[12px] font-semibold uppercase tracking-[0.12em] text-app-muted">
-          {language}
-        </span>
+        <span className="text-[12px] font-semibold uppercase tracking-[0.12em] text-app-muted">{language}</span>
         <button
           aria-label="Copy code"
           className="flex h-8 w-8 items-center justify-center rounded-lg text-app-muted transition hover:bg-white/60 hover:text-app-text"
@@ -49,3 +47,5 @@ export function CodeBlock({
     </div>
   );
 }
+
+export const CodeBlock = memo(CodeBlockComponent);

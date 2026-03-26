@@ -24,8 +24,9 @@ import type {
 const ASSISTANT_DRAFT_ID = "assistant-draft";
 const INITIAL_CHAT_MODEL = "openai:deepseek-chat";
 const INITIAL_REASONING_MODEL = "openai:deepseek-reasoner";
+const SIDEBAR_STORAGE_KEY = "chatchat:sidebar-state";
 const LANDING_TITLES = [
-  "你好，同志，有什么需要帮助的吗？",
+  "你好同志，请问有什么需要帮助的吗？",
   "今天想让模型帮你做什么？",
   "这次想先解决哪个问题？",
   "给我一个目标，我来帮你拆。",
@@ -34,6 +35,47 @@ const LANDING_TITLES = [
 
 function pickLandingTitle() {
   return LANDING_TITLES[Math.floor(Math.random() * LANDING_TITLES.length)];
+}
+
+type SidebarState = {
+  desktopOpen: boolean;
+  mobileOpen: boolean;
+};
+
+function getDefaultSidebarState(): SidebarState {
+  return {
+    desktopOpen: true,
+    mobileOpen: false,
+  };
+}
+
+function readSidebarState(): SidebarState {
+  if (typeof window === "undefined") {
+    return getDefaultSidebarState();
+  }
+
+  try {
+    const raw = window.localStorage.getItem(SIDEBAR_STORAGE_KEY);
+    if (!raw) {
+      return getDefaultSidebarState();
+    }
+
+    const parsed = JSON.parse(raw) as Partial<SidebarState>;
+    return {
+      desktopOpen: parsed.desktopOpen ?? true,
+      mobileOpen: parsed.mobileOpen ?? false,
+    };
+  } catch {
+    return getDefaultSidebarState();
+  }
+}
+
+function writeSidebarState(state: SidebarState) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.setItem(SIDEBAR_STORAGE_KEY, JSON.stringify(state));
 }
 
 function createFallbackModelOption(id: string): ModelOption {
@@ -94,8 +136,13 @@ function resolveInitialSelectedModel(models: ModelOption[], preferredModel: stri
 }
 
 export default function App() {
+  const [sidebarState, setSidebarState] = useState<SidebarState>(() => readSidebarState());
   const [isDesktop, setIsDesktop] = useState(() => window.innerWidth >= 768);
-  const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 768);
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    const desktop = window.innerWidth >= 768;
+    const persisted = readSidebarState();
+    return desktop ? persisted.desktopOpen : persisted.mobileOpen;
+  });
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [conversationsLoaded, setConversationsLoaded] = useState(false);
   const [activeConversationId, setActiveConversationId] = useState<number | null>(null);
@@ -127,11 +174,15 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    writeSidebarState(sidebarState);
+  }, [sidebarState]);
+
+  useEffect(() => {
     function syncViewportState() {
       const desktop = window.innerWidth >= 768;
       setIsDesktop(desktop);
       if (desktop !== lastDesktopRef.current) {
-        setSidebarOpen(desktop);
+        setSidebarOpen(desktop ? sidebarState.desktopOpen : sidebarState.mobileOpen);
         lastDesktopRef.current = desktop;
       }
     }
@@ -139,7 +190,7 @@ export default function App() {
     syncViewportState();
     window.addEventListener("resize", syncViewportState);
     return () => window.removeEventListener("resize", syncViewportState);
-  }, []);
+  }, [sidebarState.desktopOpen, sidebarState.mobileOpen]);
 
   useEffect(() => {
     if (activeConversationId === null || isStreaming) {
@@ -206,7 +257,7 @@ export default function App() {
       setStreamingReasoning("");
       setThinkingExpanded(false);
       if (!isDesktop) {
-        setSidebarOpen(false);
+        handleSetSidebarOpen(false, false);
       }
     });
   }
@@ -219,8 +270,20 @@ export default function App() {
       setStreamingReasoning("");
       setThinkingExpanded(false);
       if (!isDesktop) {
-        setSidebarOpen(false);
+        handleSetSidebarOpen(false, false);
       }
+    });
+  }
+
+  function handleSetSidebarOpen(nextOpen: boolean | ((current: boolean) => boolean), desktop = isDesktop) {
+    setSidebarOpen((current) => {
+      const resolved = typeof nextOpen === "function" ? nextOpen(current) : nextOpen;
+      setSidebarState((previous) =>
+        desktop
+          ? { ...previous, desktopOpen: resolved }
+          : { ...previous, mobileOpen: resolved },
+      );
+      return resolved;
     });
   }
 
@@ -558,7 +621,7 @@ export default function App() {
         onQueryChange={setQuery}
         onRename={handleRenameConversation}
         onSelect={handleSelectConversation}
-        onToggleSidebar={() => setSidebarOpen((value) => !value)}
+        onToggleSidebar={() => handleSetSidebarOpen((value) => !value)}
         open={sidebarOpen}
         query={query}
       />
@@ -570,7 +633,7 @@ export default function App() {
           isDesktop={isDesktop}
           onDeleteConversation={handleDeleteConversation}
           onRenameConversation={handleRenameConversation}
-          onToggleSidebar={() => setSidebarOpen((value) => !value)}
+          onToggleSidebar={() => handleSetSidebarOpen((value) => !value)}
           showTitle
           sidebarOpen={sidebarOpen}
           title={headerTitle}

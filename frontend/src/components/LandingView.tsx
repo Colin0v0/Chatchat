@@ -84,9 +84,9 @@ export function LandingView({
   const showCaret = shouldAnimate && visibleCount < title.length;
 
   return (
-    <section className="flex flex-1 flex-col px-4 pb-2 pt-6 md:px-6 md:pb-2 md:pt-8">
-      <div className="mx-auto flex h-full w-full max-w-[920px] flex-col">
-        <div className="flex flex-1 items-center justify-center">
+    <section className="flex min-h-0 flex-1 flex-col overflow-hidden px-4 pb-2 pt-6 md:px-6 md:pb-2 md:pt-8">
+      <div className="mx-auto flex min-h-0 h-full w-full max-w-[920px] flex-col">
+        <div className="flex min-h-0 flex-1 items-center justify-center">
           <h1 className="text-center text-[36px] font-semibold leading-none tracking-[-0.06em] md:text-[56px]">
             <span>{visibleTitle}</span>
             {showCaret ? (
@@ -95,7 +95,7 @@ export function LandingView({
           </h1>
         </div>
 
-        <div className="pt-3">
+        <div className="shrink-0 pt-3">
           <ChatComposer
             centered={false}
             isStreaming={isStreaming}

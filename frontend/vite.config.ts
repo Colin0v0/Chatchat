@@ -11,4 +11,15 @@ export default defineConfig({
       "/api": "http://127.0.0.1:8000",
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          "react-core": ["react", "react-dom"],
+          markdown: ["react-markdown", "remark-gfm"],
+          "ui-icons": ["lucide-react"],
+        },
+      },
+    },
+  },
 });

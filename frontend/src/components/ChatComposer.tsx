@@ -36,7 +36,8 @@ function ToggleChip({
 }) {
   return (
     <button
-      className={`inline-flex h-10 shrink-0 items-center gap-2 rounded-lg border px-3 text-[14px] font-medium tracking-[-0.01em] transition ${
+      aria-pressed={active}
+      className={`inline-flex h-10 shrink-0 items-center gap-2 rounded-lg border px-3 text-[14px] font-medium tracking-[-0.01em] transition-colors ${
         disabled
           ? "cursor-not-allowed border-app-border bg-app-panel-strong text-app-muted/45"
           : active
@@ -69,16 +70,20 @@ export function ChatComposer({
   onToggleThinking,
   centered = false,
 }: ChatComposerProps) {
+  const canSubmit = value.trim().length > 0;
+
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-      onSubmit();
+      if (isStreaming || canSubmit) {
+        isStreaming ? onStop() : onSubmit();
+      }
     }
   };
 
   return (
     <div className={`w-full ${centered ? "max-w-[880px]" : "mx-auto max-w-[920px]"}`}>
-      <div className="rounded-lg border border-app-border bg-app-panel-strong shadow-[0_14px_40px_rgba(39,28,18,0.06)]">
+      <div className="rounded-lg border border-app-border bg-app-panel-strong shadow-[0_1px_3px_rgba(39,28,18,0.05)]">
         <textarea
           className="min-h-24 w-full resize-none bg-transparent px-4 py-4 text-[16px] leading-7 text-app-text placeholder:text-[#9a9387]"
           onChange={(event) => onChange(event.target.value)}
@@ -90,13 +95,7 @@ export function ChatComposer({
 
         <div className="flex items-center gap-3 px-4 py-3">
           <div className="flex min-w-0 flex-1 items-center gap-2 overflow-visible">
-            <ToggleChip
-              active={ragEnabled}
-              icon={<BookOpen className="size-4" />}
-              label="RAG"
-              onClick={onToggleRag}
-            />
-
+            <ToggleChip active={ragEnabled} icon={<BookOpen className="size-4" />} label="RAG" onClick={onToggleRag} />
             <ToggleChip
               active={thinkingEnabled}
               disabled={!thinkingAvailable}
@@ -104,24 +103,22 @@ export function ChatComposer({
               label="Thinking"
               onClick={onToggleThinking}
             />
-
             <ModelSelect model={model} models={models} onChange={onModelChange} />
           </div>
 
           <button
-            className={`shrink-0 flex h-9 w-9 items-center justify-center rounded-lg transition ${
+            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors ${
               isStreaming
                 ? "bg-app-danger text-white hover:bg-app-danger"
-                : "bg-app-accent-soft text-app-accent-strong hover:bg-[#e7ddcf]"
+                : canSubmit
+                  ? "bg-app-accent-soft text-app-accent-strong hover:bg-[#e7ddcf]"
+                  : "bg-app-panel-soft text-app-muted/55"
             }`}
+            disabled={!isStreaming && !canSubmit}
             onClick={isStreaming ? onStop : onSubmit}
             type="button"
           >
-            {isStreaming ? (
-              <Square className="size-3.5 fill-current" />
-            ) : (
-              <ArrowUp className="size-4" />
-            )}
+            {isStreaming ? <Square className="size-3.5 fill-current" /> : <ArrowUp className="size-4" />}
           </button>
         </div>
       </div>

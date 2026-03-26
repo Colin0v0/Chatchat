@@ -27,11 +27,12 @@
   html,
   body,
   #root {
-    @apply min-h-full;
+    @apply m-0 h-full min-h-full overflow-hidden;
   }
 
   body {
     @apply min-h-screen bg-app-bg font-sans text-app-text antialiased;
+    overscroll-behavior: none;
   }
 
   button,

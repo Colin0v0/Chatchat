@@ -47,15 +47,16 @@ export function ModelSelect({ model, models, onChange }: ModelSelectProps) {
   }, []);
 
   return (
-    <div className="relative min-w-0 flex-1 sm:flex-none" ref={rootRef}>
+    <div className="relative min-w-0 shrink-0" ref={rootRef}>
       <button
-        className="flex h-10 w-full min-w-0 items-center justify-between gap-2 rounded-lg border border-app-border bg-app-panel-strong px-3 text-left text-[15px] font-medium tracking-[-0.01em] text-app-text transition hover:bg-app-panel-soft sm:inline-flex sm:w-auto sm:max-w-[320px]"
+        className="inline-flex h-10 min-w-0 items-center gap-2 rounded-lg border border-app-border bg-app-panel-strong px-3 text-left text-[15px] font-medium tracking-[-0.01em] text-app-text transition hover:bg-app-panel-soft sm:max-w-[320px]"
         onClick={() => setOpen((value) => !value)}
         type="button"
       >
-        <span className="flex min-w-0 flex-1 items-center gap-2">
-          <span className="shrink-0 whitespace-nowrap text-app-muted">Model:</span>
-          <span className="min-w-0 truncate text-app-muted">{displayModel.label}</span>
+        <span className="flex min-w-0 items-center gap-2">
+          <span className="shrink-0 whitespace-nowrap text-app-muted sm:hidden">Model</span>
+          <span className="hidden shrink-0 whitespace-nowrap text-app-muted sm:inline">Model:</span>
+          <span className="hidden min-w-0 truncate text-app-muted sm:inline">{displayModel.label}</span>
         </span>
         <ChevronDown
           className={`size-4 shrink-0 text-app-muted transition ${open ? "rotate-180" : ""}`}

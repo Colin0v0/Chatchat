@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 
 import { ChatComposer } from "./ChatComposer";
 import { MessageList } from "./MessageList";
@@ -50,13 +50,45 @@ export function ConversationView({
   onToggleThinkingTrace,
 }: ConversationViewProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const stickToBottomRef = useRef(true);
 
   useEffect(() => {
-    if (!scrollRef.current) {
+    const scrollContainer = scrollRef.current;
+    if (!scrollContainer) {
       return;
     }
-    scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [conversation.messages, isStreaming, thinkingTrace, thinkingTraceExpanded]);
+
+    const activeContainer = scrollContainer;
+
+    function handleScroll() {
+      const distanceToBottom =
+        activeContainer.scrollHeight - activeContainer.scrollTop - activeContainer.clientHeight;
+      stickToBottomRef.current = distanceToBottom <= 48;
+    }
+
+    handleScroll();
+    activeContainer.addEventListener("scroll", handleScroll);
+    return () => activeContainer.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  useLayoutEffect(() => {
+    const scrollContainer = scrollRef.current;
+    if (!scrollContainer) {
+      return;
+    }
+
+    if (!isStreaming && !thinkingTraceExpanded && !stickToBottomRef.current) {
+      return;
+    }
+
+    const activeContainer = scrollContainer;
+    const frame = window.requestAnimationFrame(() => {
+      activeContainer.scrollTop = activeContainer.scrollHeight;
+      stickToBottomRef.current = true;
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [conversation.messages, collapsedMessageIds, isStreaming, thinkingTrace, thinkingTraceExpanded]);
 
   return (
     <section className="flex min-h-0 flex-1 flex-col pb-1">
