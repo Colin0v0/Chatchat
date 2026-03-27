@@ -7,12 +7,18 @@ services:
       - ./backend/.env
     environment:
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      RAG_VAULT_PATH: ${RAG_VAULT_PATH:-/data/obsidian}
+      RAG_INDEX_PATH: ${RAG_INDEX_PATH:-/app/storage/rag/index.json}
+      RAG_EMBEDDING_MODEL: ${RAG_EMBEDDING_MODEL:-nomic-embed-text}
+      RAG_TOP_K: ${RAG_TOP_K:-4}
+      RAG_SECTION_MAX_CHARS: ${RAG_SECTION_MAX_CHARS:-1400}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
       - "8000:8000"
     volumes:
       - backend-storage:/app/storage
+      - ${OBSIDIAN_VAULT_HOST_PATH:-E:/360MoveData/Users/29220/Documents/COLIN_all_in_one_note}:/data/obsidian:ro
     restart: unless-stopped
 
   frontend:

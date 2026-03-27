@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from .config import settings
@@ -37,3 +37,14 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def ensure_schema() -> None:
+    with engine.begin() as connection:
+        if engine.dialect.name != "sqlite":
+            return
+
+        columns = connection.execute(text("PRAGMA table_info(messages)")).mappings().all()
+        column_names = {str(item["name"]) for item in columns}
+        if "sources_json" not in column_names:
+            connection.execute(text("ALTER TABLE messages ADD COLUMN sources_json TEXT"))

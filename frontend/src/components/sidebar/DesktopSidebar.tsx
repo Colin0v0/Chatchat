@@ -12,7 +12,11 @@ export function DesktopSidebar({ open, onToggleSidebar, ...contentProps }: Sideb
         open ? "w-[280px]" : "w-[56px]",
       )}
     >
-      <DesktopPinnedHeader onNewChat={contentProps.onNewChat} open={open} />
+      <DesktopPinnedHeader
+        onNewChat={contentProps.onNewChat}
+        onOpenSettings={contentProps.onOpenSettings}
+        open={open}
+      />
       <div
         aria-hidden={!open}
         className={cn(

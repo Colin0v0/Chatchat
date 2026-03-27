@@ -82,12 +82,23 @@ export function SidebarAction({
   );
 }
 
-export function SidebarBrand({ compact = false }: { compact?: boolean }) {
+export function SidebarBrand({
+  compact = false,
+  onIconClick,
+}: {
+  compact?: boolean;
+  onIconClick?: () => void;
+}) {
   return (
     <div className="flex min-w-0 items-center gap-3">
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[8px] bg-app-accent-soft text-[18px] font-semibold text-app-accent-strong">
+      <button
+        aria-label="Open settings"
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[8px] bg-app-accent-soft text-[18px] font-semibold text-app-accent-strong"
+        onClick={onIconClick}
+        type="button"
+      >
         C
-      </div>
+      </button>
       {!compact ? (
         <div className="min-w-0">
           <div className="truncate text-[15px] font-semibold tracking-[-0.02em]">Chatchat</div>
@@ -134,12 +145,20 @@ export function DesktopPinnedNewChatButton({ open, onClick }: { open: boolean; o
   );
 }
 
-export function DesktopPinnedHeader({ open, onNewChat }: { open: boolean; onNewChat: () => void }) {
+export function DesktopPinnedHeader({
+  open,
+  onNewChat,
+  onOpenSettings,
+}: {
+  open: boolean;
+  onNewChat: () => void;
+  onOpenSettings: () => void;
+}) {
   return (
     <div className="absolute top-4 right-2 left-[10px] z-10">
       <div className="relative h-9">
         <div className="absolute inset-y-0 left-0">
-          <SidebarBrand compact />
+          <SidebarBrand compact onIconClick={onOpenSettings} />
         </div>
 
         <div

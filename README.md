@@ -4,7 +4,7 @@ Local chat workspace with:
 - host Ollama inference
 - FastAPI backend
 - React frontend
-- a clean path to add RAG later
+- built-in Obsidian RAG (markdown only)
 
 ## Stack
 
@@ -20,8 +20,6 @@ This repo now supports one-command startup for:
 - `backend`
 
 Ollama is expected to run on the host machine, not inside Docker.
-
-The next step can be a separate `rag` service without rewriting the current app shape.
 
 ## Quick Start
 
@@ -53,6 +51,12 @@ If you want Ollama by default, keep:
 
 ```env
 OLLAMA_BASE_URL=http://host.docker.internal:11434
+OBSIDIAN_VAULT_HOST_PATH=E:/360MoveData/Users/29220/Documents/COLIN_all_in_one_note
+RAG_VAULT_PATH=/data/obsidian
+RAG_INDEX_PATH=/app/storage/rag/index.json
+RAG_EMBEDDING_MODEL=nomic-embed-text
+RAG_TOP_K=4
+RAG_SECTION_MAX_CHARS=1400
 DEFAULT_PROVIDER=ollama
 DEFAULT_MODEL=qwen2.5:7b
 ```
@@ -107,6 +111,18 @@ List Ollama models:
 ollama list
 ```
 
+Build Obsidian RAG index (markdown files split by `##`):
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/rag/reindex
+```
+
+Check RAG status:
+
+```bash
+curl http://127.0.0.1:8000/api/rag/status
+```
+
 ## Services
 
 ### `frontend`
@@ -120,6 +136,8 @@ ollama list
 - Runs `python app.py --host 0.0.0.0 --port 8000`
 - Stores SQLite data in a Docker volume
 - Connects to host Ollama via `host.docker.internal`
+- Mounts Obsidian vault read-only at `/data/obsidian`
+- Indexes `.md` files and retrieves context when `RAG` is enabled
 
 ## Files Added For Docker
 
@@ -136,22 +154,10 @@ frontend/
   nginx.conf
 ```
 
-## Why Docker Before RAG
+## RAG Notes
 
-This is the right order.
-
-Once the base services are containerized, adding RAG becomes much cleaner:
-- add a dedicated `rag` service
-- mount your Obsidian vault into that service
-- keep vector storage isolated
-- let `backend` call `rag` over HTTP
-
-That avoids turning the current backend into a monolith while also avoiding a duplicate Ollama install in Docker.
-
-## Next Step
-
-Recommended next move:
-1. add a dedicated `rag` service
-2. mount your Obsidian vault read-only
-3. build indexing + retrieval there
-4. let the backend call it only when `RAG` is enabled
+Current implementation:
+1. scans only `.md` files
+2. splits by level-2 headings (`##`)
+3. embeds sections with `nomic-embed-text` via host Ollama
+4. injects retrieved sections as system context when `RAG` toggle is on

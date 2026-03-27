@@ -5,6 +5,7 @@ import type {
   ConversationSummary,
   ModelOption,
   ModelsPayload,
+  RagReindexResult,
   RegenerateChatRequest,
 } from "../types";
 import { toModelLabel } from "./models";
@@ -104,6 +105,12 @@ export async function deleteConversation(conversationId: number) {
     const message = await response.text();
     throw new Error(message || `Request failed: ${response.status}`);
   }
+}
+
+export function reindexRag() {
+  return apiFetch<RagReindexResult>("/api/rag/reindex", {
+    method: "POST",
+  });
 }
 
 export async function streamChat(

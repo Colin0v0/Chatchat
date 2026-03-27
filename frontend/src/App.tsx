@@ -3,6 +3,7 @@
 import { ConversationView } from "./components/ConversationView";
 import { LandingView } from "./components/LandingView";
 import { MainHeader } from "./components/MainHeader";
+import { SettingsDialog } from "./components/SettingsDialog";
 import { Sidebar } from "./components/Sidebar";
 import {
   deleteConversation,
@@ -10,16 +11,19 @@ import {
   fetchConversations,
   fetchModels,
   regenerateChat,
+  reindexRag,
   renameConversation,
   streamChat,
 } from "./lib/api";
 import { toModelLabel } from "./lib/models";
 import type {
   ChatMessage,
+  MessageSource,
   ChatStreamEvent,
   ConversationDetail,
   ConversationSummary,
   ModelOption,
+  RagReindexResult,
 } from "./types";
 
 const ASSISTANT_DRAFT_ID = "assistant-draft";
@@ -159,6 +163,10 @@ export default function App() {
   const [landingHeroAnimated, setLandingHeroAnimated] = useState(false);
   const [landingTitle] = useState(() => pickLandingTitle());
   const [error, setError] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [isUpdatingRag, setIsUpdatingRag] = useState(false);
+  const [ragUpdateError, setRagUpdateError] = useState<string | null>(null);
+  const [ragUpdateResult, setRagUpdateResult] = useState<RagReindexResult | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const lastDesktopRef = useRef(window.innerWidth >= 768);
   const deferredQuery = useDeferredValue(query);
@@ -307,6 +315,35 @@ export default function App() {
     }
   }
 
+  function handleOpenSettings() {
+    setSettingsOpen(true);
+  }
+
+  function handleCloseSettings() {
+    setSettingsOpen(false);
+  }
+
+  async function handleUpdateRagDatabase() {
+    if (isUpdatingRag) {
+      return;
+    }
+
+    setRagUpdateError(null);
+    setIsUpdatingRag(true);
+    try {
+      const result = await reindexRag();
+      setRagUpdateResult(result);
+    } catch (updateError) {
+      if (updateError instanceof Error) {
+        setRagUpdateError(updateError.message);
+      } else {
+        setRagUpdateError("Update database failed.");
+      }
+    } finally {
+      setIsUpdatingRag(false);
+    }
+  }
+
   function upsertDraftMessage(content: string) {
     setActiveConversation((current) => {
       if (!current) {
@@ -346,6 +383,21 @@ export default function App() {
           },
           { id: ASSISTANT_DRAFT_ID, role: "assistant", content: "" },
         ],
+      };
+    });
+  }
+
+  function upsertDraftSources(sources: MessageSource[]) {
+    setActiveConversation((current) => {
+      if (!current || sources.length === 0) {
+        return current;
+      }
+
+      return {
+        ...current,
+        messages: current.messages.map((item) =>
+          item.id === ASSISTANT_DRAFT_ID ? { ...item, sources } : item,
+        ),
       };
     });
   }
@@ -416,6 +468,7 @@ export default function App() {
           conversation_id: activeConversationId,
           message,
           model: effectiveModel,
+          use_rag: ragEnabled,
         },
         {
           signal: controller.signal,
@@ -447,6 +500,11 @@ export default function App() {
 
             if (event.type === "reasoning") {
               setStreamingReasoning((current) => current + event.content);
+              return;
+            }
+
+            if (event.type === "sources") {
+              upsertDraftSources(event.sources);
               return;
             }
 
@@ -516,6 +574,7 @@ export default function App() {
           conversation_id: activeConversation.id,
           assistant_message_id: messageId,
           model: effectiveModel,
+          use_rag: ragEnabled,
         },
         {
           signal: controller.signal,
@@ -546,6 +605,11 @@ export default function App() {
 
             if (event.type === "reasoning") {
               setStreamingReasoning((current) => current + event.content);
+              return;
+            }
+
+            if (event.type === "sources") {
+              upsertDraftSources(event.sources);
               return;
             }
 
@@ -618,6 +682,7 @@ export default function App() {
         items={filteredConversations}
         onNewChat={handleNewChat}
         onDelete={handleDeleteConversation}
+        onOpenSettings={handleOpenSettings}
         onQueryChange={setQuery}
         onRename={handleRenameConversation}
         onSelect={handleSelectConversation}
@@ -693,6 +758,15 @@ export default function App() {
           Chatchat can make mistakes. Please verify important information.
         </div>
       </main>
+
+      <SettingsDialog
+        isUpdating={isUpdatingRag}
+        onClose={handleCloseSettings}
+        onUpdateDatabase={() => void handleUpdateRagDatabase()}
+        open={settingsOpen}
+        updateError={ragUpdateError}
+        updateResult={ragUpdateResult}
+      />
     </div>
   );
 }

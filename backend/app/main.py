@@ -11,7 +11,7 @@ from sqlalchemy import desc, select
 from sqlalchemy.orm import Session, selectinload
 
 from .config import settings
-from .database import Base, engine, get_db
+from .database import Base, engine, ensure_schema, get_db
 from .models import Conversation, Message
 from .providers import (
     build_model_options,
@@ -20,16 +20,20 @@ from .providers import (
     normalize_model,
     stream_chat,
 )
+from .rag import RagService
 from .schemas import (
     ChatRequest,
     ConversationCreate,
     ConversationDetail,
     ConversationSummary,
     ConversationUpdate,
+    RagReindexResult,
+    RagStatus,
     RegenerateRequest,
 )
 
 app = FastAPI(title=settings.app_name)
+rag_service = RagService(settings)
 
 app.add_middleware(
     CORSMiddleware,
@@ -40,9 +44,31 @@ app.add_middleware(
 )
 
 
+def save_assistant_message(
+    *,
+    db: Session,
+    conversation: Conversation,
+    content: str,
+    sources: list[dict[str, str | float]],
+) -> Message:
+    assistant_message = Message(
+        conversation_id=conversation.id,
+        role="assistant",
+        content=content,
+        sources_json=json.dumps(sources, ensure_ascii=False),
+    )
+    conversation.updated_at = datetime.utcnow()
+    db.add(assistant_message)
+    db.add(conversation)
+    db.commit()
+    db.refresh(assistant_message)
+    return assistant_message
+
+
 @app.on_event("startup")
 def on_startup() -> None:
     Base.metadata.create_all(bind=engine)
+    ensure_schema()
 
 
 @app.get("/api/health")
@@ -59,6 +85,16 @@ async def list_models():
     default_model = normalize_model(settings.default_model)
 
     return {"models": build_model_options(models), "default_model": default_model}
+
+
+@app.get("/api/rag/status", response_model=RagStatus)
+async def get_rag_status():
+    return RagStatus(**rag_service.status())
+
+
+@app.post("/api/rag/reindex", response_model=RagReindexResult)
+async def reindex_rag():
+    return RagReindexResult(**(await rag_service.reindex()))
 
 
 @app.get("/api/conversations", response_model=list[ConversationSummary])
@@ -207,6 +243,34 @@ async def regenerate_chat(payload: RegenerateRequest, db: Session = Depends(get_
         {"role": message.role, "content": message.content}
         for message in conversation.messages[:target_index]
     ]
+    rag_payload = None
+    sources: list[dict[str, str | float]] = []
+    if payload.use_rag:
+        rag_payload = await rag_service.build_context_payload(source_user.content)
+        sources = rag_payload.sources
+        if rag_payload.context_message:
+            message_history = [rag_payload.context_message, *message_history]
+
+    if rag_payload and rag_payload.should_refuse and rag_payload.refusal_message:
+        async def refusal_stream():
+            yield json.dumps(
+                {
+                    "type": "meta",
+                    "conversation_id": conversation.id,
+                    "message_id": regenerated_user_message.id,
+                    "model": conversation.model,
+                }
+            ) + "\n"
+            assistant_message = save_assistant_message(
+                db=db,
+                conversation=conversation,
+                content=rag_payload.refusal_message,
+                sources=[],
+            )
+            yield json.dumps({"type": "token", "content": rag_payload.refusal_message}) + "\n"
+            yield json.dumps({"type": "done", "assistant_message_id": assistant_message.id}) + "\n"
+
+        return StreamingResponse(refusal_stream(), media_type="application/x-ndjson")
 
     async def event_stream():
         assistant_chunks: list[str] = []
@@ -218,6 +282,8 @@ async def regenerate_chat(payload: RegenerateRequest, db: Session = Depends(get_
                 "model": conversation.model,
             }
         ) + "\n"
+        if sources:
+            yield json.dumps({"type": "sources", "sources": sources}) + "\n"
 
         try:
             async for chunk in stream_chat(model=conversation.model, messages=message_history):
@@ -232,16 +298,12 @@ async def regenerate_chat(payload: RegenerateRequest, db: Session = Depends(get_
                 if chunk.get("done"):
                     full_response = "".join(assistant_chunks).strip()
                     if full_response:
-                        assistant_message = Message(
-                            conversation_id=conversation.id,
-                            role="assistant",
+                        assistant_message = save_assistant_message(
+                            db=db,
+                            conversation=conversation,
                             content=full_response,
+                            sources=sources,
                         )
-                        conversation.updated_at = datetime.utcnow()
-                        db.add(assistant_message)
-                        db.add(conversation)
-                        db.commit()
-                        db.refresh(assistant_message)
                         yield json.dumps(
                             {"type": "done", "assistant_message_id": assistant_message.id}
                         ) + "\n"
@@ -314,6 +376,34 @@ async def chat_stream(payload: ChatRequest, db: Session = Depends(get_db)):
         {"role": message.role, "content": message.content}
         for message in conversation.messages
     ]
+    rag_payload = None
+    sources: list[dict[str, str | float]] = []
+    if payload.use_rag:
+        rag_payload = await rag_service.build_context_payload(content)
+        sources = rag_payload.sources
+        if rag_payload.context_message:
+            message_history = [rag_payload.context_message, *message_history]
+
+    if rag_payload and rag_payload.should_refuse and rag_payload.refusal_message:
+        async def refusal_stream():
+            yield json.dumps(
+                {
+                    "type": "meta",
+                    "conversation_id": conversation.id,
+                    "message_id": user_message.id,
+                    "model": conversation.model,
+                }
+            ) + "\n"
+            assistant_message = save_assistant_message(
+                db=db,
+                conversation=conversation,
+                content=rag_payload.refusal_message,
+                sources=[],
+            )
+            yield json.dumps({"type": "token", "content": rag_payload.refusal_message}) + "\n"
+            yield json.dumps({"type": "done", "assistant_message_id": assistant_message.id}) + "\n"
+
+        return StreamingResponse(refusal_stream(), media_type="application/x-ndjson")
 
     async def event_stream():
         assistant_chunks: list[str] = []
@@ -325,6 +415,8 @@ async def chat_stream(payload: ChatRequest, db: Session = Depends(get_db)):
                 "model": conversation.model,
             }
         ) + "\n"
+        if sources:
+            yield json.dumps({"type": "sources", "sources": sources}) + "\n"
 
         try:
             async for chunk in stream_chat(model=conversation.model, messages=message_history):
@@ -339,15 +431,12 @@ async def chat_stream(payload: ChatRequest, db: Session = Depends(get_db)):
                 if chunk.get("done"):
                     full_response = "".join(assistant_chunks).strip()
                     if full_response:
-                        assistant_message = Message(
-                            conversation_id=conversation.id,
-                            role="assistant",
+                        save_assistant_message(
+                            db=db,
+                            conversation=conversation,
                             content=full_response,
+                            sources=sources,
                         )
-                        conversation.updated_at = datetime.utcnow()
-                        db.add(assistant_message)
-                        db.add(conversation)
-                        db.commit()
                     yield json.dumps({"type": "done"}) + "\n"
                     return
         except httpx.HTTPError as exc:

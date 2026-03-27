@@ -20,12 +20,31 @@ class ModelOption(TypedDict):
     reasoning_model: str | None
 
 
+EMBEDDING_MODEL_HINTS = (
+    "embed",
+    "embedding",
+    "nomic-embed",
+    "mxbai-embed",
+    "bge-",
+    "e5-",
+)
+
+
 def _normalize_base_url(url: str) -> str:
     return url.rstrip("/")
 
 
 def _parse_openai_allowlist() -> list[str]:
     return [item.strip() for item in settings.openai_model_allowlist.split(",") if item.strip()]
+
+
+def _is_embedding_model_name(model_name: str) -> bool:
+    normalized = model_name.strip().lower()
+    return any(hint in normalized for hint in EMBEDDING_MODEL_HINTS)
+
+
+def _filter_chat_model_names(model_names: list[str]) -> list[str]:
+    return [name for name in model_names if not _is_embedding_model_name(name)]
 
 
 def model_provider_and_name(model: str) -> tuple[Provider, str]:
@@ -101,7 +120,8 @@ async def list_ollama_models() -> list[str]:
         return []
 
     payload = response.json()
-    return [namespaced_model("ollama", item["name"]) for item in payload.get("models", [])]
+    model_names = [item["name"] for item in payload.get("models", []) if item.get("name")]
+    return [namespaced_model("ollama", name) for name in _filter_chat_model_names(model_names)]
 
 
 def _openai_headers() -> dict[str, str]:
@@ -122,13 +142,17 @@ async def list_openai_models() -> list[str]:
             response = await client.get("/models")
             response.raise_for_status()
     except httpx.HTTPError:
-        return [namespaced_model("openai", model) for model in allowlist]
+        return [
+            namespaced_model("openai", model)
+            for model in _filter_chat_model_names(allowlist)
+        ]
 
     payload = response.json()
     models = [item.get("id", "") for item in payload.get("data", []) if item.get("id")]
     if allowlist:
         allowed = set(allowlist)
         models = [model for model in models if model in allowed]
+    models = _filter_chat_model_names(models)
     return [namespaced_model("openai", model) for model in models]
 
 

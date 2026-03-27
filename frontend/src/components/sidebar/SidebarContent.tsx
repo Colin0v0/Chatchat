@@ -20,6 +20,7 @@ export function SidebarContent({
   onRename,
   onDelete,
   onSelect,
+  onOpenSettings,
   mode,
 }: SidebarContentProps) {
   const [menuConversationId, setMenuConversationId] = useState<number | null>(null);
@@ -72,7 +73,7 @@ export function SidebarContent({
           </div>
         ) : (
           <div className="flex min-w-0 flex-col gap-4 px-4">
-            <SidebarBrand />
+            <SidebarBrand onIconClick={onOpenSettings} />
             <div className="flex flex-col gap-3">
               <SidebarAction
                 icon={<MessageSquarePlus className="size-4" />}

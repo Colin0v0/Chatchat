@@ -12,6 +12,7 @@ export interface SidebarProps {
   onRename: (conversationId: number, title: string) => void | Promise<void>;
   onDelete: (conversationId: number) => void | Promise<void>;
   onSelect: (conversationId: number) => void;
+  onOpenSettings: () => void;
   onToggleSidebar: () => void;
 }
 

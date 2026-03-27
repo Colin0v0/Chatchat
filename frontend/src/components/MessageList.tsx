@@ -1,6 +1,7 @@
 import { Check, Copy, RotateCcw, ThumbsDown, ThumbsUp } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
+import { MessageSources } from "./message/MessageSources";
 import { MarkdownMessage } from "./markdown/MarkdownMessage";
 import { ThinkingPanel } from "./thinking/ThinkingPanel";
 import type { ChatMessage } from "../types";
@@ -188,6 +189,7 @@ export function MessageList({
 
         const isAssistant = item.role === "assistant";
         const isEmptyAssistant = isAssistant && !item.content.trim();
+        const showSources = !isEmptyAssistant && item.id !== activeStreamingAssistantId;
         const showThinkingTrace =
           isAssistant &&
           thinkingEnabled &&
@@ -230,6 +232,8 @@ export function MessageList({
               ) : item.id === activeThinkingMessageId && !showThinkingTrace ? (
                 <ThinkingIndicator />
               ) : null}
+
+              {showSources ? <MessageSources sources={item.sources ?? []} /> : null}
 
               {!isEmptyAssistant ? (
                 <AssistantActions

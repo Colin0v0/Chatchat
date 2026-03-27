@@ -1,5 +1,12 @@
 export type Role = "user" | "assistant" | "system";
 
+export interface MessageSource {
+  path: string;
+  heading: string;
+  excerpt: string;
+  score?: number | null;
+}
+
 export interface ConversationSummary {
   id: number;
   title: string;
@@ -12,6 +19,7 @@ export interface ChatMessage {
   id: number | string;
   role: Role;
   content: string;
+  sources?: MessageSource[];
   created_at?: string | null;
 }
 
@@ -40,12 +48,21 @@ export interface ChatStreamRequest {
   conversation_id?: number | null;
   message: string;
   model?: string | null;
+  use_rag?: boolean;
 }
 
 export interface RegenerateChatRequest {
   conversation_id: number;
   assistant_message_id: number;
   model?: string | null;
+  use_rag?: boolean;
+}
+
+export interface RagReindexResult {
+  indexed_files: number;
+  indexed_chunks: number;
+  failed_chunks: number;
+  updated_at: string;
 }
 
 export type ChatStreamEvent =
@@ -62,6 +79,10 @@ export type ChatStreamEvent =
   | {
       type: "token";
       content: string;
+    }
+  | {
+      type: "sources";
+      sources: MessageSource[];
     }
   | {
       type: "done";

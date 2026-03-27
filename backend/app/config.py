@@ -11,6 +11,15 @@ class Settings(BaseSettings):
     default_provider: str = "ollama"
     default_model: str = "qwen2.5:7b"
     request_timeout_seconds: float = 180.0
+    rag_vault_path: str = "/data/obsidian"
+    rag_index_path: str = "./storage/rag/index.json"
+    rag_embedding_model: str = "nomic-embed-text"
+    rag_top_k: int = 4
+    rag_section_max_chars: int = 1400
+    rag_candidate_limit: int = 12
+    rag_rerank_window: int = 12
+    rag_neighbor_window: int = 1
+    rag_min_score: float = 0.22
 
     model_config = SettingsConfigDict(
         env_file=".env",
