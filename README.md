@@ -1,73 +1,157 @@
 # Chatchat
 
-个人本地推理工作台，首版聚焦：
+Local chat workspace with:
+- host Ollama inference
+- FastAPI backend
+- React frontend
+- a clean path to add RAG later
 
-- 本地 `Ollama` 推理
-- 会话管理
-- 流式聊天 UI
-- 后续接入 RAG 的清晰扩展位
-
-## Tech Stack
+## Stack
 
 - Frontend: `React 19 + Vite + TypeScript`
 - Backend: `FastAPI + SQLAlchemy + SQLite`
-- Inference: `Ollama`
+- Inference: host `Ollama`
+- Orchestration: `Docker Compose`
 
-## Start
+## Docker First
 
-### 1. 启动 Ollama
+This repo now supports one-command startup for:
+- `frontend`
+- `backend`
 
-先确认本机已经安装并启动 `Ollama`，并且至少拉了一个模型，例如：
+Ollama is expected to run on the host machine, not inside Docker.
+
+The next step can be a separate `rag` service without rewriting the current app shape.
+
+## Quick Start
+
+### 1. Prepare env
+
+Copy the example file:
 
 ```bash
-ollama pull qwen2.5:7b
+cp .env.example .env
+```
+
+On Windows PowerShell:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+If you want DeepSeek or another OpenAI-compatible provider, fill:
+
+```env
+OPENAI_BASE_URL=https://api.deepseek.com/v1
+OPENAI_API_KEY=your_real_key
+OPENAI_MODEL_ALLOWLIST=deepseek-chat,deepseek-reasoner
+DEFAULT_PROVIDER=openai
+DEFAULT_MODEL=deepseek-chat
+```
+
+If you want Ollama by default, keep:
+
+```env
+OLLAMA_BASE_URL=http://host.docker.internal:11434
+DEFAULT_PROVIDER=ollama
+DEFAULT_MODEL=qwen2.5:7b
+```
+
+### 2. Start all services
+
+Make sure Ollama is already running on your host:
+
+```bash
 ollama serve
 ```
 
-### 2. 启动后端
-
 ```bash
-cd backend
-python -m pip install -r requirements.txt
-python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+docker compose up --build
 ```
 
-### 3. 启动前端
+### 3. Open the app
+
+- Frontend: [http://127.0.0.1:3300](http://127.0.0.1:3300)
+- Backend API: [http://127.0.0.1:8000/api/health](http://127.0.0.1:8000/api/health)
+- Host Ollama API: [http://127.0.0.1:11434](http://127.0.0.1:11434)
+
+## Common Commands
+
+Start in background:
 
 ```bash
-cd frontend
-npm install
-npm run dev
+docker compose up -d --build
 ```
 
-打开 `http://127.0.0.1:5173`
+Stop:
 
-## Structure
+```bash
+docker compose down
+```
+
+View logs:
+
+```bash
+docker compose logs -f
+```
+
+Pull an Ollama model on the host:
+
+```bash
+ollama pull qwen2.5:7b
+```
+
+List Ollama models:
+
+```bash
+ollama list
+```
+
+## Services
+
+### `frontend`
+
+- Built with Vite
+- Served by Nginx
+- Proxies `/api` to `backend`
+
+### `backend`
+
+- Runs `python app.py --host 0.0.0.0 --port 8000`
+- Stores SQLite data in a Docker volume
+- Connects to host Ollama via `host.docker.internal`
+
+## Files Added For Docker
 
 ```text
+docker-compose.yml
+.env.example
 backend/
-  app/
-    config.py
-    database.py
-    main.py
-    models.py
-    ollama.py
-    schemas.py
+  Dockerfile
+  .dockerignore
+  .env.example
 frontend/
-  src/
-    components/
-    lib/
-    App.tsx
-    index.css
-storage/
+  Dockerfile
+  .dockerignore
+  nginx.conf
 ```
 
-## Next
+## Why Docker Before RAG
 
-下一阶段建议按这个顺序扩：
+This is the right order.
 
-1. 文件上传与文档解析
-2. 文本切片与 embedding
-3. `Chroma` 检索
-4. 引用来源展示
-5. 知识库管理页
+Once the base services are containerized, adding RAG becomes much cleaner:
+- add a dedicated `rag` service
+- mount your Obsidian vault into that service
+- keep vector storage isolated
+- let `backend` call `rag` over HTTP
+
+That avoids turning the current backend into a monolith while also avoiding a duplicate Ollama install in Docker.
+
+## Next Step
+
+Recommended next move:
+1. add a dedicated `rag` service
+2. mount your Obsidian vault read-only
+3. build indexing + retrieval there
+4. let the backend call it only when `RAG` is enabled

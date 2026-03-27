@@ -1,4 +1,4 @@
-﻿import type {
+import type {
   ChatStreamEvent,
   ChatStreamRequest,
   ConversationDetail,
@@ -7,6 +7,7 @@
   ModelsPayload,
   RegenerateChatRequest,
 } from "../types";
+import { toModelLabel } from "./models";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 
@@ -32,10 +33,9 @@ function toModelOption(model: string | ModelOption): ModelOption {
     return model;
   }
 
-  const separatorIndex = model.indexOf(":");
   return {
     id: model,
-    label: separatorIndex > 0 ? model.slice(separatorIndex + 1) : model,
+    label: toModelLabel(model),
     supports_thinking: false,
     supports_thinking_trace: false,
     chat_model: null,

@@ -17,7 +17,7 @@ from .providers import (
     build_model_options,
     list_ollama_models,
     list_openai_models,
-    namespaced_model,
+    normalize_model,
     stream_chat,
 )
 from .schemas import (
@@ -56,9 +56,7 @@ async def list_models():
     openai_models = await list_openai_models()
     models = [*ollama_models, *openai_models]
 
-    default_model = settings.default_model
-    if ":" not in default_model:
-        default_model = namespaced_model(settings.default_provider, default_model)
+    default_model = normalize_model(settings.default_model)
 
     return {"models": build_model_options(models), "default_model": default_model}
 
@@ -90,7 +88,7 @@ def list_conversations(db: Session = Depends(get_db)):
 def create_conversation(payload: ConversationCreate, db: Session = Depends(get_db)):
     conversation = Conversation(
         title=payload.title,
-        model=payload.model or settings.default_model,
+        model=payload.model or normalize_model(settings.default_model),
     )
     db.add(conversation)
     db.commit()
@@ -282,7 +280,7 @@ async def chat_stream(payload: ChatRequest, db: Session = Depends(get_db)):
     if conversation is None:
         conversation = Conversation(
             title=content[:48] or "New chat",
-            model=payload.model or settings.default_model,
+            model=payload.model or normalize_model(settings.default_model),
         )
         db.add(conversation)
         db.commit()

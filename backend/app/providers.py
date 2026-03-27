@@ -44,6 +44,11 @@ def namespaced_model(provider: Provider, model_name: str) -> str:
     return f"{provider}:{model_name}"
 
 
+def normalize_model(model: str) -> str:
+    provider, model_name = model_provider_and_name(model)
+    return namespaced_model(provider, model_name)
+
+
 def present_model_name(model: str) -> str:
     provider, model_name = model_provider_and_name(model)
     if provider in ("ollama", "openai"):

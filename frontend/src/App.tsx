@@ -13,6 +13,7 @@ import {
   renameConversation,
   streamChat,
 } from "./lib/api";
+import { toModelLabel } from "./lib/models";
 import type {
   ChatMessage,
   ChatStreamEvent,
@@ -101,10 +102,9 @@ function createFallbackModelOption(id: string): ModelOption {
     };
   }
 
-  const separatorIndex = id.indexOf(":");
   return {
     id,
-    label: separatorIndex > 0 ? id.slice(separatorIndex + 1) : id,
+    label: toModelLabel(id),
     supports_thinking: false,
     supports_thinking_trace: false,
     chat_model: null,
