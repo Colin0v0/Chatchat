@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef } from "react";
 
 import { ChatComposer } from "./ChatComposer";
 import { MessageList } from "./MessageList";
-import type { ConversationDetail, ModelOption } from "../types";
+import type { ConversationDetail, ModelOption, ToolPlan } from "../types";
 
 interface ConversationViewProps {
   conversation: ConversationDetail;
@@ -12,17 +12,21 @@ interface ConversationViewProps {
   model: string;
   models: ModelOption[];
   ragEnabled: boolean;
+  webEnabled: boolean;
   thinkingEnabled: boolean;
   thinkingAvailable: boolean;
   thinkingTrace: string;
   thinkingTraceAvailable: boolean;
   thinkingTraceExpanded: boolean;
+  statusItems: string[];
+  toolPlan: ToolPlan | null;
   onChangeDraft: (value: string) => void;
   onModelChange: (value: string) => void;
   onSend: () => void;
   onStop: () => void;
   onRetry: (messageId: number) => void;
   onToggleRag: () => void;
+  onToggleWeb: () => void;
   onToggleThinking: () => void;
   onToggleThinkingTrace: () => void;
 }
@@ -35,22 +39,27 @@ export function ConversationView({
   model,
   models,
   ragEnabled,
+  webEnabled,
   thinkingEnabled,
   thinkingAvailable,
   thinkingTrace,
   thinkingTraceAvailable,
   thinkingTraceExpanded,
+  statusItems,
+  toolPlan,
   onChangeDraft,
   onModelChange,
   onSend,
   onStop,
   onRetry,
   onToggleRag,
+  onToggleWeb,
   onToggleThinking,
   onToggleThinkingTrace,
 }: ConversationViewProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const stickToBottomRef = useRef(true);
+  const lastConversationIdRef = useRef<number | null>(null);
 
   useEffect(() => {
     const scrollContainer = scrollRef.current;
@@ -77,18 +86,23 @@ export function ConversationView({
       return;
     }
 
-    if (!isStreaming && !thinkingTraceExpanded && !stickToBottomRef.current) {
+    const conversationChanged = lastConversationIdRef.current !== conversation.id;
+    lastConversationIdRef.current = conversation.id;
+
+    if (!conversationChanged && !stickToBottomRef.current) {
       return;
     }
 
     const activeContainer = scrollContainer;
     const frame = window.requestAnimationFrame(() => {
       activeContainer.scrollTop = activeContainer.scrollHeight;
-      stickToBottomRef.current = true;
+      if (conversationChanged) {
+        stickToBottomRef.current = true;
+      }
     });
 
     return () => window.cancelAnimationFrame(frame);
-  }, [conversation.messages, collapsedMessageIds, isStreaming, thinkingTrace, thinkingTraceExpanded]);
+  }, [conversation.id, conversation.messages, collapsedMessageIds, isStreaming, thinkingTrace, thinkingTraceExpanded]);
 
   return (
     <section className="flex min-h-0 flex-1 flex-col pb-1">
@@ -100,6 +114,8 @@ export function ConversationView({
             items={conversation.messages}
             onRetry={onRetry}
             onToggleThinkingTrace={onToggleThinkingTrace}
+            statusItems={statusItems}
+            toolPlan={toolPlan}
             thinkingEnabled={thinkingEnabled}
             thinkingTrace={thinkingTrace}
             thinkingTraceAvailable={thinkingTraceAvailable}
@@ -118,8 +134,10 @@ export function ConversationView({
           onStop={onStop}
           onSubmit={onSend}
           onToggleRag={onToggleRag}
+          onToggleWeb={onToggleWeb}
           onToggleThinking={onToggleThinking}
           ragEnabled={ragEnabled}
+          webEnabled={webEnabled}
           thinkingAvailable={thinkingAvailable}
           thinkingEnabled={thinkingEnabled}
           value={draft}

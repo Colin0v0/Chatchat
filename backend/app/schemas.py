@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from datetime import datetime
 from typing import Optional
@@ -30,13 +30,22 @@ class RegenerateRequest(BaseModel):
     assistant_message_id: int
     model: Optional[str] = None
     use_rag: bool = False
+    use_web: bool = False
 
 
 class MessageSource(BaseModel):
+    type: str = "note"
     path: str
     heading: str = ""
     excerpt: str = ""
     score: float | None = None
+    title: str = ""
+    url: str = ""
+    domain: str = ""
+    published_at: str = ""
+    trust: str = ""
+    freshness: str = ""
+    match_reason: str = ""
 
 
 class MessageOut(BaseModel):
@@ -63,6 +72,7 @@ class ChatRequest(BaseModel):
     message: str = Field(min_length=1)
     model: Optional[str] = None
     use_rag: bool = False
+    use_web: bool = False
 
 
 class RagStatus(BaseModel):

@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     default_provider: str = "ollama"
     default_model: str = "qwen2.5:7b"
     request_timeout_seconds: float = 180.0
+    retrieval_context_top_k: int = 6
     rag_vault_path: str = "/data/obsidian"
     rag_index_path: str = "./storage/rag/index.json"
     rag_embedding_model: str = "nomic-embed-text"
@@ -20,6 +21,14 @@ class Settings(BaseSettings):
     rag_rerank_window: int = 12
     rag_neighbor_window: int = 1
     rag_min_score: float = 0.22
+    web_search_base_url: str = "https://api.tavily.com"
+    web_search_api_key: str = ""
+    web_search_timeout_seconds: float = 20.0
+    web_search_max_results: int = 5
+    web_search_top_k: int = 4
+    web_search_min_score: float = 0.35
+    web_search_content_max_chars: int = 1600
+    web_search_translation_model: str = "ollama:translategemma"
 
     model_config = SettingsConfigDict(
         env_file=".env",

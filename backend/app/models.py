@@ -1,3 +1,5 @@
+﻿from __future__ import annotations
+
 import json
 from datetime import datetime
 
@@ -42,7 +44,7 @@ class Message(Base):
     conversation: Mapped[Conversation] = relationship(back_populates="messages")
 
     @property
-    def sources(self) -> list[dict[str, str | float]]:
+    def sources(self) -> list[dict[str, str | float | None]]:
         if not self.sources_json:
             return []
 
@@ -54,24 +56,40 @@ class Message(Base):
         if not isinstance(payload, list):
             return []
 
-        normalized: list[dict[str, str | float]] = []
+        normalized: list[dict[str, str | float | None]] = []
         for item in payload:
             if not isinstance(item, dict):
                 continue
+            source_type = str(item.get("type", "note")).strip() or "note"
             path = str(item.get("path", "")).strip()
             heading = str(item.get("heading", "")).strip()
             excerpt = str(item.get("excerpt", "")).strip()
+            title = str(item.get("title", "")).strip()
+            url = str(item.get("url", "")).strip()
+            domain = str(item.get("domain", "")).strip()
+            published_at = str(item.get("published_at", "")).strip()
+            trust = str(item.get("trust", "")).strip()
+            freshness = str(item.get("freshness", "")).strip()
+            match_reason = str(item.get("match_reason", "")).strip()
             score_raw = item.get("score")
-            if not path:
+            if not path and not url:
                 continue
             score: float | None = None
             if isinstance(score_raw, (int, float)):
                 score = round(float(score_raw), 3)
             normalized.append(
                 {
+                    "type": source_type,
                     "path": path,
                     "heading": heading,
                     "excerpt": excerpt,
+                    "title": title,
+                    "url": url,
+                    "domain": domain,
+                    "published_at": published_at,
+                    "trust": trust,
+                    "freshness": freshness,
+                    "match_reason": match_reason,
                     "score": score,
                 }
             )

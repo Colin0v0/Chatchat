@@ -28,6 +28,10 @@ EMBEDDING_MODEL_HINTS = (
     "bge-",
     "e5-",
 )
+NON_CHAT_MODEL_HINTS = (
+    "translategemma",
+    "translation",
+)
 
 
 def _normalize_base_url(url: str) -> str:
@@ -43,8 +47,17 @@ def _is_embedding_model_name(model_name: str) -> bool:
     return any(hint in normalized for hint in EMBEDDING_MODEL_HINTS)
 
 
+def _is_non_chat_model_name(model_name: str) -> bool:
+    normalized = model_name.strip().lower()
+    return any(hint in normalized for hint in NON_CHAT_MODEL_HINTS)
+
+
 def _filter_chat_model_names(model_names: list[str]) -> list[str]:
-    return [name for name in model_names if not _is_embedding_model_name(name)]
+    return [
+        name
+        for name in model_names
+        if not _is_embedding_model_name(name) and not _is_non_chat_model_name(name)
+    ]
 
 
 def model_provider_and_name(model: str) -> tuple[Provider, str]:
@@ -246,3 +259,16 @@ async def stream_chat(
 
     async for chunk in stream_ollama_chat(model=model_name, messages=messages):
         yield chunk
+
+
+async def complete_chat(
+    *,
+    model: str,
+    messages: list[dict[str, str]],
+) -> str:
+    chunks: list[str] = []
+    async for chunk in stream_chat(model=model, messages=messages):
+        delta = chunk.get("message", {}).get("content", "")
+        if delta:
+            chunks.append(delta)
+    return "".join(chunks).strip()

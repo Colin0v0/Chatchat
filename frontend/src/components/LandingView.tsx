@@ -14,6 +14,7 @@ interface LandingViewProps {
   model: string;
   models: ModelOption[];
   ragEnabled: boolean;
+  webEnabled: boolean;
   thinkingEnabled: boolean;
   thinkingAvailable: boolean;
   shouldAnimate: boolean;
@@ -24,6 +25,7 @@ interface LandingViewProps {
   onSend: () => void;
   onStop: () => void;
   onToggleRag: () => void;
+  onToggleWeb: () => void;
   onToggleThinking: () => void;
 }
 
@@ -40,6 +42,7 @@ export function LandingView({
   model,
   models,
   ragEnabled,
+  webEnabled,
   thinkingEnabled,
   thinkingAvailable,
   shouldAnimate,
@@ -50,6 +53,7 @@ export function LandingView({
   onSend,
   onStop,
   onToggleRag,
+  onToggleWeb,
   onToggleThinking,
 }: LandingViewProps) {
   const [visibleCount, setVisibleCount] = useState(() => (shouldAnimate ? 0 : title.length));
@@ -106,8 +110,10 @@ export function LandingView({
             onStop={onStop}
             onSubmit={onSend}
             onToggleRag={onToggleRag}
+            onToggleWeb={onToggleWeb}
             onToggleThinking={onToggleThinking}
             ragEnabled={ragEnabled}
+            webEnabled={webEnabled}
             thinkingEnabled={thinkingEnabled}
             thinkingAvailable={thinkingAvailable}
             value={draft}

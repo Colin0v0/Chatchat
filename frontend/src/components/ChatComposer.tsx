@@ -1,4 +1,4 @@
-import { ArrowUp, BookOpen, Sparkles, Square } from "lucide-react";
+import { ArrowUp, BookOpen, Globe, Sparkles, Square } from "lucide-react";
 import { type KeyboardEvent, type ReactNode } from "react";
 
 import { ModelSelect } from "./ModelSelect";
@@ -14,9 +14,11 @@ interface ChatComposerProps {
   models: ModelOption[];
   onModelChange: (value: string) => void;
   ragEnabled: boolean;
+  webEnabled: boolean;
   thinkingEnabled: boolean;
   thinkingAvailable: boolean;
   onToggleRag: () => void;
+  onToggleWeb: () => void;
   onToggleThinking: () => void;
   centered?: boolean;
 }
@@ -64,9 +66,11 @@ export function ChatComposer({
   models,
   onModelChange,
   ragEnabled,
+  webEnabled,
   thinkingEnabled,
   thinkingAvailable,
   onToggleRag,
+  onToggleWeb,
   onToggleThinking,
   centered = false,
 }: ChatComposerProps) {
@@ -96,6 +100,7 @@ export function ChatComposer({
         <div className="flex items-center gap-3 px-4 py-3">
           <div className="flex min-w-0 flex-1 items-center gap-2 overflow-visible">
             <ToggleChip active={ragEnabled} icon={<BookOpen className="size-4" />} label="RAG" onClick={onToggleRag} />
+            <ToggleChip active={webEnabled} icon={<Globe className="size-4" />} label="Web" onClick={onToggleWeb} />
             <ToggleChip
               active={thinkingEnabled}
               disabled={!thinkingAvailable}

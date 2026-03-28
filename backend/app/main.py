@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 from datetime import datetime
@@ -21,6 +21,7 @@ from .providers import (
     stream_chat,
 )
 from .rag import RagService
+from .retrieval import PromptContextPayload, RetrievalPlan, RetrievalService, ToolPlannerService
 from .schemas import (
     ChatRequest,
     ConversationCreate,
@@ -31,9 +32,13 @@ from .schemas import (
     RagStatus,
     RegenerateRequest,
 )
+from .websearch import WebSearchService
 
 app = FastAPI(title=settings.app_name)
 rag_service = RagService(settings)
+web_search_service = WebSearchService(settings)
+tool_planner_service = ToolPlannerService()
+retrieval_service = RetrievalService(settings, rag_service, web_search_service, tool_planner_service)
 
 app.add_middleware(
     CORSMiddleware,
@@ -49,7 +54,7 @@ def save_assistant_message(
     db: Session,
     conversation: Conversation,
     content: str,
-    sources: list[dict[str, str | float]],
+    sources: list[dict[str, str | float | None]],
 ) -> Message:
     assistant_message = Message(
         conversation_id=conversation.id,
@@ -228,6 +233,10 @@ async def regenerate_chat(payload: RegenerateRequest, db: Session = Depends(get_
     if source_user is None:
         raise HTTPException(status_code=400, detail="Source user message not found")
 
+    message_history = [
+        {"role": message.role, "content": message.content}
+        for message in conversation.messages[:target_index]
+    ]
     regenerated_user_message = Message(
         conversation_id=conversation.id,
         role="user",
@@ -239,88 +248,19 @@ async def regenerate_chat(payload: RegenerateRequest, db: Session = Depends(get_
     db.commit()
     db.refresh(regenerated_user_message)
 
-    message_history = [
-        {"role": message.role, "content": message.content}
-        for message in conversation.messages[:target_index]
-    ]
-    rag_payload = None
-    sources: list[dict[str, str | float]] = []
-    if payload.use_rag:
-        rag_payload = await rag_service.build_context_payload(source_user.content)
-        sources = rag_payload.sources
-        if rag_payload.context_message:
-            message_history = [rag_payload.context_message, *message_history]
-
-    if rag_payload and rag_payload.should_refuse and rag_payload.refusal_message:
-        async def refusal_stream():
-            yield json.dumps(
-                {
-                    "type": "meta",
-                    "conversation_id": conversation.id,
-                    "message_id": regenerated_user_message.id,
-                    "model": conversation.model,
-                }
-            ) + "\n"
-            assistant_message = save_assistant_message(
-                db=db,
-                conversation=conversation,
-                content=rag_payload.refusal_message,
-                sources=[],
-            )
-            yield json.dumps({"type": "token", "content": rag_payload.refusal_message}) + "\n"
-            yield json.dumps({"type": "done", "assistant_message_id": assistant_message.id}) + "\n"
-
-        return StreamingResponse(refusal_stream(), media_type="application/x-ndjson")
-
-    async def event_stream():
-        assistant_chunks: list[str] = []
-        yield json.dumps(
-            {
-                "type": "meta",
-                "conversation_id": conversation.id,
-                "message_id": regenerated_user_message.id,
-                "model": conversation.model,
-            }
-        ) + "\n"
-        if sources:
-            yield json.dumps({"type": "sources", "sources": sources}) + "\n"
-
-        try:
-            async for chunk in stream_chat(model=conversation.model, messages=message_history):
-                reasoning_delta = chunk.get("reasoning", {}).get("content", "")
-                if reasoning_delta:
-                    yield json.dumps({"type": "reasoning", "content": reasoning_delta}) + "\n"
-
-                delta = chunk.get("message", {}).get("content", "")
-                if delta:
-                    assistant_chunks.append(delta)
-                    yield json.dumps({"type": "token", "content": delta}) + "\n"
-                if chunk.get("done"):
-                    full_response = "".join(assistant_chunks).strip()
-                    if full_response:
-                        assistant_message = save_assistant_message(
-                            db=db,
-                            conversation=conversation,
-                            content=full_response,
-                            sources=sources,
-                        )
-                        yield json.dumps(
-                            {"type": "done", "assistant_message_id": assistant_message.id}
-                        ) + "\n"
-                        return
-                    yield json.dumps({"type": "done"}) + "\n"
-                    return
-        except httpx.HTTPError as exc:
-            db.rollback()
-            message = f"Model service connection failed. Check service URL, API key, and model name. Details: {exc}"
-            yield json.dumps({"type": "error", "message": message}) + "\n"
-            return
-        except Exception as exc:  # pragma: no cover
-            db.rollback()
-            yield json.dumps({"type": "error", "message": str(exc)}) + "\n"
-            return
-
-    return StreamingResponse(event_stream(), media_type="application/x-ndjson")
+    return StreamingResponse(
+        _response_event_stream(
+            db=db,
+            conversation=conversation,
+            message_id=regenerated_user_message.id,
+            model=conversation.model,
+            message_history=message_history,
+            query=source_user.content,
+            use_rag=payload.use_rag,
+            use_web=payload.use_web,
+        ),
+        media_type="application/x-ndjson",
+    )
 
 
 @app.post("/api/chat/stream")
@@ -376,77 +316,228 @@ async def chat_stream(payload: ChatRequest, db: Session = Depends(get_db)):
         {"role": message.role, "content": message.content}
         for message in conversation.messages
     ]
-    rag_payload = None
-    sources: list[dict[str, str | float]] = []
-    if payload.use_rag:
-        rag_payload = await rag_service.build_context_payload(content)
-        sources = rag_payload.sources
-        if rag_payload.context_message:
-            message_history = [rag_payload.context_message, *message_history]
+    return StreamingResponse(
+        _response_event_stream(
+            db=db,
+            conversation=conversation,
+            message_id=user_message.id,
+            model=conversation.model,
+            message_history=message_history,
+            query=content,
+            use_rag=payload.use_rag,
+            use_web=payload.use_web,
+        ),
+        media_type="application/x-ndjson",
+    )
 
-    if rag_payload and rag_payload.should_refuse and rag_payload.refusal_message:
-        async def refusal_stream():
-            yield json.dumps(
-                {
-                    "type": "meta",
-                    "conversation_id": conversation.id,
-                    "message_id": user_message.id,
-                    "model": conversation.model,
-                }
-            ) + "\n"
-            assistant_message = save_assistant_message(
+
+async def _build_prompt_context(
+    *,
+    query: str,
+    plan: RetrievalPlan,
+    use_rag: bool,
+    use_web: bool,
+) -> PromptContextPayload:
+    try:
+        return await retrieval_service.build_context_payload(
+            query=query,
+            plan=plan,
+            use_rag=use_rag,
+            use_web=use_web,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=str(exc),
+        ) from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Retrieval service request failed: {exc}",
+        ) from exc
+
+
+async def _plan_retrieval(
+    *,
+    query: str,
+    model: str,
+    message_history: list[dict[str, str]],
+    use_rag: bool,
+    use_web: bool,
+) -> RetrievalPlan:
+    try:
+        return await retrieval_service.plan_retrieval(
+            query=query,
+            model=model,
+            message_history=message_history,
+            use_rag=use_rag,
+            use_web=use_web,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=str(exc),
+        ) from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Tool planner request failed: {exc}",
+        ) from exc
+
+
+async def _refusal_stream(
+    *,
+    db: Session,
+    conversation: Conversation,
+    message_id: int,
+    model: str,
+    refusal_message: str,
+):
+    assistant_message = save_assistant_message(
+        db=db,
+        conversation=conversation,
+        content=refusal_message,
+        sources=[],
+    )
+    yield json.dumps({"type": "token", "content": refusal_message}) + "\n"
+    yield json.dumps({"type": "done", "assistant_message_id": assistant_message.id}) + "\n"
+
+
+async def _response_event_stream(
+    *,
+    db: Session,
+    conversation: Conversation,
+    message_id: int,
+    model: str,
+    message_history: list[dict[str, str]],
+    query: str,
+    use_rag: bool,
+    use_web: bool,
+):
+    yield json.dumps(
+        {
+            "type": "meta",
+            "conversation_id": conversation.id,
+            "message_id": message_id,
+            "model": model,
+        }
+    ) + "\n"
+
+    try:
+        retrieval_plan = await _plan_retrieval(
+            query=query,
+            model=model,
+            message_history=message_history,
+            use_rag=use_rag,
+            use_web=use_web,
+        )
+        yield json.dumps(_tool_plan_event_payload(retrieval_plan), ensure_ascii=False) + "\n"
+        status_items = _retrieval_status_items(plan=retrieval_plan)
+        if status_items:
+            yield json.dumps({"type": "status", "items": status_items}, ensure_ascii=False) + "\n"
+
+        prompt_context = await _build_prompt_context(
+            query=query,
+            plan=retrieval_plan,
+            use_rag=use_rag,
+            use_web=use_web,
+        )
+
+        if status_items:
+            yield json.dumps({"type": "status", "items": []}, ensure_ascii=False) + "\n"
+
+        if prompt_context.should_refuse and prompt_context.refusal_message:
+            async for part in _refusal_stream(
                 db=db,
                 conversation=conversation,
-                content=rag_payload.refusal_message,
-                sources=[],
-            )
-            yield json.dumps({"type": "token", "content": rag_payload.refusal_message}) + "\n"
-            yield json.dumps({"type": "done", "assistant_message_id": assistant_message.id}) + "\n"
-
-        return StreamingResponse(refusal_stream(), media_type="application/x-ndjson")
-
-    async def event_stream():
-        assistant_chunks: list[str] = []
-        yield json.dumps(
-            {
-                "type": "meta",
-                "conversation_id": conversation.id,
-                "message_id": user_message.id,
-                "model": conversation.model,
-            }
-        ) + "\n"
-        if sources:
-            yield json.dumps({"type": "sources", "sources": sources}) + "\n"
-
-        try:
-            async for chunk in stream_chat(model=conversation.model, messages=message_history):
-                reasoning_delta = chunk.get("reasoning", {}).get("content", "")
-                if reasoning_delta:
-                    yield json.dumps({"type": "reasoning", "content": reasoning_delta}) + "\n"
-
-                delta = chunk.get("message", {}).get("content", "")
-                if delta:
-                    assistant_chunks.append(delta)
-                    yield json.dumps({"type": "token", "content": delta}) + "\n"
-                if chunk.get("done"):
-                    full_response = "".join(assistant_chunks).strip()
-                    if full_response:
-                        save_assistant_message(
-                            db=db,
-                            conversation=conversation,
-                            content=full_response,
-                            sources=sources,
-                        )
-                    yield json.dumps({"type": "done"}) + "\n"
-                    return
-        except httpx.HTTPError as exc:
-            db.rollback()
-            message = f"Model service connection failed. Check service URL, API key, and model name. Details: {exc}"
-            yield json.dumps({"type": "error", "message": message}) + "\n"
-            return
-        except Exception as exc:  # pragma: no cover
-            db.rollback()
-            yield json.dumps({"type": "error", "message": str(exc)}) + "\n"
+                message_id=message_id,
+                model=model,
+                refusal_message=prompt_context.refusal_message,
+            ):
+                yield part
             return
 
-    return StreamingResponse(event_stream(), media_type="application/x-ndjson")
+        hydrated_history = message_history
+        if prompt_context.context_message:
+            hydrated_history = [prompt_context.context_message, *message_history]
+
+        async for part in _assistant_event_stream(
+            db=db,
+            conversation=conversation,
+            message_id=message_id,
+            model=model,
+            message_history=hydrated_history,
+            sources=prompt_context.sources,
+        ):
+            yield part
+    except httpx.HTTPError as exc:
+        db.rollback()
+        message = (
+            "Model service connection failed. Check service URL, API key, and model name. "
+            f"Details: {exc}"
+        )
+        yield json.dumps({"type": "error", "message": message}, ensure_ascii=False) + "\n"
+    except Exception as exc:  # pragma: no cover
+        db.rollback()
+        yield json.dumps({"type": "error", "message": str(exc)}, ensure_ascii=False) + "\n"
+
+
+async def _assistant_event_stream(
+    *,
+    db: Session,
+    conversation: Conversation,
+    message_id: int,
+    model: str,
+    message_history: list[dict[str, str]],
+    sources: list[dict[str, str | float | None]],
+):
+    assistant_chunks: list[str] = []
+    if sources:
+        yield json.dumps({"type": "sources", "sources": sources}, ensure_ascii=False) + "\n"
+
+    async for chunk in stream_chat(model=model, messages=message_history):
+        reasoning_delta = chunk.get("reasoning", {}).get("content", "")
+        if reasoning_delta:
+            yield json.dumps({"type": "reasoning", "content": reasoning_delta}, ensure_ascii=False) + "\n"
+
+        delta = chunk.get("message", {}).get("content", "")
+        if delta:
+            assistant_chunks.append(delta)
+            yield json.dumps({"type": "token", "content": delta}, ensure_ascii=False) + "\n"
+
+        if chunk.get("done"):
+            full_response = "".join(assistant_chunks).strip()
+            if full_response:
+                assistant_message = save_assistant_message(
+                    db=db,
+                    conversation=conversation,
+                    content=full_response,
+                    sources=sources,
+                )
+                yield json.dumps(
+                    {"type": "done", "assistant_message_id": assistant_message.id}
+                ) + "\n"
+                return
+            yield json.dumps({"type": "done"}) + "\n"
+            return
+
+
+def _tool_plan_event_payload(plan: RetrievalPlan) -> dict[str, object]:
+    return {
+        "type": "tool_plan",
+        "tool": plan.tool,
+        "reason": plan.reason,
+        "run_rag": plan.run_rag,
+        "run_web": plan.run_web,
+        "rag_query": plan.rag_query,
+        "web_query": plan.web_query,
+    }
+
+
+def _retrieval_status_items(*, plan: RetrievalPlan) -> list[str]:
+    items: list[str] = []
+    if plan.run_rag:
+        items.append("Reading notes")
+    if plan.run_web:
+        items.append("Searching")
+    return items

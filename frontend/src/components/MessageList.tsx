@@ -2,15 +2,18 @@ import { Check, Copy, RotateCcw, ThumbsDown, ThumbsUp } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 import { MessageSources } from "./message/MessageSources";
+import { ToolPlanPanel } from "./message/ToolPlanPanel";
 import { MarkdownMessage } from "./markdown/MarkdownMessage";
 import { ThinkingPanel } from "./thinking/ThinkingPanel";
-import type { ChatMessage } from "../types";
+import type { ChatMessage, ToolPlan } from "../types";
 
 interface MessageListProps {
   items: ChatMessage[];
   isStreaming?: boolean;
   onRetry?: (messageId: number) => void;
   collapsedMessageIds?: ReadonlySet<number | string>;
+  statusItems?: string[];
+  toolPlan?: ToolPlan | null;
   thinkingEnabled?: boolean;
   thinkingTrace?: string;
   thinkingTraceAvailable?: boolean;
@@ -18,17 +21,31 @@ interface MessageListProps {
   onToggleThinkingTrace?: () => void;
 }
 
-function ThinkingIndicator() {
+function ActivityIndicator({ label }: { label: string }) {
   return (
     <div className="inline-flex items-center gap-2.5 leading-none text-app-muted/80">
       <span className="animate-[thinking-dot_1.8s_ease-in-out_infinite] text-[15px] italic tracking-[0.01em]">
-        Thinking
+        {label}
       </span>
       <div aria-hidden="true" className="inline-flex items-center gap-1.25 self-center">
         <span className="size-[4px] rounded-full bg-current animate-[thinking-dot_1.8s_ease-in-out_0.15s_infinite]" />
         <span className="size-[4px] rounded-full bg-current animate-[thinking-dot_1.8s_ease-in-out_0.3s_infinite]" />
         <span className="size-[4px] rounded-full bg-current animate-[thinking-dot_1.8s_ease-in-out_0.45s_infinite]" />
       </div>
+    </div>
+  );
+}
+
+function StreamingStatusList({ items }: { items: string[] }) {
+  if (items.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="mb-2 space-y-2">
+      {items.map((item) => (
+        <ActivityIndicator key={item} label={item} />
+      ))}
     </div>
   );
 }
@@ -155,6 +172,8 @@ export function MessageList({
   isStreaming = false,
   onRetry,
   collapsedMessageIds,
+  statusItems = [],
+  toolPlan = null,
   thinkingEnabled = false,
   thinkingTrace = "",
   thinkingTraceAvailable = false,
@@ -171,37 +190,29 @@ export function MessageList({
 
   return (
     <div className="mx-auto flex w-full max-w-[920px] flex-col pb-6">
-      {items.map((item, index) => {
+      {items.map((item) => {
         if (collapsedMessageIds?.has(item.id)) {
-          const previousItem = index > 0 ? items[index - 1] : null;
-          if (item.role === "assistant" && previousItem && collapsedMessageIds.has(previousItem.id)) {
-            return (
-              <div
-                className="mb-3 text-[12px] font-medium tracking-[0.06em] text-app-muted/70"
-                key={`collapsed-${item.id}`}
-              >
-                Previous attempt collapsed
-              </div>
-            );
-          }
           return null;
         }
 
         const isAssistant = item.role === "assistant";
         const isEmptyAssistant = isAssistant && !item.content.trim();
         const showSources = !isEmptyAssistant && item.id !== activeStreamingAssistantId;
+        const showStreamingStatus =
+          isEmptyAssistant && item.id === activeStreamingAssistantId && statusItems.length > 0;
+        const showToolPlan = item.id === activeStreamingAssistantId && toolPlan !== null;
         const showThinkingTrace =
           isAssistant &&
           thinkingEnabled &&
           thinkingTraceAvailable &&
           item.id === activeStreamingAssistantId &&
-          (isStreaming || Boolean(thinkingTrace.trim()));
+          !showStreamingStatus;
 
         if (!isAssistant) {
           return (
-            <article className="flex justify-end" key={item.id}>
+            <article className="mb-4 flex justify-end last:mb-0" key={item.id}>
               <div className="group max-w-[420px]">
-                <div className="rounded-[20px] bg-app-panel-soft px-4 py-2.5 text-right text-[15px] leading-7 text-app-accent-strong">
+                <div className="rounded-[20px] bg-app-panel-soft px-4 py-2.5 text-left text-[15px] leading-7 text-app-accent-strong">
                   {renderMessageContent(item.content)}
                 </div>
                 <UserActions content={item.content} hidden={hideActions} />
@@ -215,8 +226,10 @@ export function MessageList({
         }
 
         return (
-          <article className="flex justify-start" key={item.id}>
+          <article className="mb-5 flex justify-start last:mb-0" key={item.id}>
             <div className="w-full max-w-[760px]">
+              {showToolPlan ? <ToolPlanPanel plan={toolPlan} /> : null}
+
               {showThinkingTrace ? (
                 <ThinkingPanel
                   expanded={thinkingTraceExpanded}
@@ -225,12 +238,14 @@ export function MessageList({
                 />
               ) : null}
 
+              {showStreamingStatus ? <StreamingStatusList items={statusItems} /> : null}
+
               {!isEmptyAssistant ? (
                 <div className="text-[15px] leading-8 text-app-text">
                   <MarkdownMessage content={item.content} />
                 </div>
-              ) : item.id === activeThinkingMessageId && !showThinkingTrace ? (
-                <ThinkingIndicator />
+              ) : item.id === activeThinkingMessageId && !showThinkingTrace && !showStreamingStatus ? (
+                <ActivityIndicator label="Thinking" />
               ) : null}
 
               {showSources ? <MessageSources sources={item.sources ?? []} /> : null}

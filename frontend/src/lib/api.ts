@@ -12,6 +12,27 @@ import { toModelLabel } from "./models";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 
+async function readErrorMessage(response: Response): Promise<string> {
+  const raw = await response.text();
+  if (!raw) {
+    return `Request failed: ${response.status}`;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as { detail?: unknown; message?: unknown };
+    if (typeof parsed.detail === "string" && parsed.detail.trim()) {
+      return parsed.detail;
+    }
+    if (typeof parsed.message === "string" && parsed.message.trim()) {
+      return parsed.message;
+    }
+  } catch {
+    return raw;
+  }
+
+  return raw;
+}
+
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
     headers: {
@@ -22,8 +43,7 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || `Request failed: ${response.status}`);
+    throw new Error(await readErrorMessage(response));
   }
 
   return response.json() as Promise<T>;
@@ -102,8 +122,7 @@ export async function deleteConversation(conversationId: number) {
   });
 
   if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || `Request failed: ${response.status}`);
+    throw new Error(await readErrorMessage(response));
   }
 }
 
@@ -130,8 +149,7 @@ export async function streamChat(
   });
 
   if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || `Request failed: ${response.status}`);
+    throw new Error(await readErrorMessage(response));
   }
 
   if (!response.body) {
@@ -183,8 +201,7 @@ export async function regenerateChat(
   });
 
   if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || `Request failed: ${response.status}`);
+    throw new Error(await readErrorMessage(response));
   }
 
   if (!response.body) {

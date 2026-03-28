@@ -1,10 +1,18 @@
-export type Role = "user" | "assistant" | "system";
+﻿export type Role = "user" | "assistant" | "system";
 
 export interface MessageSource {
+  type?: "note" | "web";
   path: string;
   heading: string;
   excerpt: string;
   score?: number | null;
+  title?: string;
+  url?: string;
+  domain?: string;
+  published_at?: string;
+  trust?: string;
+  freshness?: string;
+  match_reason?: string;
 }
 
 export interface ConversationSummary {
@@ -49,6 +57,7 @@ export interface ChatStreamRequest {
   message: string;
   model?: string | null;
   use_rag?: boolean;
+  use_web?: boolean;
 }
 
 export interface RegenerateChatRequest {
@@ -56,6 +65,7 @@ export interface RegenerateChatRequest {
   assistant_message_id: number;
   model?: string | null;
   use_rag?: boolean;
+  use_web?: boolean;
 }
 
 export interface RagReindexResult {
@@ -63,6 +73,15 @@ export interface RagReindexResult {
   indexed_chunks: number;
   failed_chunks: number;
   updated_at: string;
+}
+
+export interface ToolPlan {
+  tool: "none" | "rag_search" | "web_search" | "both";
+  reason: string;
+  run_rag: boolean;
+  run_web: boolean;
+  rag_query: string;
+  web_query: string;
 }
 
 export type ChatStreamEvent =
@@ -84,6 +103,13 @@ export type ChatStreamEvent =
       type: "sources";
       sources: MessageSource[];
     }
+  | {
+      type: "status";
+      items: string[];
+    }
+  | ({
+      type: "tool_plan";
+    } & ToolPlan)
   | {
       type: "done";
       assistant_message_id?: number;

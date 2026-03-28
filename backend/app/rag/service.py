@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Any
 
 from ..config import Settings
+from ..retrieval.language import prefers_simplified_chinese
+from ..retrieval.types import ContextEntry, ContextPayload, SourceItem
 from .chunking import build_chunk_specs_for_document, collect_markdown_documents
 from .embedder import OllamaEmbedder
 from .neighbors import expand_neighbor_chunks
@@ -14,11 +16,6 @@ from .reranker import LexicalReranker
 from .retriever import HybridRetriever
 from .store import RagIndexStore
 from .types import QueryFilters, RagChunk, RagContextPayload, RetrievalCandidate
-
-RAG_REFUSAL_MESSAGE = (
-    "我没有在你的笔记里找到足够相关的内容。"
-    "可以换个问法，或者在问题里加 folder:/tag:/path: 过滤后再试。"
-)
 
 
 def utc_now() -> str:
@@ -117,19 +114,68 @@ class RagService:
             }
 
     async def build_context_payload(self, query: str) -> RagContextPayload:
+        context = await self.retrieve_context(query)
+        if not context.entries:
+            return RagContextPayload(
+                context_message=None,
+                sources=[],
+                should_refuse=context.should_refuse,
+                refusal_message=context.refusal_message,
+            )
+
+        blocks: list[str] = []
+        for index, entry in enumerate(context.entries, start=1):
+            blocks.append(
+                "\n".join(
+                    [
+                        f"[Source {index}]",
+                        f"path: {entry.source.path}",
+                        f"heading: {entry.source.heading}",
+                        "content:",
+                        entry.content,
+                    ]
+                )
+            )
+
+        return RagContextPayload(
+            context_message={
+                "role": "system",
+                "content": (
+                    "Use the following Obsidian notes as references. "
+                    "Answer only when the notes contain enough support, cite the source path you used, and never cite synthetic [Source N] labels.\n\n"
+                    + "\n\n".join(blocks)
+                ),
+            },
+            sources=[source.to_payload() for source in context.sources],
+            should_refuse=context.should_refuse,
+            refusal_message=context.refusal_message,
+        )
+
+    async def retrieve_context(self, query: str) -> ContextPayload:
         query_filters = parse_query_filters(query)
         if not query_filters.cleaned_query and not any(
             (query_filters.folders, query_filters.paths, query_filters.tags)
         ):
-            return RagContextPayload(context_message=None, sources=[])
+            return ContextPayload()
+        if not self._vault_path.exists():
+            return ContextPayload(
+                should_refuse=True,
+                refusal_message=self._missing_vault_message(query),
+                debug={"rag_ready": False, "rag_reason": "vault_missing"},
+            )
+        if not self._chunks:
+            return ContextPayload(
+                should_refuse=True,
+                refusal_message=self._empty_index_message(query),
+                debug={"rag_ready": False, "rag_reason": "index_empty"},
+            )
 
         candidates = await self._retrieve_candidates(query_filters)
         if not candidates:
-            return RagContextPayload(
-                context_message=None,
-                sources=[],
+            return ContextPayload(
                 should_refuse=True,
-                refusal_message=RAG_REFUSAL_MESSAGE,
+                refusal_message=self._insufficient_support_message(query),
+                debug={"rag_ready": True, "rag_reason": "no_candidates"},
             )
 
         primary_candidates = self._reranker.rerank(
@@ -137,11 +183,10 @@ class RagService:
             candidates=candidates,
         )[: self._top_k]
         if not primary_candidates or primary_candidates[0].final_score < self._min_score:
-            return RagContextPayload(
-                context_message=None,
-                sources=[],
+            return ContextPayload(
                 should_refuse=True,
-                refusal_message=RAG_REFUSAL_MESSAGE,
+                refusal_message=self._insufficient_support_message(query),
+                debug={"rag_ready": True, "rag_reason": "low_score"},
             )
 
         context_limit = max(self._top_k, self._top_k * (1 + self._neighbor_window * 2))
@@ -152,46 +197,42 @@ class RagService:
             limit=context_limit,
         )
         if not context_chunks:
-            return RagContextPayload(
-                context_message=None,
-                sources=[],
+            return ContextPayload(
                 should_refuse=True,
-                refusal_message=RAG_REFUSAL_MESSAGE,
+                refusal_message=self._insufficient_support_message(query),
+                debug={"rag_ready": True, "rag_reason": "no_context_chunks"},
             )
 
-        blocks: list[str] = []
-        sources: list[dict[str, str | float]] = []
-        for candidate in primary_candidates:
-            sources.append(
-                {
-                    "path": candidate.chunk.path,
-                    "heading": candidate.chunk.heading,
-                    "excerpt": self._truncate_excerpt(candidate.chunk.content),
-                    "score": round(candidate.final_score, 3),
-                }
+        sources = [
+            SourceItem(
+                type="note",
+                path=candidate.chunk.path,
+                heading=candidate.chunk.heading,
+                excerpt=self._truncate_excerpt(candidate.chunk.content),
+                score=candidate.final_score,
             )
+            for candidate in primary_candidates
+        ]
 
-        for index, chunk in enumerate(context_chunks, start=1):
-            blocks.append(
-                "\n".join(
-                    [
-                        f"[Source {index}]",
-                        f"path: {chunk.path}",
-                        f"heading: {chunk.heading}",
-                        "content:",
-                        chunk.content,
-                    ]
-                )
+        scores_by_chunk_id = {candidate.chunk.id: candidate.final_score for candidate in primary_candidates}
+        entries = [
+            ContextEntry(
+                source=SourceItem(
+                    type="note",
+                    path=chunk.path,
+                    heading=chunk.heading,
+                    excerpt=self._truncate_excerpt(chunk.content),
+                    score=scores_by_chunk_id.get(chunk.id, 0.0),
+                ),
+                content=chunk.content,
             )
-        context_message = {
-            "role": "system",
-            "content": (
-                "Use the following Obsidian notes as references. "
-                "Answer only when the notes contain enough support, and cite the source path you used.\n\n"
-                + "\n\n".join(blocks)
-            ),
-        }
-        return RagContextPayload(context_message=context_message, sources=sources)
+            for chunk in context_chunks
+        ]
+        return ContextPayload(
+            entries=entries,
+            sources=sources,
+            debug={"rag_ready": True, "rag_reason": "ok"},
+        )
 
     async def _retrieve_candidates(
         self, query_filters: QueryFilters
@@ -219,6 +260,30 @@ class RagService:
         if len(normalized) <= limit:
             return normalized
         return f"{normalized[:limit].rstrip()}..."
+
+    def _missing_vault_message(self, query: str) -> str:
+        if prefers_simplified_chinese(query):
+            return "当前找不到配置的笔记目录，没法检索你的文档。先检查 RAG 目录配置。"
+        return (
+            "The configured notes directory could not be found, so I cannot search your documents. "
+            "Check the RAG vault path first."
+        )
+
+    def _empty_index_message(self, query: str) -> str:
+        if prefers_simplified_chinese(query):
+            return "当前笔记索引还是空的，没法检索你的文档。先在设置里更新数据库，再试一次。"
+        return (
+            "The note index is still empty, so I cannot search your documents yet. "
+            "Update the database first and try again."
+        )
+
+    def _insufficient_support_message(self, query: str) -> str:
+        if prefers_simplified_chinese(query):
+            return "我没能在你的笔记里找到足够依据来回答这个问题。可以换个问法，或者用 `folder:`、`tag:`、`path:` 缩小范围。"
+        return (
+            "I could not find enough support in your notes for this question. "
+            "Try rephrasing it, or narrow the scope with folder:/tag:/path: filters."
+        )
 
     def _load_index_from_disk(self) -> None:
         snapshot = self._store.load()
