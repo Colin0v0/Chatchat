@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from ..chat_types import ChatMessagePayload
+from ..chat.types import ChatMessagePayload
 
 MAX_HISTORY_ITEMS = 6
 MAX_MESSAGE_CHARS = 500

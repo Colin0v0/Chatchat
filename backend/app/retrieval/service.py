@@ -3,16 +3,16 @@
 import asyncio
 from typing import TYPE_CHECKING
 
-from ..chat_types import ChatMessagePayload
-from ..config import Settings
+from ..chat.types import ChatMessagePayload
+from ..core.config import Settings
 from .language import prefers_simplified_chinese, response_language_instruction
 from .planner_types import RetrievalPlan
 from .strategy import RetrievalStrategy
 from .types import ContextEntry, ContextPayload, PromptContextPayload
 
 if TYPE_CHECKING:
-    from ..rag import RagService
-    from ..websearch import WebSearchService
+    from .rag import RagService
+    from .websearch import WebSearchService
     from .planner import ToolPlannerService
 
 

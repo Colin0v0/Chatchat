@@ -1,9 +1,9 @@
-﻿import unittest
+import unittest
 from unittest.mock import patch
 
-from app.chat_types import ChatImagePayload
-from app.message_history import IMAGE_ANALYSIS_SYSTEM_PROMPT, IMAGE_CONTEXT_LABEL, MessageHistoryService
-from app.models import Message, MessageAttachment
+from app.chat.types import ChatImagePayload
+from app.chat.history import IMAGE_ANALYSIS_SYSTEM_PROMPT, IMAGE_CONTEXT_LABEL, MessageHistoryService
+from app.storage.models import Message, MessageAttachment
 
 
 class _StubDb:
@@ -41,8 +41,8 @@ class MessageHistoryServiceTests(unittest.IsolatedAsyncioTestCase):
             )
         ]
 
-        with patch('app.message_history.supports_native_image_input', return_value=True), patch(
-            'app.message_history.read_image_data_url',
+        with patch('app.chat.history.supports_native_image_input', return_value=True), patch(
+            'app.chat.history.read_image_data_url',
             return_value='data:image/png;base64,AAA',
         ):
             prepared = await service.prepare(model='openai:any-native-vision', messages=[message])
@@ -73,7 +73,7 @@ class MessageHistoryServiceTests(unittest.IsolatedAsyncioTestCase):
             )
         ]
 
-        with patch('app.message_history.supports_native_image_input', return_value=False):
+        with patch('app.chat.history.supports_native_image_input', return_value=False):
             prepared = await service.prepare(model='openai:deepseek-chat', messages=[message])
 
         self.assertEqual(prepared.messages[0].role, 'system')

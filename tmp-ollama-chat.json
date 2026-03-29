@@ -1,7 +1,0 @@
-{
-  "model": "qwen2.5vl:3b",
-  "messages": [
-    {"role": "user", "content": "你好，直接回复四个字：我正常。"}
-  ],
-  "stream": false
-}

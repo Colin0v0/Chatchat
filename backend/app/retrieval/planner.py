@@ -1,6 +1,6 @@
 ﻿from __future__ import annotations
 
-from ..providers import complete_chat
+from ..llm import complete_chat
 from .planner_parser import parse_tool_decision
 from .planner_prompt import build_tool_planner_messages
 from .planner_types import RetrievalPlan, ToolDecision

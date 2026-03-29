@@ -1,8 +1,8 @@
 import unittest
 from pathlib import Path
 
-from app.image_text.service import ImageTextService
-from app.models import MessageAttachment
+from app.multimodal.image import ImageTextService
+from app.storage.models import MessageAttachment
 
 
 class _StubVision:

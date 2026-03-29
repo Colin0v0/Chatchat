@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
-from ..chat_types import ChatMessagePayload
+from ..chat.types import ChatMessagePayload
 
 SourceType = Literal["note", "web"]
 
