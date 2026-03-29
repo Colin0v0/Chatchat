@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import asyncio
 from typing import TYPE_CHECKING
@@ -6,70 +6,41 @@ from typing import TYPE_CHECKING
 from ..chat.types import ChatMessagePayload
 from ..core.config import Settings
 from .language import prefers_simplified_chinese, response_language_instruction
-from .planner_types import RetrievalPlan
+from .plan import RetrievalMode, RetrievalPlan, build_retrieval_plan
 from .strategy import RetrievalStrategy
 from .types import ContextEntry, ContextPayload, PromptContextPayload
 
 if TYPE_CHECKING:
     from .rag import RagService
     from .websearch import WebSearchService
-    from .planner import ToolPlannerService
 
 
 class RetrievalService:
     def __init__(
         self,
         settings: Settings,
-        rag_service: RagService,
-        web_search_service: WebSearchService,
-        tool_planner_service: ToolPlannerService,
+        rag_service: "RagService",
+        web_search_service: "WebSearchService",
     ):
-        self._settings = settings
         self._rag_service = rag_service
         self._web_search_service = web_search_service
-        self._tool_planner_service = tool_planner_service
         self._context_top_k = max(1, settings.retrieval_context_top_k)
 
-    async def plan_retrieval(
+    def plan_retrieval(
         self,
         *,
         query: str,
-        model: str,
-        message_history: list[dict[str, str]],
-        use_rag: bool,
-        use_web: bool,
+        retrieval_mode: RetrievalMode,
     ) -> RetrievalPlan:
-        return await self._tool_planner_service.plan(
-            query=query,
-            model=model,
-            message_history=message_history,
-            use_rag=use_rag,
-            use_web=use_web,
-        )
+        return build_retrieval_plan(query=query, mode=retrieval_mode)
 
     async def build_context_payload(
         self,
         *,
         query: str,
         plan: RetrievalPlan,
-        use_rag: bool,
-        use_web: bool,
     ) -> PromptContextPayload:
-        debug = self._base_debug(plan=plan, rag_enabled=use_rag, web_enabled=use_web)
-        disabled_capability_refusal = self._resolve_disabled_capability_refusal(
-            query=query,
-            plan=plan,
-            use_rag=use_rag,
-            use_web=use_web,
-        )
-        if disabled_capability_refusal:
-            return PromptContextPayload(
-                context_message=None,
-                should_refuse=True,
-                refusal_message=disabled_capability_refusal,
-                debug=debug,
-            )
-
+        debug = self._base_debug(plan=plan)
         configuration_refusal = self._resolve_configuration_refusal(query=query, plan=plan)
         if configuration_refusal:
             return PromptContextPayload(
@@ -79,25 +50,20 @@ class RetrievalService:
                 debug=debug,
             )
 
-        if plan.tool == "none":
+        if plan.mode == "none":
             return PromptContextPayload(context_message=None, debug=debug)
 
         tasks = []
-        if plan.run_rag:
-            tasks.append(self._rag_service.retrieve_context(plan.rag_query))
-        if plan.run_web:
-            tasks.append(self._web_search_service.retrieve_context(plan.web_query))
+        if plan.mode == "rag":
+            tasks.append(self._rag_service.retrieve_context(plan.query))
+        if plan.mode == "web":
+            tasks.append(self._web_search_service.retrieve_context(plan.query))
 
         results = await asyncio.gather(*tasks)
         merged_sources = self._merge_sources(results)
         merged_entries = self._merge_entries(results, strategy=plan.strategy)
         refusal_message = self._resolve_refusal_message(results, query=query)
-        merged_debug = self._merge_debug(
-            results,
-            plan=plan,
-            rag_enabled=use_rag,
-            web_enabled=use_web,
-        )
+        merged_debug = self._merge_debug(results, plan=plan)
         merged_instructions = self._merge_instructions(results)
 
         if not merged_entries:
@@ -154,30 +120,20 @@ class RetrievalService:
             instructions.extend(result.instructions)
         return tuple(dict.fromkeys(item.strip() for item in instructions if item.strip()))
 
-    def _base_debug(self, *, plan: RetrievalPlan, rag_enabled: bool, web_enabled: bool) -> dict[str, object]:
+    def _base_debug(self, *, plan: RetrievalPlan) -> dict[str, object]:
         return {
             "retrieval_strategy": plan.strategy.name,
-            "planner_tool": plan.tool,
-            "planner_reason": plan.reason,
-            "rag_enabled": rag_enabled,
-            "web_enabled": web_enabled,
+            "retrieval_mode": plan.mode,
+            "retrieval_reason": plan.reason,
+            "retrieval_query": plan.query,
             "rag_executed": False,
             "web_executed": False,
-            "rag_query": plan.rag_query,
-            "web_query": plan.web_query,
         }
 
-    def _merge_debug(
-        self,
-        results: list[ContextPayload],
-        *,
-        plan: RetrievalPlan,
-        rag_enabled: bool,
-        web_enabled: bool,
-    ) -> dict[str, object]:
-        merged = self._base_debug(plan=plan, rag_enabled=rag_enabled, web_enabled=web_enabled)
-        merged["rag_executed"] = plan.run_rag
-        merged["web_executed"] = plan.run_web
+    def _merge_debug(self, results: list[ContextPayload], *, plan: RetrievalPlan) -> dict[str, object]:
+        merged = self._base_debug(plan=plan)
+        merged["rag_executed"] = plan.mode == "rag"
+        merged["web_executed"] = plan.mode == "web"
         for result in results:
             if not result.debug:
                 continue
@@ -190,43 +146,22 @@ class RetrievalService:
             if result.refusal_message:
                 return result.refusal_message
         if prefers_simplified_chinese(query):
-            return "我没有找到足够可靠的依据来回答这个问题。可以缩小范围，或者开启更合适的检索方式。"
+            return "我没有找到足够可靠的依据来回答这个问题。可以缩小范围，或者切换检索模式。"
         return (
             "I could not find enough reliable supporting material for this question. "
-            "Try narrowing the request or enabling a different retrieval mode."
+            "Try narrowing the request or switching retrieval mode."
         )
 
-    def _resolve_disabled_capability_refusal(
-        self,
-        *,
-        query: str,
-        plan: RetrievalPlan,
-        use_rag: bool,
-        use_web: bool,
-    ) -> str | None:
-        missing: list[str] = []
-        if plan.tool in {"rag_search", "both"} and not use_rag:
-            missing.append("RAG")
-        if plan.tool in {"web_search", "both"} and not use_web:
-            missing.append("Web")
-        if not missing:
-            return None
-
-        missing_text = " 和 ".join(missing) if prefers_simplified_chinese(query) else " and ".join(missing)
-        if prefers_simplified_chinese(query):
-            return f"这个问题需要 {missing_text}，但当前没有开启。先开启后再试一次。"
-        return f"This question needs {missing_text}, but it is currently disabled. Enable it and try again."
-
     def _resolve_configuration_refusal(self, *, query: str, plan: RetrievalPlan) -> str | None:
-        if not plan.run_web:
+        if plan.mode != "web":
             return None
 
         try:
             self._web_search_service.require_configuration()
         except RuntimeError:
             if prefers_simplified_chinese(query):
-                return "当前 Web 工具还没配置好，暂时不能联网搜索。先配置 Tavily API Key。"
-            return "The Web tool is not configured yet. Configure the Tavily API key first."
+                return "当前 Search 模式还没配置好，暂时不能联网搜索。先配置 Tavily API Key。"
+            return "Search mode is not configured yet. Configure the Tavily API key first."
         return None
 
     def _build_context_message(

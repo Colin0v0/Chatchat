@@ -1,54 +1,65 @@
-import { Check, Copy, RotateCcw, ThumbsDown, ThumbsUp } from "lucide-react";
+import { Check, Copy, CornerUpLeft, RotateCcw, ThumbsDown, ThumbsUp } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
-import type { ChatMessage, ToolPlan } from "../types";
+import type { ChatMessage } from "../types";
 import { MarkdownMessage } from "./markdown/MarkdownMessage";
-import { MessageImageStrip } from "./message/MessageImageStrip";
+import { MessageAttachmentStrip } from "./message/MessageAttachmentStrip";
 import { MessageSources } from "./message/MessageSources";
-import { ToolPlanPanel } from "./message/ToolPlanPanel";
 import { ThinkingPanel } from "./thinking/ThinkingPanel";
 
 interface MessageListProps {
   items: ChatMessage[];
   isStreaming?: boolean;
-  onRetry?: (messageId: number) => void;
+  onRetry?: (messageId: number | string) => void;
+  onReuseUserMessage?: (content: string) => void;
   collapsedMessageIds?: ReadonlySet<number | string>;
-  statusItems?: string[];
-  toolPlan?: ToolPlan | null;
-  thinkingEnabled?: boolean;
+  streamingStatusLabel?: string | null;
   thinkingTrace?: string;
-  thinkingTraceAvailable?: boolean;
   thinkingTraceExpanded?: boolean;
   onToggleThinkingTrace?: () => void;
 }
 
-function ActivityIndicator({ label }: { label: string }) {
+function StreamingLabel({ label }: { label: string }) {
   return (
-    <div className="inline-flex items-center gap-2.5 leading-none text-app-muted/80">
-      <span className="animate-[thinking-dot_1.8s_ease-in-out_infinite] text-[15px] italic tracking-[0.01em]">
-        {label}
-      </span>
-      <div aria-hidden="true" className="inline-flex items-center gap-1.25 self-center">
-        <span className="size-[4px] rounded-full bg-current animate-[thinking-dot_1.8s_ease-in-out_0.15s_infinite]" />
-        <span className="size-[4px] rounded-full bg-current animate-[thinking-dot_1.8s_ease-in-out_0.3s_infinite]" />
-        <span className="size-[4px] rounded-full bg-current animate-[thinking-dot_1.8s_ease-in-out_0.45s_infinite]" />
+    <div className="mb-3 flex min-h-[34px] items-center py-[2px]">
+      <div className="inline-flex items-center gap-2.5 text-app-muted/80">
+        <span className="app-streaming-label text-[15px] italic tracking-[0.01em]">{label}</span>
+        <div aria-hidden="true" className="inline-flex items-center gap-1.25 self-center">
+          <span className="size-[4px] rounded-full bg-current animate-[thinking-dot_1.8s_ease-in-out_0.15s_infinite]" />
+          <span className="size-[4px] rounded-full bg-current animate-[thinking-dot_1.8s_ease-in-out_0.3s_infinite]" />
+          <span className="size-[4px] rounded-full bg-current animate-[thinking-dot_1.8s_ease-in-out_0.45s_infinite]" />
+        </div>
       </div>
     </div>
   );
 }
 
-function StreamingStatusList({ items }: { items: string[] }) {
-  if (items.length === 0) {
+function StreamingStatusSlot({
+  label,
+  thinkingTrace,
+  thinkingTraceExpanded,
+  onToggleThinkingTrace,
+}: {
+  label: string | null;
+  thinkingTrace: string;
+  thinkingTraceExpanded: boolean;
+  onToggleThinkingTrace?: () => void;
+}) {
+  if (thinkingTrace.trim()) {
+    return (
+      <ThinkingPanel
+        expanded={thinkingTraceExpanded}
+        onToggle={() => onToggleThinkingTrace?.()}
+        trace={thinkingTrace}
+      />
+    );
+  }
+
+  if (!label) {
     return null;
   }
 
-  return (
-    <div className="mb-2 space-y-2">
-      {items.map((item) => (
-        <ActivityIndicator key={item} label={item} />
-      ))}
-    </div>
-  );
+  return <StreamingLabel label={label} />;
 }
 
 function renderMessageContent(content: string) {
@@ -94,7 +105,7 @@ function AssistantActions({
   content: string;
   messageId: number | string;
   hidden?: boolean;
-  onRetry?: (messageId: number) => void;
+  onRetry?: (messageId: number | string) => void;
 }) {
   const [copied, setCopied] = useState(false);
 
@@ -125,11 +136,7 @@ function AssistantActions({
       </ActionIconButton>
       <ActionIconButton
         ariaLabel="Retry response"
-        onClick={() => {
-          if (typeof messageId === "number") {
-            onRetry?.(messageId);
-          }
-        }}
+        onClick={() => onRetry?.(messageId)}
       >
         <RotateCcw className="size-4" />
       </ActionIconButton>
@@ -137,7 +144,15 @@ function AssistantActions({
   );
 }
 
-function UserActions({ content, hidden = false }: { content: string; hidden?: boolean }) {
+function UserActions({
+  content,
+  hidden = false,
+  onReuse,
+}: {
+  content: string;
+  hidden?: boolean;
+  onReuse?: (content: string) => void;
+}) {
   const [copied, setCopied] = useState(false);
 
   async function handleCopy() {
@@ -155,7 +170,15 @@ function UserActions({ content, hidden = false }: { content: string; hidden?: bo
   }
 
   return (
-    <div className="mt-1 mb-3 flex items-center justify-end opacity-0 transition duration-150 group-hover:opacity-100">
+    <div className="mt-1 mb-3 flex items-center justify-end gap-1 opacity-0 transition duration-150 group-hover:opacity-100">
+      <button
+        aria-label="Reuse message"
+        className="flex h-9 w-9 items-center justify-center rounded-xl text-app-muted transition hover:text-app-text"
+        onClick={() => onReuse?.(content)}
+        type="button"
+      >
+        <CornerUpLeft className="size-4" />
+      </button>
       <button
         aria-label="Copy message"
         className="flex h-9 w-9 items-center justify-center rounded-xl text-app-muted transition hover:text-app-text"
@@ -172,18 +195,13 @@ export function MessageList({
   items,
   isStreaming = false,
   onRetry,
+  onReuseUserMessage,
   collapsedMessageIds,
-  statusItems = [],
-  toolPlan = null,
-  thinkingEnabled = false,
+  streamingStatusLabel = null,
   thinkingTrace = "",
-  thinkingTraceAvailable = false,
   thinkingTraceExpanded = false,
   onToggleThinkingTrace,
 }: MessageListProps) {
-  const activeThinkingMessageId = isStreaming
-    ? [...items].reverse().find((item) => item.role === "assistant" && !item.content.trim())?.id
-    : null;
   const activeStreamingAssistantId = isStreaming
     ? [...items].reverse().find((item) => item.role === "assistant")?.id
     : null;
@@ -198,59 +216,58 @@ export function MessageList({
 
         const isAssistant = item.role === "assistant";
         const isEmptyAssistant = isAssistant && !item.content.trim();
-        const showSources = !isEmptyAssistant && item.id !== activeStreamingAssistantId;
+        const hasStoppedNote = item.localStatus === "stopped";
+        const isActiveStreamingAssistant = item.id === activeStreamingAssistantId;
+        const hasThinkingTrace = isActiveStreamingAssistant && thinkingTrace.trim().length > 0;
         const showStreamingStatus =
-          isEmptyAssistant && item.id === activeStreamingAssistantId && statusItems.length > 0;
-        const showToolPlan = item.id === activeStreamingAssistantId && toolPlan !== null;
-        const showThinkingTrace =
-          isAssistant &&
-          thinkingEnabled &&
-          thinkingTraceAvailable &&
-          item.id === activeStreamingAssistantId &&
-          !showStreamingStatus;
+          isActiveStreamingAssistant &&
+          isEmptyAssistant &&
+          (hasThinkingTrace || Boolean(streamingStatusLabel));
+        const showSources = !isEmptyAssistant && item.id !== activeStreamingAssistantId;
         const attachments = item.attachments ?? [];
 
         if (!isAssistant) {
           return (
             <article className="mb-4 flex justify-end last:mb-0" key={item.id}>
               <div className="group max-w-[420px]">
-                <MessageImageStrip align="end" attachments={attachments} />
+                <MessageAttachmentStrip align="end" attachments={attachments} />
                 {item.content.trim() ? (
                   <div className="rounded-[20px] bg-app-panel-soft px-4 py-2.5 text-left text-[15px] leading-7 text-app-accent-strong">
                     {renderMessageContent(item.content)}
                   </div>
                 ) : null}
-                <UserActions content={item.content} hidden={hideActions} />
+                <UserActions content={item.content} hidden={hideActions} onReuse={onReuseUserMessage} />
               </div>
             </article>
           );
         }
 
-        if (isEmptyAssistant && item.id !== activeThinkingMessageId && !showThinkingTrace) {
+        if (isEmptyAssistant && !showStreamingStatus && !hasStoppedNote) {
           return null;
         }
 
         return (
           <article className="mb-5 flex justify-start last:mb-0" key={item.id}>
             <div className="w-full max-w-[760px]">
-              {showToolPlan ? <ToolPlanPanel plan={toolPlan} /> : null}
-
-              {showThinkingTrace ? (
-                <ThinkingPanel
-                  expanded={thinkingTraceExpanded}
-                  onToggle={() => onToggleThinkingTrace?.()}
-                  trace={thinkingTrace}
+              {showStreamingStatus ? (
+                <StreamingStatusSlot
+                  label={streamingStatusLabel}
+                  onToggleThinkingTrace={onToggleThinkingTrace}
+                  thinkingTrace={isActiveStreamingAssistant ? thinkingTrace : ""}
+                  thinkingTraceExpanded={thinkingTraceExpanded}
                 />
               ) : null}
-
-              {showStreamingStatus ? <StreamingStatusList items={statusItems} /> : null}
 
               {!isEmptyAssistant ? (
                 <div className="text-[15px] leading-8 text-app-text">
                   <MarkdownMessage content={item.content} />
                 </div>
-              ) : item.id === activeThinkingMessageId && !showThinkingTrace && !showStreamingStatus ? (
-                <ActivityIndicator label="Thinking" />
+              ) : null}
+
+              {hasStoppedNote ? (
+                <div className={`text-[15px] italic text-app-muted/88 ${isEmptyAssistant ? "mt-1" : "mt-4"}`}>
+                  You stopped this response
+                </div>
               ) : null}
 
               {showSources ? <MessageSources sources={item.sources ?? []} /> : null}

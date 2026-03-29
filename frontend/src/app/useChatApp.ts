@@ -8,7 +8,8 @@ import {
   useState,
 } from "react";
 
-import { useComposerImages } from "./useComposerImages";
+import { useComposerAttachments } from "./useComposerAttachments";
+import { useConversationStreams } from "./useConversationStreams";
 import {
   deleteConversation,
   fetchConversation,
@@ -20,16 +21,22 @@ import {
   streamChat,
 } from "../lib/api";
 import type {
-  ChatMessage,
-  ChatStreamEvent,
   ConversationDetail,
   ConversationSummary,
-  MessageAttachment,
   ModelOption,
   RagReindexResult,
-  ToolPlan,
+  RetrievalMode,
 } from "../types";
-import { ASSISTANT_DRAFT_ID, pickLandingTitle } from "./constants";
+import { pickLandingTitle } from "./constants";
+import {
+  appendRetryDraft,
+  createAssistantDraftMessage,
+  createTransientAttachments,
+  createUserDraftMessage,
+  labelForStage,
+  restoreAttachmentFiles,
+  stageForRetrievalMode,
+} from "./chatSessionUtils";
 import {
   createInitialModelOptions,
   createModelOption,
@@ -38,26 +45,6 @@ import {
   resolveInitialSelectedModel,
 } from "./modelOptions";
 
-type ConversationUpdater = (current: ConversationDetail) => ConversationDetail;
-
-type StreamContext = {
-  originConversationId: number | null;
-  setStreamConversationId: (nextId: number) => number;
-  updateVisibleConversation: (updater: ConversationUpdater) => void;
-};
-
-type RunStreamOptions = {
-  abortMessage: string;
-  errorMessage: string;
-  initialConversationId: number;
-  originConversationId: number | null;
-  onEvent: (event: ChatStreamEvent, context: StreamContext) => void;
-  request: (handlers: {
-    onEvent: (event: ChatStreamEvent) => void;
-    signal: AbortSignal;
-  }) => Promise<void>;
-};
-
 type UseChatAppOptions = {
   closeMobileSidebar: () => void;
   isDesktop: boolean;
@@ -65,141 +52,8 @@ type UseChatAppOptions = {
   toggleSidebar: () => void;
 };
 
-function createAssistantDraftMessage(): ChatMessage {
-  return {
-    id: ASSISTANT_DRAFT_ID,
-    role: "assistant",
-    content: "",
-  };
-}
-
-function createUserDraftMessage(
-  id: number | string,
-  content: string,
-  attachments: MessageAttachment[] = [],
-): ChatMessage {
-  return {
-    id,
-    role: "user",
-    content,
-    attachments,
-    created_at: new Date().toISOString(),
-  };
-}
-
-function updateAssistantDraft(
-  conversation: ConversationDetail,
-  update: (message: ChatMessage) => ChatMessage,
-): ConversationDetail {
-  return {
-    ...conversation,
-    messages: conversation.messages.map((item) =>
-      item.id === ASSISTANT_DRAFT_ID ? update(item) : item,
-    ),
-  };
-}
-
-function appendAssistantDraftContent(
-  conversation: ConversationDetail,
-  content: string,
-): ConversationDetail {
-  return updateAssistantDraft(conversation, (message) => ({
-    ...message,
-    content: message.content + content,
-  }));
-}
-
-function setAssistantDraftSources(
-  conversation: ConversationDetail,
-  sources: ChatMessage["sources"],
-): ConversationDetail {
-  return updateAssistantDraft(conversation, (message) => ({
-    ...message,
-    sources,
-  }));
-}
-
-function setAssistantDraftId(
-  conversation: ConversationDetail,
-  assistantMessageId: number,
-): ConversationDetail {
-  return {
-    ...conversation,
-    messages: conversation.messages.map((item) =>
-      item.id === ASSISTANT_DRAFT_ID ? { ...item, id: assistantMessageId } : item,
-    ),
-  };
-}
-
-function replaceConversationMessageId(
-  conversation: ConversationDetail,
-  fromId: number | string,
-  toId: number,
-): ConversationDetail {
-  return {
-    ...conversation,
-    messages: conversation.messages.map((item) =>
-      item.id === fromId ? { ...item, id: toId } : item,
-    ),
-  };
-}
-
-function replaceAssistantDraftWithError(
-  conversation: ConversationDetail,
-  message: string,
-): ConversationDetail {
-  const messages = conversation.messages.filter((item) => item.id !== ASSISTANT_DRAFT_ID);
-  return {
-    ...conversation,
-    messages: [
-      ...messages,
-      {
-        id: ASSISTANT_DRAFT_ID,
-        role: "assistant",
-        content: message,
-      },
-    ],
-  };
-}
-
-function appendRetryDraft(
-  conversation: ConversationDetail,
-  userMessageId: number | string,
-  content: string,
-  attachments: MessageAttachment[] = [],
-): ConversationDetail {
-  const messages = conversation.messages.filter((item) => item.id !== ASSISTANT_DRAFT_ID);
-  return {
-    ...conversation,
-    messages: [
-      ...messages,
-      createUserDraftMessage(userMessageId, content, attachments),
-      createAssistantDraftMessage(),
-    ],
-  };
-}
-
-function isAbortError(error: unknown): boolean {
-  return error instanceof DOMException && error.name === "AbortError";
-}
-
-function toStreamErrorMessage(error: unknown, fallbackMessage: string) {
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  return fallbackMessage;
-}
-
-function createTransientAttachments(files: File[]): MessageAttachment[] {
-  return files.map((file) => ({
-    id: crypto.randomUUID(),
-    kind: "image",
-    original_name: file.name,
-    mime_type: file.type,
-    size_bytes: file.size,
-    url: URL.createObjectURL(file),
-  }));
+function toggleRetrievalMode(current: RetrievalMode, next: Exclude<RetrievalMode, "none">): RetrievalMode {
+  return current === next ? "none" : next;
 }
 
 export function useChatApp({
@@ -217,13 +71,7 @@ export function useChatApp({
   const [models, setModels] = useState<ModelOption[]>(() => createInitialModelOptions());
   const [selectedModel, setSelectedModel] = useState("openai:deepseek-reasoner");
   const [collapsedMessageIds, setCollapsedMessageIds] = useState<Set<number | string>>(new Set());
-  const [ragEnabled, setRagEnabled] = useState(false);
-  const [webEnabled, setWebEnabled] = useState(false);
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [streamingConversationId, setStreamingConversationId] = useState<number | null>(null);
-  const [streamingStatusItems, setStreamingStatusItems] = useState<string[]>([]);
-  const [streamingToolPlan, setStreamingToolPlan] = useState<ToolPlan | null>(null);
-  const [streamingReasoning, setStreamingReasoning] = useState("");
+  const [retrievalMode, setRetrievalMode] = useState<RetrievalMode>("none");
   const [thinkingExpanded, setThinkingExpanded] = useState(false);
   const [landingHeroAnimated, setLandingHeroAnimated] = useState(false);
   const [landingTitle] = useState(() => pickLandingTitle());
@@ -232,9 +80,8 @@ export function useChatApp({
   const [isUpdatingRag, setIsUpdatingRag] = useState(false);
   const [ragUpdateError, setRagUpdateError] = useState<string | null>(null);
   const [ragUpdateResult, setRagUpdateResult] = useState<RagReindexResult | null>(null);
-  const { addImages, clearImages, draftImages, removeImage } = useComposerImages();
-  const abortRef = useRef<AbortController | null>(null);
-  const activeConversationIdRef = useRef<number | null>(null);
+  const { addAttachments, clearAttachments, draftAttachments, removeAttachment, replaceAttachments } =
+    useComposerAttachments();
   const transientAttachmentUrlsRef = useRef<string[]>([]);
   const deferredQuery = useDeferredValue(query);
 
@@ -243,24 +90,62 @@ export function useChatApp({
     [models, selectedModel],
   );
   const thinkingAvailable = selectedModelOption.supports_thinking;
-  const thinkingTraceAvailable = selectedModelOption.supports_thinking_trace;
   const thinkingEnabled =
     thinkingAvailable && selectedModelOption.reasoning_model === selectedModel;
-  const imageUploadAvailable = selectedModelOption.supports_image_upload;
+  const attachmentUploadAvailable = selectedModelOption.supports_attachment_upload;
 
   const clearTransientAttachmentUrls = useCallback(() => {
     transientAttachmentUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
     transientAttachmentUrlsRef.current = [];
   }, []);
 
+  const {
+    abortAndRemoveSession,
+    activeSession,
+    conversationActivity,
+    getSessionConversation,
+    isStreaming,
+    mergeConversationSummariesWithSessions,
+    openSessionConversation,
+    renameSession,
+    runningSessions,
+    runStream,
+    stopStream,
+    visibleStreaming,
+  } = useConversationStreams({
+    activeConversation,
+    activeConversationId,
+    setActiveConversation,
+    setActiveConversationId,
+    setConversations,
+    setError,
+    setSelectedModel,
+    setThinkingExpanded,
+  });
+  const hasRunningOllamaSession = useMemo(
+    () => runningSessions.some((session) => session.conversation.model.startsWith("ollama:")),
+    [runningSessions],
+  );
+  const submitBlocked =
+    !isStreaming && selectedModel.startsWith("ollama:") && hasRunningOllamaSession;
+  const submitBlockedReason = submitBlocked
+    ? "Ollama 同时只允许一个回答运行中，请先停止当前本地生成，避免内存占满。"
+    : null;
+
   const loadConversation = useCallback(
     async (conversationId: number) => {
+      const sessionConversation = getSessionConversation(conversationId);
+      if (sessionConversation) {
+        setActiveConversation(sessionConversation);
+        setSelectedModel(sessionConversation.model);
+        return;
+      }
+
       const conversation = await fetchConversation(conversationId);
-      clearTransientAttachmentUrls();
       setActiveConversation(conversation);
       setSelectedModel(conversation.model);
     },
-    [clearTransientAttachmentUrls],
+    [getSessionConversation],
   );
 
   const filteredConversations = useMemo(() => {
@@ -281,21 +166,14 @@ export function useChatApp({
     [models, selectedModel],
   );
 
-  const hasConversation = Boolean(activeConversation && activeConversation.messages.length > 0);
-  const visibleStreaming =
-    isStreaming &&
-    activeConversation !== null &&
-    activeConversation.id === streamingConversationId &&
-    activeConversation.messages.some((item) => item.id === ASSISTANT_DRAFT_ID);
-
   const refreshConversations = useCallback(async () => {
     try {
       const items = await fetchConversations();
-      setConversations(items);
+      setConversations(mergeConversationSummariesWithSessions(items));
     } finally {
       setConversationsLoaded(true);
     }
-  }, []);
+  }, [mergeConversationSummariesWithSessions]);
 
   const loadModels = useCallback(async () => {
     const payload = await fetchModels();
@@ -311,20 +189,12 @@ export function useChatApp({
   }, [loadModels, refreshConversations]);
 
   useEffect(() => {
-    activeConversationIdRef.current = activeConversationId;
-  }, [activeConversationId]);
-
-  useEffect(() => {
     if (activeConversationId === null) {
       return;
     }
 
-    if (isStreaming && activeConversationId === streamingConversationId) {
-      return;
-    }
-
     void loadConversation(activeConversationId);
-  }, [activeConversationId, isStreaming, loadConversation, streamingConversationId]);
+  }, [activeConversationId, loadConversation]);
 
   useEffect(() => {
     return () => {
@@ -340,16 +210,6 @@ export function useChatApp({
     const timeoutId = window.setTimeout(() => setError(null), 5000);
     return () => window.clearTimeout(timeoutId);
   }, [error]);
-
-  const resetStreamingState = useCallback(() => {
-    setIsStreaming(false);
-    setStreamingConversationId(null);
-    setStreamingStatusItems([]);
-    setStreamingToolPlan(null);
-    setStreamingReasoning("");
-    setThinkingExpanded(false);
-    abortRef.current = null;
-  }, []);
 
   const handleModelChange = useCallback((model: string) => {
     setSelectedModel(model);
@@ -369,76 +229,64 @@ export function useChatApp({
   }, [selectedModel, selectedModelOption, thinkingAvailable, thinkingEnabled]);
 
   const handleNewChat = useCallback(() => {
-    if (abortRef.current) {
-      abortRef.current.abort();
-      abortRef.current = null;
-    }
-
-    clearTransientAttachmentUrls();
-    clearImages();
+    clearAttachments();
     startTransition(() => {
       setActiveConversationId(null);
       setActiveConversation(null);
       setCollapsedMessageIds(new Set());
       setDraft("");
       setError(null);
-      setIsStreaming(false);
-      setStreamingConversationId(null);
-      setStreamingStatusItems([]);
-      setStreamingToolPlan(null);
-      setStreamingReasoning("");
       setThinkingExpanded(false);
       if (!isDesktop) {
         closeMobileSidebar();
       }
     });
-  }, [clearImages, clearTransientAttachmentUrls, closeMobileSidebar, isDesktop]);
+  }, [clearAttachments, closeMobileSidebar, isDesktop]);
 
   const handleSelectConversation = useCallback(
     (conversationId: number) => {
-      clearTransientAttachmentUrls();
       startTransition(() => {
         setActiveConversationId(conversationId);
         setError(null);
         setCollapsedMessageIds(new Set());
-        setStreamingStatusItems([]);
-        setStreamingToolPlan(null);
-        setStreamingReasoning("");
         setThinkingExpanded(false);
+        openSessionConversation(conversationId);
+
         if (!isDesktop) {
           closeMobileSidebar();
         }
       });
     },
-    [clearTransientAttachmentUrls, closeMobileSidebar, isDesktop],
+    [closeMobileSidebar, isDesktop, openSessionConversation],
   );
 
   const handleRenameConversation = useCallback(
     async (conversationId: number, title: string) => {
       await renameConversation(conversationId, title);
+      setActiveConversation((current) =>
+        current && current.id === conversationId ? { ...current, title } : current,
+      );
+      renameSession(conversationId, title);
       await refreshConversations();
-      if (activeConversationId === conversationId) {
-        setActiveConversation((current) => (current ? { ...current, title } : current));
-      }
     },
-    [activeConversationId, refreshConversations],
+    [refreshConversations, renameSession],
   );
 
   const handleDeleteConversation = useCallback(
     async (conversationId: number) => {
+      abortAndRemoveSession(conversationId);
       await deleteConversation(conversationId);
       await refreshConversations();
 
       if (activeConversationId === conversationId) {
-        clearTransientAttachmentUrls();
         setActiveConversationId(null);
         setActiveConversation(null);
         setCollapsedMessageIds(new Set());
         setDraft("");
-        clearImages();
+        clearAttachments();
       }
     },
-    [activeConversationId, clearImages, clearTransientAttachmentUrls, refreshConversations],
+    [abortAndRemoveSession, activeConversationId, clearAttachments, refreshConversations],
   );
 
   const handleUpdateRagDatabase = useCallback(async () => {
@@ -460,206 +308,99 @@ export function useChatApp({
     }
   }, [isUpdatingRag]);
 
-  const runStream = useCallback(
-    async ({
-      abortMessage,
-      errorMessage,
-      initialConversationId,
-      originConversationId,
-      onEvent,
-      request,
-    }: RunStreamOptions) => {
-      let streamConversationId = initialConversationId;
-
-      setError(null);
-      setIsStreaming(true);
-      setStreamingConversationId(streamConversationId);
-      setStreamingStatusItems([]);
-      setStreamingToolPlan(null);
-      setStreamingReasoning("");
-      setThinkingExpanded(false);
-
-      const controller = new AbortController();
-      abortRef.current = controller;
-
-      const updateVisibleConversation = (updater: ConversationUpdater) => {
-        setActiveConversation((current) => {
-          if (!current || current.id !== streamConversationId) {
-            return current;
-          }
-
-          return updater(current);
-        });
-      };
-
-      const context: StreamContext = {
-        originConversationId,
-        setStreamConversationId: (nextId: number) => {
-          const previousId = streamConversationId;
-          streamConversationId = nextId;
-          setStreamingConversationId(nextId);
-          return previousId;
-        },
-        updateVisibleConversation,
-      };
-
-      try {
-        await request({
-          onEvent: (event) => onEvent(event, context),
-          signal: controller.signal,
-        });
-
-        await refreshConversations();
-        if (activeConversationIdRef.current === streamConversationId) {
-          await loadConversation(streamConversationId);
-        }
-      } catch (streamError) {
-        if (!isAbortError(streamError)) {
-          setError(toStreamErrorMessage(streamError, errorMessage));
-        }
-      } finally {
-        resetStreamingState();
-      }
-    },
-    [loadConversation, refreshConversations, resetStreamingState],
-  );
-
-  const handleStreamEvent = useCallback((event: ChatStreamEvent, context: StreamContext) => {
-    if (event.type === "token") {
-      setStreamingStatusItems([]);
-      context.updateVisibleConversation((current) => appendAssistantDraftContent(current, event.content));
-      return;
-    }
-
-    if (event.type === "reasoning") {
-      setStreamingStatusItems([]);
-      setStreamingReasoning((current) => current + event.content);
-      return;
-    }
-
-    if (event.type === "sources") {
-      context.updateVisibleConversation((current) => setAssistantDraftSources(current, event.sources));
-      return;
-    }
-
-    if (event.type === "status") {
-      setStreamingStatusItems(event.items);
-      return;
-    }
-
-    if (event.type === "tool_plan") {
-      setStreamingToolPlan({
-        tool: event.tool,
-        reason: event.reason,
-        run_rag: event.run_rag,
-        run_web: event.run_web,
-        rag_query: event.rag_query,
-        web_query: event.web_query,
-      });
-      return;
-    }
-
-    if (event.type === "error") {
-      setStreamingStatusItems([]);
-      setError(event.message);
-      context.updateVisibleConversation((current) => replaceAssistantDraftWithError(current, event.message));
-    }
-  }, []);
-
   const handleSend = useCallback(async () => {
     const message = draft.trim();
-    const pendingFiles = draftImages.map((image) => image.file);
+    const pendingFiles = draftAttachments.map((attachment) => attachment.file);
     if ((!message && pendingFiles.length === 0) || isStreaming) {
       return;
     }
 
     const effectiveModel = selectedModel;
+    if (effectiveModel.startsWith("ollama:") && hasRunningOllamaSession) {
+      setError("Ollama 同时只允许一个回答运行中，请先停止当前本地生成，避免内存占满。");
+      return;
+    }
+    const tempConversationId =
+      activeConversation?.id != null ? activeConversation.id : -Date.now();
+    const initialStage =
+      pendingFiles.length > 0 ? "analyzing_attachments" : stageForRetrievalMode(retrievalMode);
     const tempAttachments = createTransientAttachments(pendingFiles);
     transientAttachmentUrlsRef.current.push(...tempAttachments.map((item) => item.url));
-    const tempUserMessage = createUserDraftMessage(`user-${Date.now()}`, message, tempAttachments);
+    const tempUserMessageId = `user-${Date.now()}`;
+    const tempUserMessage = createUserDraftMessage(tempUserMessageId, message, tempAttachments);
+    const nextConversation: ConversationDetail = activeConversation
+      ? {
+          ...activeConversation,
+          model: effectiveModel,
+          messages: [...activeConversation.messages, tempUserMessage, createAssistantDraftMessage()],
+        }
+      : {
+          id: tempConversationId,
+          title: message.slice(0, 48) || "Attachment chat",
+          model: effectiveModel,
+          messages: [tempUserMessage, createAssistantDraftMessage()],
+        };
 
     setDraft("");
-    clearImages();
-    setActiveConversation((current) => {
-      if (current) {
-        return {
-          ...current,
-          model: effectiveModel,
-          messages: [...current.messages, tempUserMessage, createAssistantDraftMessage()],
-        };
-      }
+    clearAttachments();
+    setThinkingExpanded(false);
+    setActiveConversationId(tempConversationId);
+    setActiveConversation(nextConversation);
 
-      return {
-        id: 0,
-        title: message.slice(0, 48) || "Image chat",
-        model: effectiveModel,
-        messages: [tempUserMessage, createAssistantDraftMessage()],
-      };
-    });
-
-    await runStream({
-      abortMessage: "Generation stopped.",
+    const result = await runStream({
+      conversation: nextConversation,
       errorMessage: "Failed to send message.",
-      initialConversationId: activeConversationId ?? 0,
-      onEvent: (event, context) => {
-        if (event.type === "meta") {
-          const previousId = context.setStreamConversationId(event.conversation_id);
-
-          if (activeConversationIdRef.current === context.originConversationId) {
-            setActiveConversationId(event.conversation_id);
-            setSelectedModel(event.model);
-          }
-
-          setActiveConversation((current) => {
-            if (!current || current.id !== previousId) {
-              return current;
-            }
-
-            return {
-              ...current,
-              id: event.conversation_id,
-              model: event.model,
-            };
-          });
-          return;
-        }
-
-        handleStreamEvent(event, context);
+      initialStage,
+      restoreInput: {
+        content: message,
+        loadFiles: async () => pendingFiles,
       },
-      originConversationId: activeConversationId,
+      tempUserMessageId,
       request: ({ onEvent, signal }) =>
         streamChat(
           {
-            conversation_id: activeConversationId,
+            conversation_id:
+              activeConversation && activeConversation.id > 0 ? activeConversation.id : null,
             message,
-            images: pendingFiles,
+            files: pendingFiles,
             model: effectiveModel,
-            use_rag: ragEnabled,
-            use_web: webEnabled,
+            retrieval_mode: retrievalMode,
           },
           { onEvent, signal },
         ),
     });
+
+    if (result === "completed") {
+      await refreshConversations();
+    }
   }, [
-    activeConversationId,
-    clearImages,
+    activeConversation,
+    clearAttachments,
     draft,
-    draftImages,
-    handleStreamEvent,
-    imageUploadAvailable,
+    draftAttachments,
+    hasRunningOllamaSession,
     isStreaming,
-    ragEnabled,
+    refreshConversations,
+    retrievalMode,
     runStream,
     selectedModel,
-    webEnabled,
+    setError,
   ]);
 
-  const handleStop = useCallback(() => {
-    abortRef.current?.abort();
-  }, []);
+  const handleStop = useCallback(async () => {
+    if (!activeConversation) {
+      return;
+    }
+
+    await stopStream({
+      conversationId: activeConversation.id,
+      restoreAttachments: replaceAttachments,
+      restoreDraft: setDraft,
+    });
+  }, [activeConversation, replaceAttachments, stopStream]);
 
   const handleRetryAssistant = useCallback(
-    async (messageId: number) => {
+    async (messageId: number | string) => {
       if (!activeConversation || isStreaming) {
         return;
       }
@@ -677,73 +418,84 @@ export function useChatApp({
       }
 
       const effectiveModel = selectedModel;
+      if (effectiveModel.startsWith("ollama:") && hasRunningOllamaSession) {
+        setError("Ollama 同时只允许一个回答运行中，请先停止当前本地生成，避免内存占满。");
+        return;
+      }
       const retryUserDraftId = `retry-user-${messageId}-${Date.now()}`;
-
-      setCollapsedMessageIds((current) => new Set([...current, sourceUser.id, messageId]));
-      setActiveConversation((current) =>
-        current
-          ? appendRetryDraft(
-              current,
-              retryUserDraftId,
-              sourceUser.content,
-              sourceUser.attachments ?? [],
-            )
-          : current,
+      const nextConversation = appendRetryDraft(
+        activeConversation,
+        retryUserDraftId,
+        sourceUser.content,
+        sourceUser.attachments ?? [],
       );
 
-      await runStream({
-        abortMessage: "Generation stopped.",
+      setCollapsedMessageIds((current) => new Set([...current, sourceUser.id, messageId]));
+      setThinkingExpanded(false);
+      setActiveConversation(nextConversation);
+
+      const result = await runStream({
+        conversation: nextConversation,
         errorMessage: "Failed to regenerate response.",
-        initialConversationId: activeConversation.id,
-        onEvent: (event, context) => {
-          if (event.type === "meta") {
-            const retryMessageId = event.message_id;
-            context.setStreamConversationId(event.conversation_id);
-
-            if (activeConversationIdRef.current === context.originConversationId) {
-              setSelectedModel(event.model);
-            }
-
-            context.updateVisibleConversation((current) =>
-              replaceConversationMessageId(current, retryUserDraftId, retryMessageId),
-            );
-            return;
-          }
-
-          if (event.type === "done" && event.assistant_message_id != null) {
-            const assistantMessageId = event.assistant_message_id;
-            setStreamingStatusItems([]);
-            context.updateVisibleConversation((current) =>
-              setAssistantDraftId(current, assistantMessageId),
-            );
-            return;
-          }
-
-          handleStreamEvent(event, context);
+        initialStage: stageForRetrievalMode(retrievalMode),
+        restoreInput: {
+          content: sourceUser.content,
+          loadFiles: () => restoreAttachmentFiles(sourceUser.attachments ?? []),
         },
-        originConversationId: activeConversation.id,
-        request: ({ onEvent, signal }) =>
-          regenerateChat(
+        tempUserMessageId: retryUserDraftId,
+        request: async ({ onEvent, signal }) => {
+          if (typeof messageId === "number") {
+            return regenerateChat(
+              {
+                conversation_id: activeConversation.id,
+                assistant_message_id: messageId,
+                model: effectiveModel,
+                retrieval_mode: retrievalMode,
+              },
+              { onEvent, signal },
+            );
+          }
+
+          const restoredFiles = await restoreAttachmentFiles(sourceUser.attachments ?? []);
+          return streamChat(
             {
               conversation_id: activeConversation.id,
-              assistant_message_id: messageId,
+              message: sourceUser.content,
+              files: restoredFiles,
               model: effectiveModel,
-              use_rag: ragEnabled,
-              use_web: webEnabled,
+              retrieval_mode: retrievalMode,
             },
             { onEvent, signal },
-          ),
+          );
+        },
       });
+
+      if (result === "completed") {
+        await refreshConversations();
+      }
     },
-    [activeConversation, handleStreamEvent, isStreaming, ragEnabled, runStream, selectedModel, webEnabled],
+    [
+      activeConversation,
+      hasRunningOllamaSession,
+      isStreaming,
+      refreshConversations,
+      retrievalMode,
+      runStream,
+      selectedModel,
+      setError,
+    ],
   );
 
-  const handleToggleRag = useCallback(() => {
-    setRagEnabled((current) => !current);
+  const handleReuseUserMessage = useCallback((content: string) => {
+    setDraft(content);
   }, []);
 
-  const handleToggleWeb = useCallback(() => {
-    setWebEnabled((current) => !current);
+  const handleSelectRag = useCallback(() => {
+    setRetrievalMode((current) => toggleRetrievalMode(current, "rag"));
+  }, []);
+
+  const handleSelectWeb = useCallback(() => {
+    setRetrievalMode((current) => toggleRetrievalMode(current, "web"));
   }, []);
 
   const handleToggleThinkingTrace = useCallback(() => {
@@ -754,7 +506,7 @@ export function useChatApp({
     setLandingHeroAnimated(true);
   }, []);
 
-  const showLanding = !hasConversation || !activeConversation;
+  const showLanding = !activeConversation || activeConversation.messages.length === 0;
 
   return {
     error,
@@ -763,31 +515,31 @@ export function useChatApp({
           collapsedMessageIds,
           conversation: activeConversation,
           draft,
-          draftImages,
-          imageUploadAvailable,
+          draftAttachments,
+          attachmentUploadAvailable,
           isStreaming: visibleStreaming,
           model: selectedModel,
           models: availableModels,
           onChangeDraft: setDraft,
           onModelChange: handleModelChange,
-          onRemoveDraftImage: removeImage,
+          onRemoveDraftAttachment: removeAttachment,
           onRetry: handleRetryAssistant,
-          onSelectImages: addImages,
+          onReuseUserMessage: handleReuseUserMessage,
+          onSelectAttachments: addAttachments,
           onSend: () => void handleSend(),
           onStop: handleStop,
-          onToggleRag: handleToggleRag,
+          onToggleRag: handleSelectRag,
           onToggleThinking: handleToggleThinking,
           onToggleThinkingTrace: handleToggleThinkingTrace,
-          onToggleWeb: handleToggleWeb,
-          ragEnabled,
-          statusItems: visibleStreaming ? streamingStatusItems : [],
+          onToggleWeb: handleSelectWeb,
+          retrievalMode,
+          submitBlocked,
+          submitBlockedReason,
+          streamingStatusLabel: visibleStreaming ? labelForStage(activeSession?.stage ?? null) : null,
           thinkingAvailable,
           thinkingEnabled,
-          thinkingTrace: visibleStreaming ? streamingReasoning : "",
-          thinkingTraceAvailable,
+          thinkingTrace: visibleStreaming ? activeSession?.reasoning ?? "" : "",
           thinkingTraceExpanded: thinkingExpanded,
-          toolPlan: visibleStreaming ? streamingToolPlan : null,
-          webEnabled,
         }
       : null,
     headerProps: {
@@ -803,27 +555,28 @@ export function useChatApp({
     },
     landingProps: {
       draft,
-      draftImages,
-      imageUploadAvailable,
+      draftAttachments,
+      attachmentUploadAvailable,
       isStreaming,
       model: selectedModel,
       models: availableModels,
       onAnimationComplete: handleLandingAnimationComplete,
       onChangeDraft: setDraft,
       onModelChange: handleModelChange,
-      onRemoveDraftImage: removeImage,
-      onSelectImages: addImages,
+      onRemoveDraftAttachment: removeAttachment,
+      onSelectAttachments: addAttachments,
       onSend: () => void handleSend(),
       onStop: handleStop,
-      onToggleRag: handleToggleRag,
+      onToggleRag: handleSelectRag,
       onToggleThinking: handleToggleThinking,
-      onToggleWeb: handleToggleWeb,
-      ragEnabled,
+      onToggleWeb: handleSelectWeb,
+      retrievalMode,
+      submitBlocked,
+      submitBlockedReason,
       shouldAnimate: !landingHeroAnimated,
       thinkingAvailable,
       thinkingEnabled,
       title: landingTitle,
-      webEnabled,
     },
     settingsProps: {
       isUpdating: isUpdatingRag,
@@ -836,6 +589,7 @@ export function useChatApp({
     showLanding,
     sidebarProps: {
       activeConversationId,
+      activity: conversationActivity,
       conversationsLoaded,
       isDesktop,
       items: filteredConversations,

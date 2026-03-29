@@ -5,13 +5,13 @@ from dataclasses import dataclass
 from sqlalchemy.orm import Session
 
 from .types import ChatImagePayload, ChatMessagePayload
-from ..multimodal import ImageTextService
+from ..multimodal import AttachmentContextService
 from ..llm import supports_native_image_input
 from ..storage.media import read_image_data_url
 from ..storage.models import Message
 
-DEFAULT_IMAGE_PROMPT = "Please describe the uploaded image in detail."
-IMAGE_CONTEXT_LABEL = "Machine-generated image brief (may be inaccurate)"
+DEFAULT_ATTACHMENT_PROMPT = "Please analyze the uploaded attachments in detail."
+ATTACHMENT_CONTEXT_LABEL = "Machine-generated attachment brief (may be inaccurate)"
 IMAGE_ANALYSIS_SYSTEM_PROMPT = (
     "When the conversation includes uploaded images, you may receive a machine-generated image brief. "
     "Treat that brief as imperfect auxiliary evidence, not as authoritative fact, because it may contain recognition mistakes or missed details. "
@@ -36,15 +36,15 @@ class PreparedRetrievalHistory:
 
 
 class MessageHistoryService:
-    def __init__(self, db: Session, image_text_service: ImageTextService):
+    def __init__(self, db: Session, attachment_context_service: AttachmentContextService):
         self._db = db
-        self._image_text_service = image_text_service
+        self._attachment_context_service = attachment_context_service
 
     def needs_image_text(self, *, model: str, messages: list[Message]) -> bool:
-        return any(message.attachments and not (message.image_context or "").strip() for message in messages)
+        return any(message.attachments and not (message.attachment_context or "").strip() for message in messages)
 
     def needs_retrieval_grounding(self, *, messages: list[Message]) -> bool:
-        return any(message.attachments and not (message.image_context or "").strip() for message in messages)
+        return any(message.attachments and not (message.attachment_context or "").strip() for message in messages)
 
     async def prepare(self, *, model: str, messages: list[Message]) -> PreparedMessageHistory:
         prepared_messages: list[ChatMessagePayload] = []
@@ -76,7 +76,7 @@ class MessageHistoryService:
 
     async def _chat_message_payload(self, *, model: str, message: Message) -> tuple[ChatMessagePayload, bool, bool]:
         content, used_text = await self._textual_message_content(message)
-        has_images = bool(message.attachments)
+        has_images = any(attachment.kind == "image" for attachment in message.attachments)
         if supports_native_image_input(model):
             return (
                 ChatMessagePayload(
@@ -93,23 +93,25 @@ class MessageHistoryService:
         if message.role != "user" or not message.attachments:
             return message.content, False
 
-        image_context, used_text = await self._ensure_image_context(message)
+        attachment_context, used_text = await self._ensure_attachment_context(message)
         content_blocks = [self._resolved_user_prompt(message)]
-        if image_context:
-            content_blocks.append(f"{IMAGE_CONTEXT_LABEL}:\n{image_context}")
+        if attachment_context:
+            content_blocks.append(f"{ATTACHMENT_CONTEXT_LABEL}:\n{attachment_context}")
         return "\n\n".join(content_blocks), used_text
 
-    async def _ensure_image_context(self, message: Message) -> tuple[str, bool]:
-        cached_context = (message.image_context or "").strip()
+    async def _ensure_attachment_context(self, message: Message) -> tuple[str, bool]:
+        cached_context = (message.attachment_context or "").strip()
         if cached_context:
             return cached_context, False
 
-        result = await self._image_text_service.extract_markdown(message.attachments)
-        message.image_context = result.markdown.strip()
+        result = await self._attachment_context_service.extract_markdown(message.attachments)
+        message.attachment_context = result.markdown.strip()
+        if result.has_images and not (message.image_context or "").strip():
+            message.image_context = message.attachment_context
         self._db.add(message)
         self._db.commit()
         self._db.refresh(message)
-        return message.image_context, True
+        return message.attachment_context, True
 
     def _resolved_user_prompt(self, message: Message) -> str:
         if message.role != "user" or not message.attachments:
@@ -118,7 +120,7 @@ class MessageHistoryService:
         content = message.content.strip()
         if content:
             return content
-        return DEFAULT_IMAGE_PROMPT
+        return DEFAULT_ATTACHMENT_PROMPT
 
     def _image_payloads(self, message: Message) -> list[ChatImagePayload]:
         return [

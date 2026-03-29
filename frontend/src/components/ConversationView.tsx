@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef } from "react";
 
-import type { ComposerImageDraft } from "../app/useComposerImages";
-import type { ConversationDetail, ModelOption, ToolPlan } from "../types";
+import type { ComposerAttachmentDraft } from "../app/useComposerAttachments";
+import type { ConversationDetail, ModelOption, RetrievalMode } from "../types";
 import { ChatComposer } from "./ChatComposer";
 import { MessageList } from "./MessageList";
 
@@ -9,25 +9,25 @@ interface ConversationViewProps {
   conversation: ConversationDetail;
   collapsedMessageIds?: ReadonlySet<number | string>;
   draft: string;
-  draftImages: ComposerImageDraft[];
-  imageUploadAvailable: boolean;
+  draftAttachments: ComposerAttachmentDraft[];
+  attachmentUploadAvailable: boolean;
   isStreaming: boolean;
   model: string;
   models: ModelOption[];
-  ragEnabled: boolean;
-  webEnabled: boolean;
+  retrievalMode: RetrievalMode;
+  submitBlocked: boolean;
+  submitBlockedReason: string | null;
   thinkingEnabled: boolean;
   thinkingAvailable: boolean;
+  streamingStatusLabel: string | null;
   thinkingTrace: string;
-  thinkingTraceAvailable: boolean;
   thinkingTraceExpanded: boolean;
-  statusItems: string[];
-  toolPlan: ToolPlan | null;
   onChangeDraft: (value: string) => void;
   onModelChange: (value: string) => void;
-  onRemoveDraftImage: (imageId: string) => void;
-  onRetry: (messageId: number) => void;
-  onSelectImages: (files: FileList | File[]) => void;
+  onRemoveDraftAttachment: (attachmentId: string) => void;
+  onRetry: (messageId: number | string) => void;
+  onReuseUserMessage: (content: string) => void;
+  onSelectAttachments: (files: FileList | File[]) => void;
   onSend: () => void;
   onStop: () => void;
   onToggleRag: () => void;
@@ -40,25 +40,25 @@ export function ConversationView({
   conversation,
   collapsedMessageIds,
   draft,
-  draftImages,
-  imageUploadAvailable,
+  draftAttachments,
+  attachmentUploadAvailable,
   isStreaming,
   model,
   models,
-  ragEnabled,
-  webEnabled,
+  retrievalMode,
+  submitBlocked,
+  submitBlockedReason,
   thinkingEnabled,
   thinkingAvailable,
+  streamingStatusLabel,
   thinkingTrace,
-  thinkingTraceAvailable,
   thinkingTraceExpanded,
-  statusItems,
-  toolPlan,
   onChangeDraft,
   onModelChange,
-  onRemoveDraftImage,
+  onRemoveDraftAttachment,
   onRetry,
-  onSelectImages,
+  onReuseUserMessage,
+  onSelectAttachments,
   onSend,
   onStop,
   onToggleRag,
@@ -111,7 +111,15 @@ export function ConversationView({
     });
 
     return () => window.cancelAnimationFrame(frame);
-  }, [conversation.id, conversation.messages, collapsedMessageIds, isStreaming, thinkingTrace, thinkingTraceExpanded]);
+  }, [
+    conversation.id,
+    conversation.messages,
+    collapsedMessageIds,
+    isStreaming,
+    streamingStatusLabel,
+    thinkingTrace,
+    thinkingTraceExpanded,
+  ]);
 
   return (
     <section className="flex min-h-0 flex-1 flex-col pb-1">
@@ -122,38 +130,37 @@ export function ConversationView({
             isStreaming={isStreaming}
             items={conversation.messages}
             onRetry={onRetry}
+            onReuseUserMessage={onReuseUserMessage}
             onToggleThinkingTrace={onToggleThinkingTrace}
-            statusItems={statusItems}
-            thinkingEnabled={thinkingEnabled}
+            streamingStatusLabel={streamingStatusLabel}
             thinkingTrace={thinkingTrace}
-            thinkingTraceAvailable={thinkingTraceAvailable}
             thinkingTraceExpanded={thinkingTraceExpanded}
-            toolPlan={toolPlan}
           />
         </div>
       </div>
 
       <div className="px-4 pt-2 md:px-6">
         <ChatComposer
-          imageUploadAvailable={imageUploadAvailable}
-          images={draftImages}
+          attachmentUploadAvailable={attachmentUploadAvailable}
+          attachments={draftAttachments}
           isStreaming={isStreaming}
           model={model}
           models={models}
           onChange={onChangeDraft}
           onModelChange={onModelChange}
-          onRemoveImage={onRemoveDraftImage}
-          onSelectImages={onSelectImages}
+          onRemoveAttachment={onRemoveDraftAttachment}
+          onSelectAttachments={onSelectAttachments}
           onStop={onStop}
           onSubmit={onSend}
           onToggleRag={onToggleRag}
           onToggleThinking={onToggleThinking}
           onToggleWeb={onToggleWeb}
-          ragEnabled={ragEnabled}
+          retrievalMode={retrievalMode}
+          submitBlocked={submitBlocked}
+          submitBlockedReason={submitBlockedReason}
           thinkingAvailable={thinkingAvailable}
           thinkingEnabled={thinkingEnabled}
           value={draft}
-          webEnabled={webEnabled}
         />
       </div>
     </section>

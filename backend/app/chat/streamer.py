@@ -1,74 +1,19 @@
 from __future__ import annotations
 
 import json
+from threading import Lock
 
 import httpx
 from sqlalchemy.orm import Session
 
 from ..chat.types import ChatMessagePayload
-from ..llm import stream_chat
-from .history import MessageHistoryService
-from ..retrieval import PromptContextPayload, RetrievalPlan, strategy_for_tool
+from ..llm import model_provider_and_name, stream_chat
+from ..retrieval import RetrievalMode, RetrievalPlan
 from ..storage.database import SessionLocal
 from ..storage.models import Conversation
-from .context import (
-    latest_user_query,
-    load_history_messages,
-    save_assistant_message,
-)
+from .context import latest_user_query, load_history_messages, save_assistant_message
+from .history import MessageHistoryService
 from .state import ChatServices
-
-
-async def build_prompt_context(
-    *,
-    services: ChatServices,
-    query: str,
-    plan: RetrievalPlan,
-    use_rag: bool,
-    use_web: bool,
-) -> PromptContextPayload:
-    try:
-        return await services.retrieval_service.build_context_payload(
-            query=query,
-            plan=plan,
-            use_rag=use_rag,
-            use_web=use_web,
-        )
-    except RuntimeError as exc:
-        raise httpx.HTTPStatusError(
-            message=str(exc),
-            request=None,
-            response=None,
-        ) from exc
-
-
-async def plan_retrieval(
-    *,
-    services: ChatServices,
-    query: str,
-    model: str,
-    message_history: list[dict[str, str]],
-    use_rag: bool,
-    use_web: bool,
-) -> RetrievalPlan:
-    if not query.strip():
-        return RetrievalPlan(
-            tool="none",
-            reason="No text query provided.",
-            strategy=strategy_for_tool("none"),
-            run_rag=False,
-            run_web=False,
-            rag_query="",
-            web_query="",
-        )
-
-    return await services.retrieval_service.plan_retrieval(
-        query=query,
-        model=model,
-        message_history=message_history,
-        use_rag=use_rag,
-        use_web=use_web,
-    )
 
 
 async def refusal_stream(
@@ -124,25 +69,19 @@ async def assistant_event_stream(
             return
 
 
-def tool_plan_event_payload(plan: RetrievalPlan) -> dict[str, object]:
-    return {
-        "type": "tool_plan",
-        "tool": plan.tool,
-        "reason": plan.reason,
-        "run_rag": plan.run_rag,
-        "run_web": plan.run_web,
-        "rag_query": plan.rag_query,
-        "web_query": plan.web_query,
-    }
-
-
 def retrieval_status_items(*, plan: RetrievalPlan) -> list[str]:
-    items: list[str] = []
-    if plan.run_rag:
-        items.append("Reading notes")
-    if plan.run_web:
-        items.append("Searching")
-    return items
+    if plan.mode == "rag":
+        return ["Reading notes"]
+    if plan.mode == "web":
+        return ["Searching"]
+    return []
+
+
+def try_acquire_ollama_chat_lock(*, model: str, lock: Lock) -> bool:
+    provider, _ = model_provider_and_name(model)
+    if provider != "ollama":
+        return False
+    return lock.acquire(blocking=False)
 
 
 async def response_event_stream(
@@ -153,9 +92,23 @@ async def response_event_stream(
     model: str,
     history_message_ids: list[int],
     query: str,
-    use_rag: bool,
-    use_web: bool,
+    retrieval_mode: RetrievalMode,
 ):
+    provider, _ = model_provider_and_name(model)
+    ollama_lock_acquired = try_acquire_ollama_chat_lock(
+        model=model,
+        lock=services.ollama_chat_lock,
+    )
+    if provider == "ollama" and not ollama_lock_acquired:
+        yield json.dumps(
+            {
+                "type": "error",
+                "message": "Ollama already has another response running. Stop it before starting a new one.",
+            },
+            ensure_ascii=False,
+        ) + "\n"
+        return
+
     yield json.dumps(
         {
             "type": "meta",
@@ -172,8 +125,8 @@ async def response_event_stream(
             raise RuntimeError("Conversation not found during streaming.")
 
         history_messages = load_history_messages(stream_db, history_message_ids)
-        message_history_service = MessageHistoryService(stream_db, services.image_text_service)
-        needs_retrieval_grounding = (use_rag or use_web) and message_history_service.needs_retrieval_grounding(
+        message_history_service = MessageHistoryService(stream_db, services.attachment_context_service)
+        needs_retrieval_grounding = retrieval_mode != "none" and message_history_service.needs_retrieval_grounding(
             messages=history_messages,
         )
         if message_history_service.needs_image_text(model=model, messages=history_messages) or needs_retrieval_grounding:
@@ -184,25 +137,18 @@ async def response_event_stream(
         if prepared_history.used_image_text or prepared_retrieval_history.used_image_text:
             yield json.dumps({"type": "status", "items": []}, ensure_ascii=False) + "\n"
 
-        planner_query = latest_user_query(prepared_retrieval_history.messages, query)
-        retrieval_plan = await plan_retrieval(
-            services=services,
-            query=planner_query,
-            model=model,
-            message_history=prepared_retrieval_history.messages,
-            use_rag=use_rag,
-            use_web=use_web,
+        retrieval_query = latest_user_query(prepared_retrieval_history.messages, query)
+        retrieval_plan = services.retrieval_service.plan_retrieval(
+            query=retrieval_query,
+            retrieval_mode=retrieval_mode,
         )
-        yield json.dumps(tool_plan_event_payload(retrieval_plan), ensure_ascii=False) + "\n"
         status_items = retrieval_status_items(plan=retrieval_plan)
         if status_items:
             yield json.dumps({"type": "status", "items": status_items}, ensure_ascii=False) + "\n"
 
         prompt_context = await services.retrieval_service.build_context_payload(
-            query=query,
+            query=query or retrieval_query,
             plan=retrieval_plan,
-            use_rag=use_rag,
-            use_web=use_web,
         )
 
         if status_items:
@@ -241,4 +187,6 @@ async def response_event_stream(
         stream_db.rollback()
         yield json.dumps({"type": "error", "message": str(exc)}, ensure_ascii=False) + "\n"
     finally:
+        if ollama_lock_acquired:
+            services.ollama_chat_lock.release()
         stream_db.close()

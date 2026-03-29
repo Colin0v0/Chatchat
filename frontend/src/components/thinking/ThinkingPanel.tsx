@@ -22,13 +22,11 @@ export function ThinkingPanel({ expanded, trace, onToggle }: ThinkingPanelProps)
     <div className="mb-3">
       <button
         aria-expanded={expanded}
-        className="inline-flex items-center gap-2.5 leading-none text-app-muted/80 transition hover:text-app-muted"
+        className="inline-flex min-h-[34px] items-center gap-2.5 py-[2px] text-app-muted/80 transition hover:text-app-muted"
         onClick={onToggle}
         type="button"
       >
-        <span className="animate-[thinking-dot_1.8s_ease-in-out_infinite] text-[15px] italic tracking-[0.01em]">
-          Thinking
-        </span>
+        <span className="app-streaming-label text-[15px] italic tracking-[0.01em]">Thinking</span>
         <span aria-hidden="true" className="inline-flex items-center gap-1.25 self-center">
           <span className="size-[4px] rounded-full bg-current animate-[thinking-dot_1.8s_ease-in-out_0.15s_infinite]" />
           <span className="size-[4px] rounded-full bg-current animate-[thinking-dot_1.8s_ease-in-out_0.3s_infinite]" />

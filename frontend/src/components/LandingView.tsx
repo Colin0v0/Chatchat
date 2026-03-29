@@ -1,23 +1,24 @@
 import { useEffect, useMemo, useState } from "react";
 
-import type { ComposerImageDraft } from "../app/useComposerImages";
-import type { ModelOption } from "../types";
+import type { ComposerAttachmentDraft } from "../app/useComposerAttachments";
+import type { ModelOption, RetrievalMode } from "../types";
 import { ChatComposer } from "./ChatComposer";
 
 const BASE_TYPEWRITER_MS = 42;
 const ENDING_SLOWDOWN_MS = 56;
 const PUNCTUATION_PAUSE_MS = 180;
-const PUNCTUATION = new Set(["£¬", "¡£", "£¿", "£¡", "£º", "£»", ",", ".", "?", "!", ":", ";"]);
+const PUNCTUATION = new Set(["ï¼Œ", "ã€‚", "ï¼Ÿ", "ï¼", "ï¼š", "ï¼›", ",", ".", "?", "!", ":", ";"]);
 
 interface LandingViewProps {
   draft: string;
-  draftImages: ComposerImageDraft[];
-  imageUploadAvailable: boolean;
+  draftAttachments: ComposerAttachmentDraft[];
+  attachmentUploadAvailable: boolean;
   isStreaming: boolean;
   model: string;
   models: ModelOption[];
-  ragEnabled: boolean;
-  webEnabled: boolean;
+  retrievalMode: RetrievalMode;
+  submitBlocked: boolean;
+  submitBlockedReason: string | null;
   thinkingEnabled: boolean;
   thinkingAvailable: boolean;
   shouldAnimate: boolean;
@@ -25,8 +26,8 @@ interface LandingViewProps {
   onAnimationComplete: () => void;
   onChangeDraft: (value: string) => void;
   onModelChange: (value: string) => void;
-  onRemoveDraftImage: (imageId: string) => void;
-  onSelectImages: (files: FileList | File[]) => void;
+  onRemoveDraftAttachment: (attachmentId: string) => void;
+  onSelectAttachments: (files: FileList | File[]) => void;
   onSend: () => void;
   onStop: () => void;
   onToggleRag: () => void;
@@ -43,13 +44,14 @@ function getTypewriterDelay(title: string, index: number) {
 
 export function LandingView({
   draft,
-  draftImages,
-  imageUploadAvailable,
+  draftAttachments,
+  attachmentUploadAvailable,
   isStreaming,
   model,
   models,
-  ragEnabled,
-  webEnabled,
+  retrievalMode,
+  submitBlocked,
+  submitBlockedReason,
   thinkingEnabled,
   thinkingAvailable,
   shouldAnimate,
@@ -57,8 +59,8 @@ export function LandingView({
   onAnimationComplete,
   onChangeDraft,
   onModelChange,
-  onRemoveDraftImage,
-  onSelectImages,
+  onRemoveDraftAttachment,
+  onSelectAttachments,
   onSend,
   onStop,
   onToggleRag,
@@ -97,7 +99,7 @@ export function LandingView({
   const showCaret = shouldAnimate && visibleCount < title.length;
 
   return (
-    <section className="flex min-h-0 flex-1 flex-col overflow-hidden px-4 pb-2 pt-6 md:px-6 md:pb-2 md:pt-8">
+    <section className="flex min-h-0 flex-1 flex-col overflow-hidden px-4 pb-[max(8px,env(safe-area-inset-bottom))] pt-2 md:px-6 md:pb-2 md:pt-8">
       <div className="mx-auto flex min-h-0 h-full w-full max-w-[920px] flex-col">
         <div className="flex min-h-0 flex-1 items-center justify-center">
           <h1 className="text-center text-[36px] font-semibold leading-none tracking-[-0.06em] md:text-[56px]">
@@ -111,25 +113,26 @@ export function LandingView({
         <div className="shrink-0 pt-3">
           <ChatComposer
             centered={false}
-            imageUploadAvailable={imageUploadAvailable}
-            images={draftImages}
+            attachmentUploadAvailable={attachmentUploadAvailable}
+            attachments={draftAttachments}
             isStreaming={isStreaming}
             model={model}
             models={models}
             onChange={onChangeDraft}
             onModelChange={onModelChange}
-            onRemoveImage={onRemoveDraftImage}
-            onSelectImages={onSelectImages}
+            onRemoveAttachment={onRemoveDraftAttachment}
+            onSelectAttachments={onSelectAttachments}
             onStop={onStop}
             onSubmit={onSend}
             onToggleRag={onToggleRag}
             onToggleThinking={onToggleThinking}
             onToggleWeb={onToggleWeb}
-            ragEnabled={ragEnabled}
+            retrievalMode={retrievalMode}
+            submitBlocked={submitBlocked}
+            submitBlockedReason={submitBlockedReason}
             thinkingAvailable={thinkingAvailable}
             thinkingEnabled={thinkingEnabled}
             value={draft}
-            webEnabled={webEnabled}
           />
         </div>
       </div>

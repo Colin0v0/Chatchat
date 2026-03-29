@@ -18,7 +18,7 @@ class ModelOption(TypedDict):
     supports_thinking: bool
     supports_thinking_trace: bool
     supports_image_input: bool
-    supports_image_upload: bool
+    supports_attachment_upload: bool
     chat_model: str | None
     reasoning_model: str | None
 

@@ -2,6 +2,7 @@ import type { ConversationSummary } from "../../types";
 
 export interface SidebarProps {
   items: ConversationSummary[];
+  activity?: Record<number, { running: boolean; unread: boolean }>;
   activeConversationId: number | null;
   conversationsLoaded: boolean;
   open: boolean;

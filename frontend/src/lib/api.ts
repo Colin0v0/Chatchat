@@ -67,7 +67,7 @@ function toModelOption(model: string | ModelOption): ModelOption {
     supports_thinking: false,
     supports_thinking_trace: false,
     supports_image_input: false,
-    supports_image_upload: true,
+    supports_attachment_upload: true,
     chat_model: null,
     reasoning_model: null,
   };
@@ -155,13 +155,8 @@ export async function streamChat(payload: ChatStreamRequest, options: StreamRequ
   if (payload.model) {
     formData.append("model", payload.model);
   }
-  if (payload.use_rag) {
-    formData.append("use_rag", "true");
-  }
-  if (payload.use_web) {
-    formData.append("use_web", "true");
-  }
-  payload.images?.forEach((file) => formData.append("images", file));
+  formData.append("retrieval_mode", payload.retrieval_mode);
+  payload.files?.forEach((file) => formData.append("files", file));
 
   const response = await fetch(toApiUrl("/api/chat/stream"), {
     method: "POST",

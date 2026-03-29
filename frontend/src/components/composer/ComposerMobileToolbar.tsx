@@ -1,19 +1,18 @@
-import { BookOpen, Globe, Plus, Sparkles } from "lucide-react";
-import type { ReactNode } from "react";
+import { BookOpen, Check, Globe, Paperclip, Plus, Sparkles } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { ModelSelect } from "../ModelSelect";
-import type { ModelOption } from "../../types";
+import type { ModelOption, RetrievalMode } from "../../types";
 
 interface ComposerMobileToolbarProps {
-  imageUploadAvailable: boolean;
-  imagesPresent: boolean;
+  attachmentUploadAvailable: boolean;
+  attachmentsPresent: boolean;
   isStreaming: boolean;
   model: string;
   models: ModelOption[];
-  onAddImage: () => void;
+  onAddAttachment: () => void;
   onModelChange: (value: string) => void;
-  ragEnabled: boolean;
-  webEnabled: boolean;
+  retrievalMode: RetrievalMode;
   thinkingAvailable: boolean;
   thinkingEnabled: boolean;
   onToggleRag: () => void;
@@ -21,92 +20,135 @@ interface ComposerMobileToolbarProps {
   onToggleThinking: () => void;
 }
 
-interface MobileToolChipProps {
-  active: boolean;
+interface MobileMenuActionProps {
+  active?: boolean;
   disabled?: boolean;
   icon: ReactNode;
   label: string;
   onClick: () => void;
 }
 
-function MobileToolChip({ active, disabled = false, icon, label, onClick }: MobileToolChipProps) {
+function MobileMenuAction({
+  active = false,
+  disabled = false,
+  icon,
+  label,
+  onClick,
+}: MobileMenuActionProps) {
   return (
     <button
       aria-pressed={active}
-      className={`inline-flex h-11 shrink-0 items-center gap-2 rounded-[14px] border px-3.5 text-[15px] font-medium tracking-[-0.02em] transition-colors ${
+      className={`flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-[15px] font-medium tracking-[-0.02em] transition-colors ${
         disabled
-          ? "cursor-not-allowed border-app-border bg-[#f7f2ea] text-app-muted/45"
-          : active
-            ? "border-[#d8c1a3] bg-[#efe3d3] text-[#5b4128]"
-            : "border-app-border bg-white/88 text-[#5f564a] hover:bg-[#f8f3eb]"
+          ? "cursor-not-allowed bg-app-panel-strong text-app-muted/45"
+          : "bg-app-panel-strong text-[#5f564a] hover:bg-app-panel-soft"
       }`}
       disabled={disabled}
       onClick={onClick}
       type="button"
     >
-      <span className="flex size-4 items-center justify-center">{icon}</span>
-      <span className="whitespace-nowrap">{label}</span>
+      <span className="flex items-center gap-3">
+        <span className="flex size-4 items-center justify-center">{icon}</span>
+        <span className="whitespace-nowrap">{label}</span>
+      </span>
+      {active ? <Check className="size-4 shrink-0 text-[#5b4128]" /> : null}
     </button>
   );
 }
 
 export function ComposerMobileToolbar({
-  imageUploadAvailable,
-  imagesPresent,
+  attachmentUploadAvailable,
+  attachmentsPresent,
   isStreaming,
   model,
   models,
-  onAddImage,
+  onAddAttachment,
   onModelChange,
-  ragEnabled,
-  webEnabled,
+  retrievalMode,
   thinkingAvailable,
   thinkingEnabled,
   onToggleRag,
   onToggleWeb,
   onToggleThinking,
 }: ComposerMobileToolbarProps) {
-  const addDisabled = isStreaming || (!imageUploadAvailable && imagesPresent);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const addDisabled = isStreaming || !attachmentUploadAvailable;
+  const ragEnabled = retrievalMode === "rag";
+  const webEnabled = retrievalMode === "web";
+
+  useEffect(() => {
+    function handlePointerDown(event: MouseEvent) {
+      if (!menuRef.current?.contains(event.target as Node)) {
+        setMenuOpen(false);
+      }
+    }
+
+    window.addEventListener("mousedown", handlePointerDown);
+    return () => window.removeEventListener("mousedown", handlePointerDown);
+  }, []);
 
   return (
     <div className="md:hidden">
-      <div className="flex items-center gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        <button
-          aria-label="Add image"
-          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] border transition-colors ${
-            addDisabled
-              ? "cursor-not-allowed border-app-border bg-[#f7f2ea] text-app-muted/45"
-              : "border-app-border bg-white/92 text-[#5f564a] hover:bg-[#f8f3eb] hover:text-app-text"
-          }`}
-          disabled={addDisabled}
-          onClick={onAddImage}
-          type="button"
-        >
-          <Plus className="size-4.5" />
-        </button>
+      <div className="flex items-center gap-2">
+        <div className="relative shrink-0" ref={menuRef}>
+          <button
+            aria-expanded={menuOpen}
+            aria-haspopup="menu"
+            aria-label="Open tools"
+            className="flex h-11 w-11 items-center justify-center rounded-[14px] border border-app-border bg-white/92 text-[#5f564a] transition-colors hover:bg-[#f8f3eb] hover:text-app-text"
+            onClick={() => setMenuOpen((value) => !value)}
+            type="button"
+          >
+            <Plus className={`size-4.5 transition-transform ${menuOpen ? "rotate-45" : ""}`} />
+          </button>
 
-        <MobileToolChip
-          active={ragEnabled}
-          icon={<BookOpen className="size-4" />}
-          label="RAG"
-          onClick={onToggleRag}
-        />
-        <MobileToolChip
-          active={webEnabled}
-          icon={<Globe className="size-4" />}
-          label="Web"
-          onClick={onToggleWeb}
-        />
-        <MobileToolChip
-          active={thinkingEnabled}
-          disabled={!thinkingAvailable}
-          icon={<Sparkles className="size-4" />}
-          label="Thinking"
-          onClick={onToggleThinking}
-        />
+          {menuOpen ? (
+            <div className="absolute bottom-[calc(100%+10px)] left-0 z-20 w-[min(220px,calc(100vw-5rem))] overflow-hidden rounded-[18px] border border-app-border bg-app-panel-strong shadow-[0_18px_40px_rgba(39,28,18,0.14)]">
+              <MobileMenuAction
+                disabled={addDisabled}
+                icon={<Paperclip className="size-4" />}
+                label="Add file"
+                onClick={() => {
+                  onAddAttachment();
+                  setMenuOpen(false);
+                }}
+              />
+              <MobileMenuAction
+                active={ragEnabled}
+                icon={<BookOpen className="size-4" />}
+                label="RAG"
+                onClick={() => {
+                  onToggleRag();
+                  setMenuOpen(false);
+                }}
+              />
+              <MobileMenuAction
+                active={webEnabled}
+                icon={<Globe className="size-4" />}
+                label="Search"
+                onClick={() => {
+                  onToggleWeb();
+                  setMenuOpen(false);
+                }}
+              />
+              <MobileMenuAction
+                active={thinkingEnabled}
+                disabled={!thinkingAvailable}
+                icon={<Sparkles className="size-4" />}
+                label="Thinking"
+                onClick={() => {
+                  onToggleThinking();
+                  setMenuOpen(false);
+                }}
+              />
+            </div>
+          ) : null}
+        </div>
 
         <ModelSelect compact model={model} models={models} onChange={onModelChange} />
       </div>
+      {attachmentsPresent ? <div className="sr-only">Attachments ready</div> : null}
     </div>
   );
 }

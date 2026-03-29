@@ -44,7 +44,7 @@ def message_preview(message: Optional[Message]) -> str:
     if content:
         return content[:80]
     if message.attachments:
-        return "[Image]"
+        return "[Attachment]"
     return ""
 
 
@@ -53,7 +53,7 @@ def conversation_title(content: str, uploaded_count: int) -> str:
     if normalized:
         return normalized[:48]
     if uploaded_count:
-        return "Image chat"
+        return "Attachment chat"
     return "New chat"
 
 
@@ -87,16 +87,17 @@ def load_history_messages(db: Session, message_ids: list[int]) -> list[Message]:
     return [messages_by_id[message_id] for message_id in message_ids if message_id in messages_by_id]
 
 
-def append_message_attachments(*, db: Session, message: Message, images) -> None:
-    for position, image in enumerate(images):
+def append_message_attachments(*, db: Session, message: Message, attachments) -> None:
+    for position, attachment in enumerate(attachments):
         db.add(
             MessageAttachment(
                 message_id=message.id,
-                kind="image",
-                original_name=image.original_name,
-                mime_type=image.mime_type,
-                relative_path=image.relative_path,
-                size_bytes=image.size_bytes,
+                kind=attachment.kind,
+                original_name=attachment.original_name,
+                mime_type=attachment.mime_type,
+                relative_path=attachment.relative_path,
+                size_bytes=attachment.size_bytes,
+                extension=attachment.extension,
                 position=position,
             )
         )
@@ -112,6 +113,7 @@ def clone_message_attachments(*, db: Session, source: Message, target: Message) 
                 mime_type=attachment.mime_type,
                 relative_path=attachment.relative_path,
                 size_bytes=attachment.size_bytes,
+                extension=attachment.extension,
                 position=position,
             )
         )

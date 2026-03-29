@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
+
+
+RetrievalMode = Literal["none", "rag", "web"]
 
 
 class ConversationSummary(BaseModel):
@@ -29,8 +32,7 @@ class RegenerateRequest(BaseModel):
     conversation_id: int
     assistant_message_id: int
     model: Optional[str] = None
-    use_rag: bool = False
-    use_web: bool = False
+    retrieval_mode: RetrievalMode = "none"
 
 
 class MessageAttachmentOut(BaseModel):
@@ -39,6 +41,7 @@ class MessageAttachmentOut(BaseModel):
     original_name: str
     mime_type: str
     size_bytes: int
+    extension: str = ""
     url: str
 
     model_config = ConfigDict(from_attributes=True)

@@ -2,10 +2,11 @@ export type Role = "user" | "assistant" | "system";
 
 export interface MessageAttachment {
   id: number | string;
-  kind: "image";
+  kind: "image" | "file";
   original_name: string;
   mime_type: string;
   size_bytes: number;
+  extension?: string;
   url: string;
 }
 
@@ -39,6 +40,7 @@ export interface ChatMessage {
   attachments?: MessageAttachment[];
   sources?: MessageSource[];
   created_at?: string | null;
+  localStatus?: "stopped";
 }
 
 export interface ConversationDetail {
@@ -54,7 +56,7 @@ export interface ModelOption {
   supports_thinking: boolean;
   supports_thinking_trace: boolean;
   supports_image_input: boolean;
-  supports_image_upload: boolean;
+  supports_attachment_upload: boolean;
   chat_model: string | null;
   reasoning_model: string | null;
 }
@@ -64,21 +66,21 @@ export interface ModelsPayload {
   default_model: string;
 }
 
+export type RetrievalMode = "none" | "rag" | "web";
+
 export interface ChatStreamRequest {
   conversation_id?: number | null;
   message: string;
-  images?: File[];
+  files?: File[];
   model?: string | null;
-  use_rag?: boolean;
-  use_web?: boolean;
+  retrieval_mode: RetrievalMode;
 }
 
 export interface RegenerateChatRequest {
   conversation_id: number;
   assistant_message_id: number;
   model?: string | null;
-  use_rag?: boolean;
-  use_web?: boolean;
+  retrieval_mode: RetrievalMode;
 }
 
 export interface RagReindexResult {
@@ -86,15 +88,6 @@ export interface RagReindexResult {
   indexed_chunks: number;
   failed_chunks: number;
   updated_at: string;
-}
-
-export interface ToolPlan {
-  tool: "none" | "rag_search" | "web_search" | "both";
-  reason: string;
-  run_rag: boolean;
-  run_web: boolean;
-  rag_query: string;
-  web_query: string;
 }
 
 export type ChatStreamEvent =
@@ -120,9 +113,6 @@ export type ChatStreamEvent =
       type: "status";
       items: string[];
     }
-  | ({
-      type: "tool_plan";
-    } & ToolPlan)
   | {
       type: "done";
       assistant_message_id?: number;

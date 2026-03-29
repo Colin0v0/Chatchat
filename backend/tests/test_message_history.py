@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import patch
 
 from app.chat.types import ChatImagePayload
-from app.chat.history import IMAGE_ANALYSIS_SYSTEM_PROMPT, IMAGE_CONTEXT_LABEL, MessageHistoryService
+from app.chat.history import ATTACHMENT_CONTEXT_LABEL, IMAGE_ANALYSIS_SYSTEM_PROMPT, MessageHistoryService
 from app.storage.models import Message, MessageAttachment
 
 
@@ -17,18 +17,18 @@ class _StubDb:
         return None
 
 
-class _StubImageTextService:
+class _StubAttachmentContextService:
     async def extract_markdown(self, attachments):
         raise AssertionError('cached image_context should be reused in this test')
 
 
 class MessageHistoryServiceTests(unittest.IsolatedAsyncioTestCase):
     async def test_prepare_adds_cautious_image_system_prompt_and_keeps_native_images(self):
-        service = MessageHistoryService(_StubDb(), _StubImageTextService())
+        service = MessageHistoryService(_StubDb(), _StubAttachmentContextService())
         message = Message(
             role='user',
             content='who is this',
-            image_context='## Structured image brief\n### Image 1\nDetailed visual observations:\nblue hair\n\nVisible text:\nNo readable text was detected in the uploaded image.',
+            attachment_context='## Structured image brief\n### Image 1\nDetailed visual observations:\nblue hair\n\nVisible text:\nNo readable text was detected in the uploaded image.',
         )
         message.attachments = [
             MessageAttachment(
@@ -51,16 +51,16 @@ class MessageHistoryServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(prepared.messages[0].content, IMAGE_ANALYSIS_SYSTEM_PROMPT)
         self.assertIn('may be inaccurate or uncertain', prepared.messages[0].content)
         self.assertEqual(prepared.messages[1].role, 'user')
-        self.assertIn(f'{IMAGE_CONTEXT_LABEL}:', prepared.messages[1].content)
+        self.assertIn(f'{ATTACHMENT_CONTEXT_LABEL}:', prepared.messages[1].content)
         self.assertEqual(len(prepared.messages[1].images), 1)
         self.assertIsInstance(prepared.messages[1].images[0], ChatImagePayload)
 
     async def test_prepare_text_only_model_receives_labeled_brief_without_native_image(self):
-        service = MessageHistoryService(_StubDb(), _StubImageTextService())
+        service = MessageHistoryService(_StubDb(), _StubAttachmentContextService())
         message = Message(
             role='user',
             content='',
-            image_context='## Structured image brief\n### Image 1\nDetailed visual observations:\nwhite coat\n\nVisible text:\n- Demo',
+            attachment_context='## Structured image brief\n### Image 1\nDetailed visual observations:\nwhite coat\n\nVisible text:\n- Demo',
         )
         message.attachments = [
             MessageAttachment(
@@ -78,8 +78,8 @@ class MessageHistoryServiceTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(prepared.messages[0].role, 'system')
         self.assertEqual(prepared.messages[1].images, ())
-        self.assertIn('Please describe the uploaded image in detail.', prepared.messages[1].content)
-        self.assertIn(f'{IMAGE_CONTEXT_LABEL}:', prepared.messages[1].content)
+        self.assertIn('Please analyze the uploaded attachments in detail.', prepared.messages[1].content)
+        self.assertIn(f'{ATTACHMENT_CONTEXT_LABEL}:', prepared.messages[1].content)
 
 
 if __name__ == '__main__':

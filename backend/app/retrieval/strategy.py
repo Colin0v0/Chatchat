@@ -2,9 +2,6 @@
 
 from dataclasses import dataclass
 
-from .planner_types import ToolChoice
-
-
 @dataclass(frozen=True)
 class RetrievalStrategy:
     name: str
@@ -13,6 +10,10 @@ class RetrievalStrategy:
     instruction: str = ""
 
 
+DIRECT_ANSWER = RetrievalStrategy(
+    name="direct",
+    instruction="",
+)
 NOTE_FIRST = RetrievalStrategy(
     name="note-first",
     rag_weight_bonus=0.10,
@@ -25,17 +26,3 @@ WEB_FIRST = RetrievalStrategy(
     web_weight_bonus=0.10,
     instruction="Prefer web references for public, freshness-sensitive, or lookup-style questions. Use notes only as supporting context.",
 )
-PARALLEL_BALANCED = RetrievalStrategy(
-    name="parallel-balanced",
-    rag_weight_bonus=0.0,
-    web_weight_bonus=0.0,
-    instruction="Use the strongest evidence regardless of source type, balancing notes and web references when both are useful.",
-)
-
-
-def strategy_for_tool(tool: ToolChoice) -> RetrievalStrategy:
-    if tool == "rag_search":
-        return NOTE_FIRST
-    if tool == "web_search":
-        return WEB_FIRST
-    return PARALLEL_BALANCED

@@ -9,8 +9,9 @@ from sqlalchemy.orm import Session
 
 from ..core.config import settings
 from ..llm import normalize_model
+from ..retrieval import RetrievalMode
 from ..schemas import RegenerateRequest
-from ..storage.media import persist_uploaded_images, remove_media_files
+from ..storage.media import persist_uploaded_attachments, remove_media_files
 from ..storage.models import Conversation, Message
 from .context import (
     append_message_attachments,
@@ -71,6 +72,7 @@ async def regenerate_chat_response(
         role="user",
         content=source_user.content,
         image_context=source_user.image_context,
+        attachment_context=source_user.attachment_context,
     )
     conversation.updated_at = datetime.utcnow()
     db.add(regenerated_user_message)
@@ -88,8 +90,7 @@ async def regenerate_chat_response(
             model=conversation.model,
             history_message_ids=history_message_ids(history_messages),
             query=source_user.content,
-            use_rag=payload.use_rag,
-            use_web=payload.use_web,
+            retrieval_mode=payload.retrieval_mode,
         ),
         media_type="application/x-ndjson",
     )
@@ -102,12 +103,11 @@ async def chat_stream_response(
     conversation_id: Optional[int],
     message: str,
     model: Optional[str],
-    use_rag: bool,
-    use_web: bool,
-    images,
+    retrieval_mode: RetrievalMode,
+    files,
 ) -> StreamingResponse:
     content = message.strip()
-    uploads = images or []
+    uploads = files or []
     if not content and not uploads:
         raise HTTPException(status_code=400, detail="Message cannot be empty")
 
@@ -122,17 +122,17 @@ async def chat_stream_response(
             raise HTTPException(status_code=404, detail="Conversation not found")
 
     try:
-        uploaded_images = await persist_uploaded_images(uploads)
+        uploaded_attachments = await persist_uploaded_attachments(uploads)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    if not content and not uploaded_images:
+    if not content and not uploaded_attachments:
         raise HTTPException(status_code=400, detail="Message cannot be empty")
 
     try:
         if conversation is None:
             conversation = Conversation(
-                title=conversation_title(content, len(uploaded_images)),
+                title=conversation_title(content, len(uploaded_attachments)),
                 model=model or normalize_model(settings.default_model),
             )
             db.add(conversation)
@@ -149,12 +149,12 @@ async def chat_stream_response(
         conversation.updated_at = datetime.utcnow()
         db.add(user_message)
         db.flush()
-        append_message_attachments(db=db, message=user_message, images=uploaded_images)
+        append_message_attachments(db=db, message=user_message, attachments=uploaded_attachments)
         db.add(conversation)
         db.commit()
         db.refresh(user_message)
     except Exception:
-        remove_media_files([image.relative_path for image in uploaded_images])
+        remove_media_files([attachment.relative_path for attachment in uploaded_attachments])
         db.rollback()
         raise
 
@@ -173,8 +173,7 @@ async def chat_stream_response(
             model=conversation.model,
             history_message_ids=history_message_ids(list(conversation.messages)),
             query=content,
-            use_rag=use_rag,
-            use_web=use_web,
+            retrieval_mode=retrieval_mode,
         ),
         media_type="application/x-ndjson",
     )

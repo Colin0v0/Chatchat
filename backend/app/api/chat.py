@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from ..chat.state import ChatServices, get_chat_services
 from ..chat.workflow import chat_stream_response, regenerate_chat_response
-from ..schemas import RegenerateRequest
+from ..schemas import RegenerateRequest, RetrievalMode
 from ..storage.database import get_db
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
@@ -33,9 +33,8 @@ async def chat_stream(
     conversation_id: Optional[int] = Form(None),
     message: str = Form(""),
     model: Optional[str] = Form(None),
-    use_rag: bool = Form(False),
-    use_web: bool = Form(False),
-    images: Optional[list[UploadFile]] = File(None),
+    retrieval_mode: RetrievalMode = Form("none"),
+    files: Optional[list[UploadFile]] = File(None),
     db: Session = Depends(get_db),
 ):
     services = get_chat_services(request)
@@ -45,7 +44,6 @@ async def chat_stream(
         conversation_id=conversation_id,
         message=message,
         model=model,
-        use_rag=use_rag,
-        use_web=use_web,
-        images=images,
+        retrieval_mode=retrieval_mode,
+        files=files,
     )

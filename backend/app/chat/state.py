@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from threading import Lock
 
 from fastapi import Request
 
 from ..core.config import Settings
-from ..multimodal import ImageTextService
+from ..multimodal import AttachmentContextService, FileParser, ImageTextService
 from ..retrieval.rag import RagService
-from ..retrieval import RetrievalService, ToolPlannerService
+from ..retrieval import RetrievalService
 from ..retrieval.websearch import WebSearchService
 
 
@@ -15,9 +16,9 @@ from ..retrieval.websearch import WebSearchService
 class ChatServices:
     rag_service: RagService
     web_search_service: WebSearchService
-    image_text_service: ImageTextService
-    tool_planner_service: ToolPlannerService
+    attachment_context_service: AttachmentContextService
     retrieval_service: RetrievalService
+    ollama_chat_lock: Lock
 
 
 def build_chat_services(settings: Settings) -> ChatServices:
@@ -33,19 +34,25 @@ def build_chat_services(settings: Settings) -> ChatServices:
         vision_summary_max_chars=settings.image_vision_summary_max_chars,
         vision_device=settings.image_vision_device,
     )
-    tool_planner_service = ToolPlannerService()
+    attachment_context_service = AttachmentContextService(
+        image_service=image_text_service,
+        file_parser=FileParser(
+            text_max_chars=settings.file_text_max_chars,
+            table_row_limit=settings.file_table_row_limit,
+            table_column_limit=settings.file_table_column_limit,
+        ),
+    )
     retrieval_service = RetrievalService(
         settings,
         rag_service,
         web_search_service,
-        tool_planner_service,
     )
     return ChatServices(
         rag_service=rag_service,
         web_search_service=web_search_service,
-        image_text_service=image_text_service,
-        tool_planner_service=tool_planner_service,
+        attachment_context_service=attachment_context_service,
         retrieval_service=retrieval_service,
+        ollama_chat_lock=Lock(),
     )
 
 

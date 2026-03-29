@@ -31,7 +31,7 @@ def build_model_options(models: list[DiscoveredModel]) -> list[ModelOption]:
                 supports_thinking=pair is not None,
                 supports_thinking_trace=model in reasoning_trace_models,
                 supports_image_input=supports_image_input,
-                supports_image_upload=True,
+                supports_attachment_upload=True,
                 chat_model=chat_model,
                 reasoning_model=reasoning_model,
             )

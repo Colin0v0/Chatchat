@@ -64,6 +64,49 @@ export function MainHeader({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
+  const actionMenu = hasConversation ? (
+    <div className="relative" ref={menuRef}>
+      <button
+        aria-label="Conversation actions"
+        className="flex h-9 w-9 items-center justify-center rounded-lg text-app-muted transition hover:text-app-text focus:outline-none focus-visible:ring-2 focus-visible:ring-app-border-strong"
+        onClick={() => setMenuOpen((value) => !value)}
+        type="button"
+      >
+        <MoreHorizontal className="size-4" />
+      </button>
+
+      {menuOpen ? (
+        <div className="absolute right-0 top-[calc(100%+6px)] z-30 overflow-hidden rounded-[8px] border border-app-border bg-app-panel-strong py-1.5 shadow-[0_16px_40px_rgba(34,24,16,0.12)]">
+          <button
+            className="flex items-center gap-2 whitespace-nowrap px-4 py-2.5 text-left text-[14px] text-app-text transition hover:text-app-accent-strong"
+            onClick={() => {
+              setMenuOpen(false);
+              setDialogState({
+                type: "rename",
+                value: conversationTitle,
+              });
+            }}
+            type="button"
+          >
+            <Pencil className="size-4 text-app-muted" />
+            <span>Rename</span>
+          </button>
+          <button
+            className="flex items-center gap-2 whitespace-nowrap px-4 py-2.5 text-left text-[14px] text-[#9d3d32] transition hover:text-[#8a3329]"
+            onClick={() => {
+              setMenuOpen(false);
+              setDialogState({ type: "delete" });
+            }}
+            type="button"
+          >
+            <Trash2 className="size-4" />
+            <span>Delete</span>
+          </button>
+        </div>
+      ) : null}
+    </div>
+  ) : null;
+
   return (
     <>
       <header className="relative flex h-[68px] items-center justify-between px-4 md:px-6">
@@ -75,58 +118,20 @@ export function MainHeader({
           <div />
         )}
 
-        {isDesktop && hasConversation ? (
-          <div className="relative" ref={menuRef}>
-            <button
-              aria-label="Conversation actions"
-              className="flex h-8 w-8 items-center justify-center rounded-[8px] text-app-muted transition hover:text-app-text"
-              onClick={() => setMenuOpen((value) => !value)}
-              type="button"
-            >
-              <MoreHorizontal className="size-4" />
-            </button>
-
-            {menuOpen ? (
-              <div className="absolute right-0 top-[calc(100%+6px)] z-30 overflow-hidden rounded-[8px] border border-app-border bg-app-panel-strong py-1.5 shadow-[0_16px_40px_rgba(34,24,16,0.12)]">
-                <button
-                  className="flex items-center gap-2 whitespace-nowrap px-4 py-2.5 text-left text-[14px] text-app-text transition hover:text-app-accent-strong"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    setDialogState({
-                      type: "rename",
-                      value: conversationTitle,
-                    });
-                  }}
-                  type="button"
-                >
-                  <Pencil className="size-4 text-app-muted" />
-                  <span>Rename</span>
-                </button>
-                <button
-                  className="flex items-center gap-2 whitespace-nowrap px-4 py-2.5 text-left text-[14px] text-[#9d3d32] transition hover:text-[#8a3329]"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    setDialogState({ type: "delete" });
-                  }}
-                  type="button"
-                >
-                  <Trash2 className="size-4" />
-                  <span>Delete</span>
-                </button>
-              </div>
-            ) : null}
-          </div>
-        ) : null}
+        {isDesktop ? actionMenu : null}
 
         {!isDesktop ? (
-          <button
-            aria-label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
-            className="fixed top-4 right-4 z-30 flex h-9 w-9 items-center justify-center rounded-lg text-app-muted transition hover:text-app-text focus:outline-none focus-visible:ring-2 focus-visible:ring-app-border-strong"
-            onClick={onToggleSidebar}
-            type="button"
-          >
-            <PanelLeftOpen className={`size-4 transition-transform ${sidebarOpen ? "rotate-180" : ""}`} />
-          </button>
+          <div className="fixed top-4 right-4 z-30 flex items-center gap-1.5">
+            {!sidebarOpen ? actionMenu : null}
+            <button
+              aria-label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
+              className="flex h-9 w-9 items-center justify-center rounded-lg text-app-muted transition hover:text-app-text focus:outline-none focus-visible:ring-2 focus-visible:ring-app-border-strong"
+              onClick={onToggleSidebar}
+              type="button"
+            >
+              <PanelLeftOpen className={`size-4 transition-transform ${sidebarOpen ? "rotate-180" : ""}`} />
+            </button>
+          </div>
         ) : null}
       </header>
 

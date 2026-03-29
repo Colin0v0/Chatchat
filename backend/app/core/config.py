@@ -17,8 +17,8 @@ class Settings(BaseSettings):
     openai_vision_model_allowlist: str = ""
     default_provider: str = "ollama"
     default_model: str = "qwen2.5:7b"
-    image_max_upload_count: int = 4
-    image_max_upload_size_bytes: int = 8 * 1024 * 1024
+    attachment_max_upload_count: int = 8
+    attachment_max_upload_size_bytes: int = 20 * 1024 * 1024
     image_ocr_min_confidence: float = 0.55
     image_text_max_chars: int = 4800
     image_vision_model: str = "AI-ModelScope/Florence-2-base-ft"
@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     image_vision_num_beams: int = 4
     image_vision_summary_max_chars: int = 1200
     image_vision_device: str = "auto"
+    file_text_max_chars: int = 6000
+    file_table_row_limit: int = 40
+    file_table_column_limit: int = 24
     request_timeout_seconds: float = 180.0
     retrieval_context_top_k: int = 6
     rag_vault_path: str = "/data/obsidian"

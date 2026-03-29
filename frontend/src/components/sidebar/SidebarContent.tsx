@@ -1,4 +1,4 @@
-import { MessageSquarePlus, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { LoaderCircle, MessageSquarePlus, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { Search, SidebarAction, SidebarBrand, SidebarIcon, SidebarLoadingState } from "./SidebarActions";
@@ -13,6 +13,7 @@ interface SidebarContentProps extends SidebarSharedProps {
 
 export function SidebarContent({
   items,
+  activity = {},
   activeConversationId,
   conversationsLoaded,
   query,
@@ -128,6 +129,7 @@ export function SidebarContent({
 
                 {items.map((item) => {
                   const active = item.id === activeConversationId;
+                  const itemActivity = activity[item.id];
 
                   return (
                     <div
@@ -140,12 +142,27 @@ export function SidebarContent({
                       key={item.id}
                     >
                       <button
-                        className="flex w-full min-w-0 items-center rounded-[8px] px-3 py-3 pr-11 text-left focus:outline-none focus-visible:outline-none"
+                        className="flex w-full min-w-0 items-center rounded-[8px] px-3 py-3 pr-12 text-left focus:outline-none focus-visible:outline-none"
                         onClick={() => onSelect(item.id)}
                         type="button"
                       >
-                        <span className="truncate text-[15px] font-semibold tracking-[-0.02em] text-app-text">
-                          {item.title}
+                        <span className="flex min-w-0 items-center gap-2.5">
+                          <span className="truncate text-[15px] font-semibold tracking-[-0.02em] text-app-text">
+                            {item.title}
+                          </span>
+                          {itemActivity?.running ? (
+                            <span
+                              aria-label="Conversation is running"
+                              className="flex h-5 w-5 shrink-0 items-center justify-center text-app-muted"
+                            >
+                              <LoaderCircle className="size-3.5 animate-spin" />
+                            </span>
+                          ) : itemActivity?.unread ? (
+                            <span
+                              aria-label="Conversation has a new response"
+                              className="inline-flex h-2.5 w-2.5 shrink-0 rounded-full bg-app-accent-strong"
+                            />
+                          ) : null}
                         </span>
                       </button>
 
@@ -153,58 +170,62 @@ export function SidebarContent({
                         className="absolute inset-y-0 right-2 flex items-center"
                         ref={menuConversationId === item.id ? menuRef : null}
                       >
-                        <button
-                          aria-label="Conversation actions"
-                          className={cn(
-                            "flex h-8 w-8 items-center justify-center rounded-[8px] text-app-muted transition-colors",
-                            "hover:text-app-text focus:outline-none focus-visible:outline-none",
-                            menuConversationId === item.id ? "opacity-100" : "opacity-0 group-hover:opacity-100",
-                          )}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setMenuConversationId((current) => (current === item.id ? null : item.id));
-                          }}
-                          type="button"
-                        >
-                          <MoreHorizontal className="size-4" />
-                        </button>
+                        {isDesktop ? (
+                          <>
+                            <button
+                              aria-label="Conversation actions"
+                              className={cn(
+                                "flex h-8 w-8 items-center justify-center rounded-[8px] text-app-muted transition-colors",
+                                "hover:text-app-text focus:outline-none focus-visible:outline-none",
+                                menuConversationId === item.id ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+                              )}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setMenuConversationId((current) => (current === item.id ? null : item.id));
+                              }}
+                              type="button"
+                            >
+                              <MoreHorizontal className="size-4" />
+                            </button>
 
-                        {menuConversationId === item.id ? (
-                          <div className={`absolute right-0 top-[calc(100%+6px)] z-30 py-1 ${sidebarMenuPanelClass}`}>
-                            <button
-                              className={`${sidebarMenuItemClass} text-app-text hover:text-app-accent-strong`}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                setMenuConversationId(null);
-                                setDialogState({
-                                  type: "rename",
-                                  conversationId: item.id,
-                                  title: item.title,
-                                  value: item.title,
-                                });
-                              }}
-                              type="button"
-                            >
-                              <Pencil className="size-4 text-app-muted" />
-                              <span>Rename</span>
-                            </button>
-                            <button
-                              className={`${sidebarMenuItemClass} text-[#9d3d32] hover:text-[#8a3329]`}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                setMenuConversationId(null);
-                                setDialogState({
-                                  type: "delete",
-                                  conversationId: item.id,
-                                  title: item.title,
-                                });
-                              }}
-                              type="button"
-                            >
-                              <Trash2 className="size-4" />
-                              <span>Delete</span>
-                            </button>
-                          </div>
+                            {menuConversationId === item.id ? (
+                              <div className={`absolute right-0 top-[calc(100%+6px)] z-30 py-1 ${sidebarMenuPanelClass}`}>
+                                <button
+                                  className={`${sidebarMenuItemClass} text-app-text hover:text-app-accent-strong`}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    setMenuConversationId(null);
+                                    setDialogState({
+                                      type: "rename",
+                                      conversationId: item.id,
+                                      title: item.title,
+                                      value: item.title,
+                                    });
+                                  }}
+                                  type="button"
+                                >
+                                  <Pencil className="size-4 text-app-muted" />
+                                  <span>Rename</span>
+                                </button>
+                                <button
+                                  className={`${sidebarMenuItemClass} text-[#9d3d32] hover:text-[#8a3329]`}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    setMenuConversationId(null);
+                                    setDialogState({
+                                      type: "delete",
+                                      conversationId: item.id,
+                                      title: item.title,
+                                    });
+                                  }}
+                                  type="button"
+                                >
+                                  <Trash2 className="size-4" />
+                                  <span>Delete</span>
+                                </button>
+                              </div>
+                            ) : null}
+                          </>
                         ) : null}
                       </div>
                     </div>
