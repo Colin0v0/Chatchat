@@ -1,14 +1,24 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
+import asyncio
+import base64
+import io
 import json
 from collections.abc import AsyncIterator
 from typing import Literal, TypedDict
 
 import httpx
+from PIL import Image
 
+from .chat_types import ChatImagePayload, ChatMessagePayload
 from .config import settings
 
 Provider = Literal["ollama", "openai"]
+
+
+class DiscoveredModel(TypedDict):
+    id: str
+    supports_image_input: bool
 
 
 class ModelOption(TypedDict):
@@ -16,6 +26,8 @@ class ModelOption(TypedDict):
     label: str
     supports_thinking: bool
     supports_thinking_trace: bool
+    supports_image_input: bool
+    supports_image_upload: bool
     chat_model: str | None
     reasoning_model: str | None
 
@@ -32,14 +44,23 @@ NON_CHAT_MODEL_HINTS = (
     "translategemma",
     "translation",
 )
+OLLAMA_CAPABILITY_CACHE: dict[str, set[str]] = {}
 
 
 def _normalize_base_url(url: str) -> str:
     return url.rstrip("/")
 
 
+def _parse_csv_allowlist(value: str) -> list[str]:
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
 def _parse_openai_allowlist() -> list[str]:
-    return [item.strip() for item in settings.openai_model_allowlist.split(",") if item.strip()]
+    return _parse_csv_allowlist(settings.openai_model_allowlist)
+
+
+def _parse_openai_vision_allowlist() -> set[str]:
+    return set(_parse_csv_allowlist(settings.openai_vision_model_allowlist))
 
 
 def _is_embedding_model_name(model_name: str) -> bool:
@@ -88,8 +109,16 @@ def present_model_name(model: str) -> str:
     return model
 
 
-def build_model_options(models: list[str]) -> list[ModelOption]:
-    unique_models = list(dict.fromkeys(models))
+def supports_native_image_input(model: str) -> bool:
+    provider, model_name = model_provider_and_name(model)
+    if provider == "openai":
+        return model_name in _parse_openai_vision_allowlist()
+    return "vision" in OLLAMA_CAPABILITY_CACHE.get(model_name, set())
+
+
+def build_model_options(models: list[DiscoveredModel]) -> list[ModelOption]:
+    unique_models = list(dict.fromkeys(item["id"] for item in models))
+    discovered_by_id = {item["id"]: item for item in models}
     available = set(unique_models)
 
     deepseek_chat = namespaced_model("openai", "deepseek-chat")
@@ -107,12 +136,15 @@ def build_model_options(models: list[str]) -> list[ModelOption]:
         pair = reasoning_pairs.get(model)
         chat_model = pair[0] if pair else None
         reasoning_model = pair[1] if pair else None
+        supports_image_input = discovered_by_id.get(model, {}).get("supports_image_input", False)
         options.append(
             ModelOption(
                 id=model,
                 label=present_model_name(model),
                 supports_thinking=pair is not None,
                 supports_thinking_trace=model in reasoning_trace_models,
+                supports_image_input=supports_image_input,
+                supports_image_upload=True,
                 chat_model=chat_model,
                 reasoning_model=reasoning_model,
             )
@@ -121,7 +153,19 @@ def build_model_options(models: list[str]) -> list[ModelOption]:
     return options
 
 
-async def list_ollama_models() -> list[str]:
+async def _fetch_ollama_capabilities(model_name: str) -> set[str]:
+    async with httpx.AsyncClient(
+        base_url=_normalize_base_url(settings.ollama_base_url),
+        timeout=10.0,
+    ) as client:
+        response = await client.post("/api/show", json={"model": model_name})
+        response.raise_for_status()
+        payload = response.json()
+    capabilities = payload.get("capabilities") or []
+    return {str(item).strip().lower() for item in capabilities if str(item).strip()}
+
+
+async def list_ollama_models() -> list[DiscoveredModel]:
     try:
         async with httpx.AsyncClient(
             base_url=_normalize_base_url(settings.ollama_base_url),
@@ -134,7 +178,25 @@ async def list_ollama_models() -> list[str]:
 
     payload = response.json()
     model_names = [item["name"] for item in payload.get("models", []) if item.get("name")]
-    return [namespaced_model("ollama", name) for name in _filter_chat_model_names(model_names)]
+    chat_model_names = _filter_chat_model_names(model_names)
+    capability_results = await asyncio.gather(
+        *[_fetch_ollama_capabilities(name) for name in chat_model_names],
+        return_exceptions=True,
+    )
+
+    discovered: list[DiscoveredModel] = []
+    for model_name, capability_result in zip(chat_model_names, capability_results, strict=False):
+        capabilities = set()
+        if not isinstance(capability_result, Exception):
+            capabilities = capability_result
+        OLLAMA_CAPABILITY_CACHE[model_name] = capabilities
+        discovered.append(
+            DiscoveredModel(
+                id=namespaced_model("ollama", model_name),
+                supports_image_input="vision" in capabilities,
+            )
+        )
+    return discovered
 
 
 def _openai_headers() -> dict[str, str]:
@@ -144,8 +206,9 @@ def _openai_headers() -> dict[str, str]:
     return headers
 
 
-async def list_openai_models() -> list[str]:
+async def list_openai_models() -> list[DiscoveredModel]:
     allowlist = _parse_openai_allowlist()
+    vision_models = _parse_openai_vision_allowlist()
     try:
         async with httpx.AsyncClient(
             base_url=_normalize_base_url(settings.openai_base_url),
@@ -156,7 +219,10 @@ async def list_openai_models() -> list[str]:
             response.raise_for_status()
     except httpx.HTTPError:
         return [
-            namespaced_model("openai", model)
+            DiscoveredModel(
+                id=namespaced_model("openai", model),
+                supports_image_input=model in vision_models,
+            )
             for model in _filter_chat_model_names(allowlist)
         ]
 
@@ -166,17 +232,46 @@ async def list_openai_models() -> list[str]:
         allowed = set(allowlist)
         models = [model for model in models if model in allowed]
     models = _filter_chat_model_names(models)
-    return [namespaced_model("openai", model) for model in models]
+    return [
+        DiscoveredModel(
+            id=namespaced_model("openai", model),
+            supports_image_input=model in vision_models,
+        )
+        for model in models
+    ]
+
+
+def _ollama_image_base64(image: ChatImagePayload) -> str:
+    encoded = image.data_url.split(",", 1)[1]
+    if image.mime_type == "image/jpeg":
+        return encoded
+
+    raw = base64.b64decode(encoded)
+    with Image.open(io.BytesIO(raw)) as decoded:
+        frame = decoded.convert("RGB")
+        buffer = io.BytesIO()
+        frame.save(buffer, format="JPEG", quality=92)
+    return base64.b64encode(buffer.getvalue()).decode("ascii")
+
+
+def _ollama_message_payload(message: ChatMessagePayload) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "role": message.role,
+        "content": message.content,
+    }
+    if message.images:
+        payload["images"] = [_ollama_image_base64(image) for image in message.images]
+    return payload
 
 
 async def stream_ollama_chat(
     *,
     model: str,
-    messages: list[dict[str, str]],
+    messages: list[ChatMessagePayload],
 ) -> AsyncIterator[dict]:
     payload = {
         "model": model,
-        "messages": messages,
+        "messages": [_ollama_message_payload(message) for message in messages],
         "stream": True,
     }
 
@@ -193,14 +288,35 @@ async def stream_ollama_chat(
                 yield json.loads(line)
 
 
+def _openai_message_payload(message: ChatMessagePayload) -> dict[str, object]:
+    if not message.images:
+        return {
+            "role": message.role,
+            "content": message.content,
+        }
+
+    content: list[dict[str, object]] = [{"type": "text", "text": message.content}]
+    content.extend(
+        {
+            "type": "image_url",
+            "image_url": {"url": image.data_url},
+        }
+        for image in message.images
+    )
+    return {
+        "role": message.role,
+        "content": content,
+    }
+
+
 async def stream_openai_chat(
     *,
     model: str,
-    messages: list[dict[str, str]],
+    messages: list[ChatMessagePayload],
 ) -> AsyncIterator[dict]:
     payload = {
         "model": model,
-        "messages": messages,
+        "messages": [_openai_message_payload(message) for message in messages],
         "stream": True,
     }
 
@@ -249,7 +365,7 @@ async def stream_openai_chat(
 async def stream_chat(
     *,
     model: str,
-    messages: list[dict[str, str]],
+    messages: list[ChatMessagePayload],
 ) -> AsyncIterator[dict]:
     provider, model_name = model_provider_and_name(model)
     if provider == "openai":
@@ -264,7 +380,7 @@ async def stream_chat(
 async def complete_chat(
     *,
     model: str,
-    messages: list[dict[str, str]],
+    messages: list[ChatMessagePayload],
 ) -> str:
     chunks: list[str] = []
     async for chunk in stream_chat(model=model, messages=messages):

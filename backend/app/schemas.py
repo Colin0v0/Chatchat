@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from datetime import datetime
 from typing import Optional
@@ -33,12 +33,23 @@ class RegenerateRequest(BaseModel):
     use_web: bool = False
 
 
+class MessageAttachmentOut(BaseModel):
+    id: int
+    kind: str
+    original_name: str
+    mime_type: str
+    size_bytes: int
+    url: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class MessageSource(BaseModel):
     type: str = "note"
     path: str
     heading: str = ""
     excerpt: str = ""
-    score: float | None = None
+    score: Optional[float] = None
     title: str = ""
     url: str = ""
     domain: str = ""
@@ -52,6 +63,7 @@ class MessageOut(BaseModel):
     id: int
     role: str
     content: str
+    attachments: list[MessageAttachmentOut] = Field(default_factory=list)
     sources: list[MessageSource] = Field(default_factory=list)
     created_at: Optional[datetime] = None
 
@@ -65,14 +77,6 @@ class ConversationDetail(BaseModel):
     messages: list[MessageOut]
 
     model_config = ConfigDict(from_attributes=True)
-
-
-class ChatRequest(BaseModel):
-    conversation_id: Optional[int] = None
-    message: str = Field(min_length=1)
-    model: Optional[str] = None
-    use_rag: bool = False
-    use_web: bool = False
 
 
 class RagStatus(BaseModel):

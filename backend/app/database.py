@@ -48,3 +48,5 @@ def ensure_schema() -> None:
         column_names = {str(item["name"]) for item in columns}
         if "sources_json" not in column_names:
             connection.execute(text("ALTER TABLE messages ADD COLUMN sources_json TEXT"))
+        if "image_context" not in column_names:
+            connection.execute(text("ALTER TABLE messages ADD COLUMN image_context TEXT"))

@@ -1,11 +1,12 @@
 import { Check, Copy, RotateCcw, ThumbsDown, ThumbsUp } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
+import type { ChatMessage, ToolPlan } from "../types";
+import { MarkdownMessage } from "./markdown/MarkdownMessage";
+import { MessageImageStrip } from "./message/MessageImageStrip";
 import { MessageSources } from "./message/MessageSources";
 import { ToolPlanPanel } from "./message/ToolPlanPanel";
-import { MarkdownMessage } from "./markdown/MarkdownMessage";
 import { ThinkingPanel } from "./thinking/ThinkingPanel";
-import type { ChatMessage, ToolPlan } from "../types";
 
 interface MessageListProps {
   items: ChatMessage[];
@@ -149,7 +150,7 @@ function UserActions({ content, hidden = false }: { content: string; hidden?: bo
     }
   }
 
-  if (hidden) {
+  if (hidden || !content.trim()) {
     return null;
   }
 
@@ -207,14 +208,18 @@ export function MessageList({
           thinkingTraceAvailable &&
           item.id === activeStreamingAssistantId &&
           !showStreamingStatus;
+        const attachments = item.attachments ?? [];
 
         if (!isAssistant) {
           return (
             <article className="mb-4 flex justify-end last:mb-0" key={item.id}>
               <div className="group max-w-[420px]">
-                <div className="rounded-[20px] bg-app-panel-soft px-4 py-2.5 text-left text-[15px] leading-7 text-app-accent-strong">
-                  {renderMessageContent(item.content)}
-                </div>
+                <MessageImageStrip align="end" attachments={attachments} />
+                {item.content.trim() ? (
+                  <div className="rounded-[20px] bg-app-panel-soft px-4 py-2.5 text-left text-[15px] leading-7 text-app-accent-strong">
+                    {renderMessageContent(item.content)}
+                  </div>
+                ) : null}
                 <UserActions content={item.content} hidden={hideActions} />
               </div>
             </article>

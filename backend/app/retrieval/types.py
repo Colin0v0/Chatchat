@@ -1,7 +1,9 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Literal
+
+from ..chat_types import ChatMessagePayload
 
 SourceType = Literal["note", "web"]
 
@@ -61,7 +63,7 @@ class ContextPayload:
 
 @dataclass(frozen=True)
 class PromptContextPayload:
-    context_message: dict[str, str] | None
+    context_message: ChatMessagePayload | None
     sources: list[dict[str, str | float | None]] = field(default_factory=list)
     should_refuse: bool = False
     refusal_message: str | None = None

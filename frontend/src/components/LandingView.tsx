@@ -1,15 +1,18 @@
-ï»¿import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-import { ChatComposer } from "./ChatComposer";
+import type { ComposerImageDraft } from "../app/useComposerImages";
 import type { ModelOption } from "../types";
+import { ChatComposer } from "./ChatComposer";
 
 const BASE_TYPEWRITER_MS = 42;
 const ENDING_SLOWDOWN_MS = 56;
 const PUNCTUATION_PAUSE_MS = 180;
-const PUNCTUATION = new Set(["ï¼Œ", "ã€‚", "ï¼Ÿ", "ï¼", "ï¼š", "ï¼›", ",", ".", "?", "!", ":", ";"]);
+const PUNCTUATION = new Set(["£¬", "¡£", "£¿", "£¡", "£º", "£»", ",", ".", "?", "!", ":", ";"]);
 
 interface LandingViewProps {
   draft: string;
+  draftImages: ComposerImageDraft[];
+  imageUploadAvailable: boolean;
   isStreaming: boolean;
   model: string;
   models: ModelOption[];
@@ -22,6 +25,8 @@ interface LandingViewProps {
   onAnimationComplete: () => void;
   onChangeDraft: (value: string) => void;
   onModelChange: (value: string) => void;
+  onRemoveDraftImage: (imageId: string) => void;
+  onSelectImages: (files: FileList | File[]) => void;
   onSend: () => void;
   onStop: () => void;
   onToggleRag: () => void;
@@ -38,6 +43,8 @@ function getTypewriterDelay(title: string, index: number) {
 
 export function LandingView({
   draft,
+  draftImages,
+  imageUploadAvailable,
   isStreaming,
   model,
   models,
@@ -50,6 +57,8 @@ export function LandingView({
   onAnimationComplete,
   onChangeDraft,
   onModelChange,
+  onRemoveDraftImage,
+  onSelectImages,
   onSend,
   onStop,
   onToggleRag,
@@ -102,21 +111,25 @@ export function LandingView({
         <div className="shrink-0 pt-3">
           <ChatComposer
             centered={false}
+            imageUploadAvailable={imageUploadAvailable}
+            images={draftImages}
             isStreaming={isStreaming}
             model={model}
             models={models}
             onChange={onChangeDraft}
             onModelChange={onModelChange}
+            onRemoveImage={onRemoveDraftImage}
+            onSelectImages={onSelectImages}
             onStop={onStop}
             onSubmit={onSend}
             onToggleRag={onToggleRag}
-            onToggleWeb={onToggleWeb}
             onToggleThinking={onToggleThinking}
+            onToggleWeb={onToggleWeb}
             ragEnabled={ragEnabled}
-            webEnabled={webEnabled}
-            thinkingEnabled={thinkingEnabled}
             thinkingAvailable={thinkingAvailable}
+            thinkingEnabled={thinkingEnabled}
             value={draft}
+            webEnabled={webEnabled}
           />
         </div>
       </div>

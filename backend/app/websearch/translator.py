@@ -2,17 +2,16 @@
 
 import re
 
-import httpx
-
+from ..chat_types import ChatMessagePayload
 from ..config import Settings
-from ..providers import model_provider_and_name
+from ..providers import complete_chat, model_provider_and_name
 
-TRANSLATION_PROMPT_TEMPLATE = '''You are a professional Chinese (zh-Hans) to English (en) translator.
-Your goal is to accurately convey the meaning and nuances of the original Chinese text while adhering to English grammar, vocabulary, and cultural sensitivities.
-Produce only the English translation, without any additional explanations or commentary. Please translate the following Chinese text into English:
-
-
-{query}'''
+TRANSLATION_SYSTEM_PROMPT = '''You are a professional Chinese (zh-Hans) to English (en) translator.
+Accurately translate the user's Chinese search query into natural English.
+Return only the English search query.
+Do not explain the translation.
+Do not add quotation marks.
+'''
 STOPWORDS = {
     'a', 'an', 'are', 'do', 'does', 'how', 'in', 'is', 'like', 'the', 'what', 'whats', "what's",
 }
@@ -29,30 +28,23 @@ INVALID_PHRASES = (
     'please provide chinese text',
 )
 GENERIC_MUSIC_TOKENS = {'song', 'songs', 'time', 'who', 'by', 'singer', 'artist', 'title', 'music'}
-MUSIC_LOOKUP_HINTS = ('\u8c01\u5531', '\u662f\u8c01\u7684\u6b4c', '\u6b4c', '\u6f14\u5531', '\u4f5c\u8bcd', '\u4f5c\u66f2')
+MUSIC_LOOKUP_HINTS = ('谁唱', '是谁的歌', '歌', '演唱', '作词', '作曲')
 
 
 async def translate_query_for_search(query: str, settings: Settings) -> str:
-    provider, model_name = model_provider_and_name(settings.web_search_translation_model)
+    provider, _ = model_provider_and_name(settings.web_search_translation_model)
     if provider != 'ollama':
         raise RuntimeError('WEB_SEARCH_TRANSLATION_MODEL must use an Ollama model.')
 
-    payload = {
-        'model': model_name,
-        'prompt': TRANSLATION_PROMPT_TEMPLATE.format(query=query),
-        'stream': False,
-        'options': {
-            'temperature': 0,
-            'num_predict': 48,
-        },
-    }
-
-    timeout = httpx.Timeout(settings.request_timeout_seconds, connect=10.0)
-    async with httpx.AsyncClient(base_url=settings.ollama_base_url.rstrip('/'), timeout=timeout) as client:
-        response = await client.post('/api/generate', json=payload)
-        response.raise_for_status()
-
-    translated = _normalize_translation(str(response.json().get('response', '')))
+    translated = _normalize_translation(
+        await complete_chat(
+            model=settings.web_search_translation_model,
+            messages=[
+                ChatMessagePayload(role='system', content=TRANSLATION_SYSTEM_PROMPT),
+                ChatMessagePayload(role='user', content=query),
+            ],
+        )
+    )
     _ensure_translation_quality(query=query, translated=translated, model=settings.web_search_translation_model)
     return translated
 

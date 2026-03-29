@@ -1,13 +1,16 @@
 import { useEffect, useLayoutEffect, useRef } from "react";
 
+import type { ComposerImageDraft } from "../app/useComposerImages";
+import type { ConversationDetail, ModelOption, ToolPlan } from "../types";
 import { ChatComposer } from "./ChatComposer";
 import { MessageList } from "./MessageList";
-import type { ConversationDetail, ModelOption, ToolPlan } from "../types";
 
 interface ConversationViewProps {
   conversation: ConversationDetail;
   collapsedMessageIds?: ReadonlySet<number | string>;
   draft: string;
+  draftImages: ComposerImageDraft[];
+  imageUploadAvailable: boolean;
   isStreaming: boolean;
   model: string;
   models: ModelOption[];
@@ -22,9 +25,11 @@ interface ConversationViewProps {
   toolPlan: ToolPlan | null;
   onChangeDraft: (value: string) => void;
   onModelChange: (value: string) => void;
+  onRemoveDraftImage: (imageId: string) => void;
+  onRetry: (messageId: number) => void;
+  onSelectImages: (files: FileList | File[]) => void;
   onSend: () => void;
   onStop: () => void;
-  onRetry: (messageId: number) => void;
   onToggleRag: () => void;
   onToggleWeb: () => void;
   onToggleThinking: () => void;
@@ -35,6 +40,8 @@ export function ConversationView({
   conversation,
   collapsedMessageIds,
   draft,
+  draftImages,
+  imageUploadAvailable,
   isStreaming,
   model,
   models,
@@ -49,9 +56,11 @@ export function ConversationView({
   toolPlan,
   onChangeDraft,
   onModelChange,
+  onRemoveDraftImage,
+  onRetry,
+  onSelectImages,
   onSend,
   onStop,
-  onRetry,
   onToggleRag,
   onToggleWeb,
   onToggleThinking,
@@ -115,32 +124,36 @@ export function ConversationView({
             onRetry={onRetry}
             onToggleThinkingTrace={onToggleThinkingTrace}
             statusItems={statusItems}
-            toolPlan={toolPlan}
             thinkingEnabled={thinkingEnabled}
             thinkingTrace={thinkingTrace}
             thinkingTraceAvailable={thinkingTraceAvailable}
             thinkingTraceExpanded={thinkingTraceExpanded}
+            toolPlan={toolPlan}
           />
         </div>
       </div>
 
       <div className="px-4 pt-2 md:px-6">
         <ChatComposer
+          imageUploadAvailable={imageUploadAvailable}
+          images={draftImages}
           isStreaming={isStreaming}
           model={model}
           models={models}
           onChange={onChangeDraft}
           onModelChange={onModelChange}
+          onRemoveImage={onRemoveDraftImage}
+          onSelectImages={onSelectImages}
           onStop={onStop}
           onSubmit={onSend}
           onToggleRag={onToggleRag}
-          onToggleWeb={onToggleWeb}
           onToggleThinking={onToggleThinking}
+          onToggleWeb={onToggleWeb}
           ragEnabled={ragEnabled}
-          webEnabled={webEnabled}
           thinkingAvailable={thinkingAvailable}
           thinkingEnabled={thinkingEnabled}
           value={draft}
+          webEnabled={webEnabled}
         />
       </div>
     </section>

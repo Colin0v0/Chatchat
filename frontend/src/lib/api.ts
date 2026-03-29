@@ -12,6 +12,13 @@ import { toModelLabel } from "./models";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 
+export function toApiUrl(path: string): string {
+  if (!path.startsWith("/")) {
+    return path;
+  }
+  return `${API_BASE}${path}`;
+}
+
 async function readErrorMessage(response: Response): Promise<string> {
   const raw = await response.text();
   if (!raw) {
@@ -34,7 +41,7 @@ async function readErrorMessage(response: Response): Promise<string> {
 }
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
+  const response = await fetch(toApiUrl(path), {
     headers: {
       "Content-Type": "application/json",
       ...(init?.headers ?? {}),
@@ -59,6 +66,8 @@ function toModelOption(model: string | ModelOption): ModelOption {
     label: toModelLabel(model),
     supports_thinking: false,
     supports_thinking_trace: false,
+    supports_image_input: false,
+    supports_image_upload: true,
     chat_model: null,
     reasoning_model: null,
   };
@@ -117,7 +126,7 @@ export function renameConversation(conversationId: number, title: string) {
 }
 
 export async function deleteConversation(conversationId: number) {
-  const response = await fetch(`${API_BASE}/api/conversations/${conversationId}`, {
+  const response = await fetch(toApiUrl(`/api/conversations/${conversationId}`), {
     method: "DELETE",
   });
 
@@ -132,20 +141,32 @@ export function reindexRag() {
   });
 }
 
-export async function streamChat(
-  payload: ChatStreamRequest,
-  handlers: {
-    onEvent: (event: ChatStreamEvent) => void;
-    signal?: AbortSignal;
-  },
-) {
-  const response = await fetch(`${API_BASE}/api/chat/stream`, {
+interface StreamRequestOptions {
+  onEvent: (event: ChatStreamEvent) => void;
+  signal?: AbortSignal;
+}
+
+export async function streamChat(payload: ChatStreamRequest, options: StreamRequestOptions) {
+  const formData = new FormData();
+  if (payload.conversation_id) {
+    formData.append("conversation_id", String(payload.conversation_id));
+  }
+  formData.append("message", payload.message);
+  if (payload.model) {
+    formData.append("model", payload.model);
+  }
+  if (payload.use_rag) {
+    formData.append("use_rag", "true");
+  }
+  if (payload.use_web) {
+    formData.append("use_web", "true");
+  }
+  payload.images?.forEach((file) => formData.append("images", file));
+
+  const response = await fetch(toApiUrl("/api/chat/stream"), {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-    signal: handlers.signal,
+    body: formData,
+    signal: options.signal,
   });
 
   if (!response.ok) {
@@ -153,7 +174,7 @@ export async function streamChat(
   }
 
   if (!response.body) {
-    throw new Error("Streaming response is not available");
+    throw new Error("Streaming is not supported by this browser.");
   }
 
   const reader = response.body.getReader();
@@ -167,37 +188,31 @@ export async function streamChat(
     }
 
     buffer += decoder.decode(value, { stream: true });
-    const parts = buffer.split("\n");
-    buffer = parts.pop() ?? "";
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
 
-    for (const part of parts) {
-      if (!part.trim()) {
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) {
         continue;
       }
-      handlers.onEvent(JSON.parse(part) as ChatStreamEvent);
+      options.onEvent(JSON.parse(trimmed) as ChatStreamEvent);
     }
   }
 
-  const rest = buffer.trim();
-  if (rest) {
-    handlers.onEvent(JSON.parse(rest) as ChatStreamEvent);
+  if (buffer.trim()) {
+    options.onEvent(JSON.parse(buffer) as ChatStreamEvent);
   }
 }
 
-export async function regenerateChat(
-  payload: RegenerateChatRequest,
-  handlers: {
-    onEvent: (event: ChatStreamEvent) => void;
-    signal?: AbortSignal;
-  },
-) {
-  const response = await fetch(`${API_BASE}/api/chat/regenerate`, {
+export async function regenerateChat(payload: RegenerateChatRequest, options: StreamRequestOptions) {
+  const response = await fetch(toApiUrl("/api/chat/regenerate"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify(payload),
-    signal: handlers.signal,
+    signal: options.signal,
   });
 
   if (!response.ok) {
@@ -205,7 +220,7 @@ export async function regenerateChat(
   }
 
   if (!response.body) {
-    throw new Error("Streaming response is not available");
+    throw new Error("Streaming is not supported by this browser.");
   }
 
   const reader = response.body.getReader();
@@ -219,19 +234,19 @@ export async function regenerateChat(
     }
 
     buffer += decoder.decode(value, { stream: true });
-    const parts = buffer.split("\n");
-    buffer = parts.pop() ?? "";
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
 
-    for (const part of parts) {
-      if (!part.trim()) {
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) {
         continue;
       }
-      handlers.onEvent(JSON.parse(part) as ChatStreamEvent);
+      options.onEvent(JSON.parse(trimmed) as ChatStreamEvent);
     }
   }
 
-  const rest = buffer.trim();
-  if (rest) {
-    handlers.onEvent(JSON.parse(rest) as ChatStreamEvent);
+  if (buffer.trim()) {
+    options.onEvent(JSON.parse(buffer) as ChatStreamEvent);
   }
 }

@@ -9,6 +9,8 @@ export function createModelOption(id: string): ModelOption {
       label: "deepseek-chat",
       supports_thinking: true,
       supports_thinking_trace: false,
+      supports_image_input: false,
+      supports_image_upload: true,
       chat_model: INITIAL_CHAT_MODEL,
       reasoning_model: INITIAL_REASONING_MODEL,
     };
@@ -20,6 +22,8 @@ export function createModelOption(id: string): ModelOption {
       label: "deepseek-reasoner",
       supports_thinking: true,
       supports_thinking_trace: true,
+      supports_image_input: false,
+      supports_image_upload: true,
       chat_model: INITIAL_CHAT_MODEL,
       reasoning_model: INITIAL_REASONING_MODEL,
     };
@@ -30,6 +34,8 @@ export function createModelOption(id: string): ModelOption {
     label: toModelLabel(id),
     supports_thinking: false,
     supports_thinking_trace: false,
+    supports_image_input: false,
+    supports_image_upload: true,
     chat_model: null,
     reasoning_model: null,
   };

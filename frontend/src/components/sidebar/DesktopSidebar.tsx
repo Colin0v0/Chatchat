@@ -25,7 +25,7 @@ export function DesktopSidebar({ open, onToggleSidebar, ...contentProps }: Sideb
           open ? "opacity-100" : "pointer-events-none opacity-0",
         )}
       >
-        <SidebarContent {...contentProps} mode="desktop" />
+        <SidebarContent {...contentProps} mode="desktop" open={open} />
       </div>
       <DesktopSidebarToggle onToggle={onToggleSidebar} open={open} />
     </div>

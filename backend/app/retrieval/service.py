@@ -3,6 +3,7 @@
 import asyncio
 from typing import TYPE_CHECKING
 
+from ..chat_types import ChatMessagePayload
 from ..config import Settings
 from .language import prefers_simplified_chinese, response_language_instruction
 from .planner_types import RetrievalPlan
@@ -235,7 +236,7 @@ class RetrievalService:
         entries: list[ContextEntry],
         instructions: tuple[str, ...],
         strategy: RetrievalStrategy,
-    ) -> dict[str, str]:
+    ) -> ChatMessagePayload:
         blocks: list[str] = []
         for index, entry in enumerate(entries, start=1):
             source = entry.source
@@ -276,7 +277,4 @@ class RetrievalService:
             content += "\nFollow these answer-mode instructions:\n" + instruction_block
 
         content += "\n\n" + "\n\n".join(blocks)
-        return {
-            "role": "system",
-            "content": content,
-        }
+        return ChatMessagePayload(role="system", content=content)

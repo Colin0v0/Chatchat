@@ -1,6 +1,8 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
+
+from ..chat_types import ChatMessagePayload
 
 MAX_HISTORY_ITEMS = 6
 MAX_MESSAGE_CHARS = 500
@@ -45,7 +47,7 @@ def build_tool_planner_messages(
     message_history: list[dict[str, str]],
     use_rag: bool,
     use_web: bool,
-) -> list[dict[str, str]]:
+) -> list[ChatMessagePayload]:
     transcript = [
         {
             "role": item.get("role", ""),
@@ -71,6 +73,6 @@ def build_tool_planner_messages(
         ],
     }
     return [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": json.dumps(payload, ensure_ascii=False, indent=2)},
+        ChatMessagePayload(role="system", content=SYSTEM_PROMPT),
+        ChatMessagePayload(role="user", content=json.dumps(payload, ensure_ascii=False, indent=2)),
     ]

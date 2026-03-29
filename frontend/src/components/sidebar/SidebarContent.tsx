@@ -8,6 +8,7 @@ import type { SidebarDialogState, SidebarSharedProps } from "./types";
 
 interface SidebarContentProps extends SidebarSharedProps {
   mode: "desktop" | "mobile";
+  open?: boolean;
 }
 
 export function SidebarContent({
@@ -22,14 +23,17 @@ export function SidebarContent({
   onSelect,
   onOpenSettings,
   mode,
+  open = true,
 }: SidebarContentProps) {
   const [menuConversationId, setMenuConversationId] = useState<number | null>(null);
   const [dialogState, setDialogState] = useState<SidebarDialogState>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const isDesktop = mode === "desktop";
+  const showDesktopText = !isDesktop || open;
   const sectionPadding = isDesktop ? "px-2" : "px-4";
   const headingPadding = isDesktop ? "px-3" : "px-4";
   const contentTopPadding = isDesktop ? "pt-[132px]" : "pt-4";
+  const contentBottomPadding = isDesktop ? "pb-[64px]" : "pb-4";
   const emptyText = "\u8fd8\u6ca1\u6709\u5bf9\u8bdd\uff0c\u5148\u53d1\u7b2c\u4e00\u6761\u6d88\u606f\u3002";
 
   useEffect(() => {
@@ -59,7 +63,7 @@ export function SidebarContent({
 
   return (
     <>
-      <div className={`flex h-full flex-col bg-app-sidebar ${contentTopPadding} pb-4`}>
+      <div className={`flex h-full flex-col bg-app-sidebar ${contentTopPadding} ${contentBottomPadding}`}>
         {isDesktop ? (
           <div className={sectionPadding}>
             <SidebarAction
@@ -92,7 +96,13 @@ export function SidebarContent({
         )}
 
         <div className="mt-4 flex min-h-0 flex-1 flex-col gap-3">
-          <div className={`${headingPadding} text-[13px] font-semibold tracking-[0.14em] text-app-muted uppercase`}>
+          <div
+            className={cn(
+              headingPadding,
+              "text-[13px] font-semibold tracking-[0.14em] text-app-muted uppercase",
+              isDesktop && !showDesktopText && "pointer-events-none opacity-0",
+            )}
+          >
             Recent
           </div>
 
@@ -106,7 +116,14 @@ export function SidebarContent({
             {conversationsLoaded ? (
               <div className={`flex flex-col gap-2 ${sectionPadding}`}>
                 {items.length === 0 ? (
-                  <div className="px-3 py-2 text-[14px] text-app-muted">{emptyText}</div>
+                  <div
+                    className={cn(
+                      "overflow-hidden px-3 text-[14px] text-app-muted",
+                      showDesktopText ? "py-2 opacity-100" : "max-h-0 py-0 opacity-0",
+                    )}
+                  >
+                    {emptyText}
+                  </div>
                 ) : null}
 
                 {items.map((item) => {

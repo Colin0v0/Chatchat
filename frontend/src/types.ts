@@ -1,4 +1,13 @@
-﻿export type Role = "user" | "assistant" | "system";
+export type Role = "user" | "assistant" | "system";
+
+export interface MessageAttachment {
+  id: number | string;
+  kind: "image";
+  original_name: string;
+  mime_type: string;
+  size_bytes: number;
+  url: string;
+}
 
 export interface MessageSource {
   type?: "note" | "web";
@@ -27,6 +36,7 @@ export interface ChatMessage {
   id: number | string;
   role: Role;
   content: string;
+  attachments?: MessageAttachment[];
   sources?: MessageSource[];
   created_at?: string | null;
 }
@@ -43,6 +53,8 @@ export interface ModelOption {
   label: string;
   supports_thinking: boolean;
   supports_thinking_trace: boolean;
+  supports_image_input: boolean;
+  supports_image_upload: boolean;
   chat_model: string | null;
   reasoning_model: string | null;
 }
@@ -55,6 +67,7 @@ export interface ModelsPayload {
 export interface ChatStreamRequest {
   conversation_id?: number | null;
   message: string;
+  images?: File[];
   model?: string | null;
   use_rag?: boolean;
   use_web?: boolean;
