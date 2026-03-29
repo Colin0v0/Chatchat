@@ -156,6 +156,9 @@ export async function streamChat(payload: ChatStreamRequest, options: StreamRequ
     formData.append("model", payload.model);
   }
   formData.append("retrieval_mode", payload.retrieval_mode);
+  if (payload.thinking_enabled != null) {
+    formData.append("thinking_enabled", String(payload.thinking_enabled));
+  }
   payload.files?.forEach((file) => formData.append("files", file));
 
   const response = await fetch(toApiUrl("/api/chat/stream"), {

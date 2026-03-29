@@ -34,6 +34,7 @@ async def chat_stream(
     message: str = Form(""),
     model: Optional[str] = Form(None),
     retrieval_mode: RetrievalMode = Form("none"),
+    thinking_enabled: Optional[bool] = Form(None),
     files: Optional[list[UploadFile]] = File(None),
     db: Session = Depends(get_db),
 ):
@@ -45,5 +46,6 @@ async def chat_stream(
         message=message,
         model=model,
         retrieval_mode=retrieval_mode,
+        thinking_enabled=thinking_enabled,
         files=files,
     )

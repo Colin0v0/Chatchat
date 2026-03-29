@@ -33,6 +33,7 @@ class RegenerateRequest(BaseModel):
     assistant_message_id: int
     model: Optional[str] = None
     retrieval_mode: RetrievalMode = "none"
+    thinking_enabled: Optional[bool] = None
 
 
 class MessageAttachmentOut(BaseModel):

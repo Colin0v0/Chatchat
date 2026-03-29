@@ -91,6 +91,7 @@ async def regenerate_chat_response(
             history_message_ids=history_message_ids(history_messages),
             query=source_user.content,
             retrieval_mode=payload.retrieval_mode,
+            thinking_enabled=payload.thinking_enabled,
         ),
         media_type="application/x-ndjson",
     )
@@ -104,6 +105,7 @@ async def chat_stream_response(
     message: str,
     model: Optional[str],
     retrieval_mode: RetrievalMode,
+    thinking_enabled: Optional[bool],
     files,
 ) -> StreamingResponse:
     content = message.strip()
@@ -174,6 +176,7 @@ async def chat_stream_response(
             history_message_ids=history_message_ids(list(conversation.messages)),
             query=content,
             retrieval_mode=retrieval_mode,
+            thinking_enabled=thinking_enabled,
         ),
         media_type="application/x-ndjson",
     )

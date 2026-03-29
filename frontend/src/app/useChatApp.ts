@@ -73,6 +73,7 @@ export function useChatApp({
   const [collapsedMessageIds, setCollapsedMessageIds] = useState<Set<number | string>>(new Set());
   const [retrievalMode, setRetrievalMode] = useState<RetrievalMode>("none");
   const [thinkingExpanded, setThinkingExpanded] = useState(false);
+  const [nativeThinkingByModel, setNativeThinkingByModel] = useState<Record<string, boolean>>({});
   const [landingHeroAnimated, setLandingHeroAnimated] = useState(false);
   const [landingTitle] = useState(() => pickLandingTitle());
   const [error, setError] = useState<string | null>(null);
@@ -89,9 +90,25 @@ export function useChatApp({
     () => findModelOption(models, selectedModel),
     [models, selectedModel],
   );
-  const thinkingAvailable = selectedModelOption.supports_thinking;
+  const nativeThinkingSupported =
+    selectedModelOption.supports_thinking_trace && !selectedModelOption.reasoning_model;
+  const nativeThinkingToggleAvailable =
+    nativeThinkingSupported && selectedModel.startsWith("ollama:deepseek-r1");
+  const nativeThinkingForced = nativeThinkingSupported && !nativeThinkingToggleAvailable;
+  const nativeThinkingEnabled = nativeThinkingByModel[selectedModel] ?? true;
+  const thinkingToggleAvailable = selectedModelOption.supports_thinking || nativeThinkingToggleAvailable;
+  const thinkingAvailable = thinkingToggleAvailable;
   const thinkingEnabled =
-    thinkingAvailable && selectedModelOption.reasoning_model === selectedModel;
+    nativeThinkingForced
+      ? true
+      : nativeThinkingToggleAvailable
+      ? nativeThinkingEnabled
+      : selectedModelOption.supports_thinking &&
+        selectedModelOption.reasoning_model === selectedModel;
+  const thinkingRequestEnabled =
+    selectedModel.startsWith("ollama:") && nativeThinkingSupported
+      ? thinkingEnabled
+      : null;
   const attachmentUploadAvailable = selectedModelOption.supports_attachment_upload;
 
   const clearTransientAttachmentUrls = useCallback(() => {
@@ -216,7 +233,19 @@ export function useChatApp({
   }, []);
 
   const handleToggleThinking = useCallback(() => {
-    if (!thinkingAvailable) {
+    if (!thinkingToggleAvailable) {
+      return;
+    }
+
+    if (nativeThinkingForced) {
+      return;
+    }
+
+    if (nativeThinkingToggleAvailable) {
+      setNativeThinkingByModel((current) => ({
+        ...current,
+        [selectedModel]: !thinkingEnabled,
+      }));
       return;
     }
 
@@ -226,7 +255,14 @@ export function useChatApp({
     }
 
     setSelectedModel(selectedModelOption.reasoning_model ?? selectedModel);
-  }, [selectedModel, selectedModelOption, thinkingAvailable, thinkingEnabled]);
+  }, [
+    selectedModel,
+    selectedModelOption,
+    thinkingEnabled,
+    nativeThinkingForced,
+    thinkingToggleAvailable,
+    nativeThinkingToggleAvailable,
+  ]);
 
   const handleNewChat = useCallback(() => {
     clearAttachments();
@@ -365,6 +401,7 @@ export function useChatApp({
             files: pendingFiles,
             model: effectiveModel,
             retrieval_mode: retrievalMode,
+            thinking_enabled: thinkingRequestEnabled,
           },
           { onEvent, signal },
         ),
@@ -385,6 +422,7 @@ export function useChatApp({
     runStream,
     selectedModel,
     setError,
+    thinkingRequestEnabled,
   ]);
 
   const handleStop = useCallback(async () => {
@@ -451,6 +489,7 @@ export function useChatApp({
                 assistant_message_id: messageId,
                 model: effectiveModel,
                 retrieval_mode: retrievalMode,
+                thinking_enabled: thinkingRequestEnabled,
               },
               { onEvent, signal },
             );
@@ -464,6 +503,7 @@ export function useChatApp({
               files: restoredFiles,
               model: effectiveModel,
               retrieval_mode: retrievalMode,
+              thinking_enabled: thinkingRequestEnabled,
             },
             { onEvent, signal },
           );
@@ -483,6 +523,7 @@ export function useChatApp({
       runStream,
       selectedModel,
       setError,
+      thinkingRequestEnabled,
     ],
   );
 

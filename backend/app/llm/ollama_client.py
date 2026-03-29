@@ -61,9 +61,14 @@ async def list_ollama_models() -> list[DiscoveredModel]:
             DiscoveredModel(
                 id=namespaced_model("ollama", model_name),
                 supports_image_input="vision" in capabilities,
+                supports_thinking="thinking" in capabilities,
             )
         )
     return discovered
+
+
+def ollama_supports_thinking(model_name: str) -> bool:
+    return "thinking" in OLLAMA_CAPABILITY_CACHE.get(model_name, set())
 
 
 def ollama_image_base64(image: ChatImagePayload) -> str:
@@ -93,12 +98,15 @@ async def stream_ollama_chat(
     *,
     model: str,
     messages: list[ChatMessagePayload],
+    thinking_enabled: bool | None = None,
 ) -> AsyncIterator[dict]:
     payload = {
         "model": model,
         "messages": [ollama_message_payload(message) for message in messages],
         "stream": True,
     }
+    if ollama_supports_thinking(model):
+        payload["think"] = True if thinking_enabled is None else thinking_enabled
 
     timeout = httpx.Timeout(settings.request_timeout_seconds, connect=10.0)
     async with httpx.AsyncClient(
@@ -110,4 +118,18 @@ async def stream_ollama_chat(
             async for line in response.aiter_lines():
                 if not line:
                     continue
-                yield json.loads(line)
+                chunk = json.loads(line)
+                event: dict[str, object] = {}
+                thinking_delta = chunk.get("message", {}).get("thinking", "")
+                if thinking_delta:
+                    event["reasoning"] = {"content": thinking_delta}
+
+                content_delta = chunk.get("message", {}).get("content", "")
+                if content_delta:
+                    event["message"] = {"content": content_delta}
+
+                if chunk.get("done"):
+                    event["done"] = True
+
+                if event:
+                    yield event

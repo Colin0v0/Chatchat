@@ -10,6 +10,7 @@ Provider = Literal["ollama", "openai"]
 class DiscoveredModel(TypedDict):
     id: str
     supports_image_input: bool
+    supports_thinking: bool
 
 
 class ModelOption(TypedDict):

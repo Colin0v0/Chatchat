@@ -74,6 +74,7 @@ export interface ChatStreamRequest {
   files?: File[];
   model?: string | null;
   retrieval_mode: RetrievalMode;
+  thinking_enabled?: boolean | null;
 }
 
 export interface RegenerateChatRequest {
@@ -81,6 +82,7 @@ export interface RegenerateChatRequest {
   assistant_message_id: number;
   model?: string | null;
   retrieval_mode: RetrievalMode;
+  thinking_enabled?: boolean | null;
 }
 
 export interface RagReindexResult {

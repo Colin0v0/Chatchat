@@ -35,12 +35,16 @@ function MobileMenuAction({
   label,
   onClick,
 }: MobileMenuActionProps) {
+  const disabledClassName = active
+    ? "cursor-default bg-app-panel-strong text-[#5f564a] opacity-85"
+    : "cursor-not-allowed bg-app-panel-strong text-app-muted/45";
+
   return (
     <button
       aria-pressed={active}
       className={`flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-[15px] font-medium tracking-[-0.02em] transition-colors ${
         disabled
-          ? "cursor-not-allowed bg-app-panel-strong text-app-muted/45"
+          ? disabledClassName
           : "bg-app-panel-strong text-[#5f564a] hover:bg-app-panel-soft"
       }`}
       disabled={disabled}

@@ -69,12 +69,16 @@ function ToggleChip({
   label: string;
   onClick: () => void;
 }) {
+  const disabledClassName = active
+    ? "cursor-default border-app-border-strong bg-app-panel-soft text-app-text opacity-85"
+    : "cursor-not-allowed border-app-border bg-app-panel-strong text-app-muted/45";
+
   return (
     <button
       aria-pressed={active}
       className={`inline-flex h-10 shrink-0 items-center gap-2 rounded-lg border px-3 text-[14px] font-medium tracking-[-0.01em] transition-colors ${
         disabled
-          ? "cursor-not-allowed border-app-border bg-app-panel-strong text-app-muted/45"
+          ? disabledClassName
           : active
             ? "border-app-border-strong bg-app-panel-soft text-app-text"
             : "border-app-border bg-app-panel-strong text-app-muted hover:bg-app-panel-soft"

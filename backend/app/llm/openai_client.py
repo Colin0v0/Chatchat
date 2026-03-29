@@ -40,6 +40,7 @@ async def list_openai_models() -> list[DiscoveredModel]:
             DiscoveredModel(
                 id=namespaced_model("openai", model),
                 supports_image_input=model in vision_models,
+                supports_thinking=False,
             )
             for model in filter_chat_model_names(allowlist)
         ]
@@ -54,6 +55,7 @@ async def list_openai_models() -> list[DiscoveredModel]:
         DiscoveredModel(
             id=namespaced_model("openai", model),
             supports_image_input=model in vision_models,
+            supports_thinking=False,
         )
         for model in models
     ]

@@ -39,12 +39,17 @@ async def assistant_event_stream(
     model: str,
     message_history: list[ChatMessagePayload],
     sources: list[dict[str, str | float | None]],
+    thinking_enabled: bool | None = None,
 ):
     assistant_chunks: list[str] = []
     if sources:
         yield json.dumps({"type": "sources", "sources": sources}, ensure_ascii=False) + "\n"
 
-    async for chunk in stream_chat(model=model, messages=message_history):
+    async for chunk in stream_chat(
+        model=model,
+        messages=message_history,
+        thinking_enabled=thinking_enabled,
+    ):
         reasoning_delta = chunk.get("reasoning", {}).get("content", "")
         if reasoning_delta:
             yield json.dumps({"type": "reasoning", "content": reasoning_delta}, ensure_ascii=False) + "\n"
@@ -93,6 +98,7 @@ async def response_event_stream(
     history_message_ids: list[int],
     query: str,
     retrieval_mode: RetrievalMode,
+    thinking_enabled: bool | None = None,
 ):
     provider, _ = model_provider_and_name(model)
     ollama_lock_acquired = try_acquire_ollama_chat_lock(
@@ -173,6 +179,7 @@ async def response_event_stream(
             model=model,
             message_history=hydrated_history,
             sources=prompt_context.sources,
+            thinking_enabled=thinking_enabled,
         ):
             yield part
     except httpx.HTTPError as exc:

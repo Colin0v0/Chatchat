@@ -21,15 +21,17 @@ def build_model_options(models: list[DiscoveredModel]) -> list[ModelOption]:
     options: list[ModelOption] = []
     for model in unique_models:
         pair = reasoning_pairs.get(model)
+        supports_native_thinking = discovered_by_id.get(model, {}).get("supports_thinking", False)
         chat_model = pair[0] if pair else None
         reasoning_model = pair[1] if pair else None
         supports_image_input = discovered_by_id.get(model, {}).get("supports_image_input", False)
+        supports_thinking_trace = model in reasoning_trace_models or supports_native_thinking
         options.append(
             ModelOption(
                 id=model,
                 label=present_model_name(model),
                 supports_thinking=pair is not None,
-                supports_thinking_trace=model in reasoning_trace_models,
+                supports_thinking_trace=supports_thinking_trace,
                 supports_image_input=supports_image_input,
                 supports_attachment_upload=True,
                 chat_model=chat_model,
