@@ -1,0 +1,42 @@
+from __future__ import annotations
+
+from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+
+from ..audio import AudioModelLoadError, get_audio_services
+from ..core.config import settings
+from ..schemas import AudioTranscriptionOut
+
+router = APIRouter(prefix="/api/audio", tags=["audio"])
+
+
+@router.post("/transcribe", response_model=AudioTranscriptionOut)
+async def transcribe_audio(
+    request: Request,
+    file: UploadFile = File(...),
+) -> AudioTranscriptionOut:
+    services = get_audio_services(request)
+    payload = await file.read()
+    await file.close()
+    if not payload:
+        raise HTTPException(status_code=400, detail="Audio file is empty.")
+    if len(payload) > settings.audio_max_upload_size_bytes:
+        raise HTTPException(status_code=400, detail="Audio file is too large.")
+
+    lock_acquired = False
+    if services.transcriber.requires_local_gpu:
+        lock_acquired = services.local_gpu_lock.acquire(blocking=False)
+        if not lock_acquired:
+            raise HTTPException(
+                status_code=409,
+                detail="Local GPU is busy. Stop the current local generation and retry.",
+            )
+
+    try:
+        return services.transcriber.transcribe(payload)
+    except AudioModelLoadError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        if lock_acquired:
+            services.local_gpu_lock.release()

@@ -1,4 +1,5 @@
 import type {
+  AudioTranscriptionResult,
   ChatStreamEvent,
   ChatStreamRequest,
   ConversationDetail,
@@ -144,6 +145,31 @@ export function reindexRag() {
 interface StreamRequestOptions {
   onEvent: (event: ChatStreamEvent) => void;
   signal?: AbortSignal;
+}
+
+function appendAudioFile(formData: FormData, file: Blob) {
+  const namedFile =
+    file instanceof File
+      ? file
+      : new File([file], "recording.webm", {
+          type: file.type || "audio/webm",
+          lastModified: Date.now(),
+        });
+  formData.append("file", namedFile);
+}
+
+export async function transcribeAudio(file: Blob): Promise<AudioTranscriptionResult> {
+  const formData = new FormData();
+  appendAudioFile(formData, file);
+
+  const response = await fetch(toApiUrl("/api/audio/transcribe"), {
+    method: "POST",
+    body: formData,
+  });
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response));
+  }
+  return response.json() as Promise<AudioTranscriptionResult>;
 }
 
 export async function streamChat(payload: ChatStreamRequest, options: StreamRequestOptions) {

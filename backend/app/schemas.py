@@ -103,3 +103,9 @@ class RagReindexResult(BaseModel):
     indexed_chunks: int
     failed_chunks: int = 0
     updated_at: str
+
+
+class AudioTranscriptionOut(BaseModel):
+    text: str
+    language: str
+    duration_ms: int

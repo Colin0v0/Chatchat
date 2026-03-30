@@ -18,10 +18,10 @@ class ChatServices:
     web_search_service: WebSearchService
     attachment_context_service: AttachmentContextService
     retrieval_service: RetrievalService
-    ollama_chat_lock: Lock
+    local_gpu_lock: Lock
 
 
-def build_chat_services(settings: Settings) -> ChatServices:
+def build_chat_services(settings: Settings, *, local_gpu_lock: Lock) -> ChatServices:
     rag_service = RagService(settings)
     web_search_service = WebSearchService(settings)
     image_text_service = ImageTextService(
@@ -33,6 +33,7 @@ def build_chat_services(settings: Settings) -> ChatServices:
         vision_num_beams=settings.image_vision_num_beams,
         vision_summary_max_chars=settings.image_vision_summary_max_chars,
         vision_device=settings.image_vision_device,
+        idle_timeout_seconds=settings.local_model_idle_timeout_seconds,
     )
     attachment_context_service = AttachmentContextService(
         image_service=image_text_service,
@@ -52,7 +53,7 @@ def build_chat_services(settings: Settings) -> ChatServices:
         web_search_service=web_search_service,
         attachment_context_service=attachment_context_service,
         retrieval_service=retrieval_service,
-        ollama_chat_lock=Lock(),
+        local_gpu_lock=local_gpu_lock,
     )
 
 

@@ -25,16 +25,21 @@ class ImageTextService:
         vision_num_beams: int,
         vision_summary_max_chars: int,
         vision_device: str,
+        idle_timeout_seconds: float,
     ):
         self._text_max_chars = max(1, text_max_chars)
         self._vision_summary_max_chars = max(1, vision_summary_max_chars)
-        self._ocr = ImageOcr(min_confidence=min_confidence)
+        self._ocr = ImageOcr(
+            min_confidence=min_confidence,
+            idle_timeout_seconds=idle_timeout_seconds,
+        )
         self._vision = ImageVision(
             model_name=vision_model_name,
             prompt=vision_prompt,
             max_new_tokens=vision_max_new_tokens,
             num_beams=vision_num_beams,
             device=vision_device,
+            idle_timeout_seconds=idle_timeout_seconds,
         )
 
     async def extract_markdown(self, attachments: Sequence[MessageAttachment]) -> ImageTextResult:

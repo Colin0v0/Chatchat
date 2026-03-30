@@ -1,15 +1,25 @@
 from __future__ import annotations
 
+import gc
 from dataclasses import dataclass
 from pathlib import Path
-from threading import Lock
 
 from PIL import Image
+
+from ..core.idle_runtime import IdleRuntime
 
 
 @dataclass(frozen=True)
 class VisionDescription:
     summary: str
+
+
+@dataclass(frozen=True)
+class VisionRuntime:
+    processor: object
+    model: object
+    device: str
+    torch_dtype: object
 
 
 class ImageVision:
@@ -21,77 +31,95 @@ class ImageVision:
         max_new_tokens: int,
         num_beams: int,
         device: str,
+        idle_timeout_seconds: float,
     ):
         self._model_name = model_name.strip()
         self._prompt = prompt.strip()
         self._max_new_tokens = max_new_tokens
         self._num_beams = num_beams
         self._device_preference = device.strip() or "auto"
-        self._lock = Lock()
-        self._processor = None
-        self._model = None
-        self._device = None
-        self._torch_dtype = None
+        self._runtime = IdleRuntime(
+            runtime_name="image.vision",
+            loader=self._load_runtime,
+            unloader=self._unload_runtime,
+            idle_timeout_seconds=idle_timeout_seconds,
+        )
 
     def describe(self, image_path: Path) -> VisionDescription:
-        processor, model = self._ensure_runtime()
-        image = Image.open(image_path).convert("RGB")
-        inputs = processor(text=self._prompt, images=image, return_tensors="pt")
-        inputs = inputs.to(self._device, self._torch_dtype)
+        with self._runtime.lease() as runtime:
+            with Image.open(image_path) as image_file:
+                image = image_file.convert("RGB")
 
-        import torch
+            inputs = runtime.processor(text=self._prompt, images=image, return_tensors="pt")
+            inputs = inputs.to(runtime.device, runtime.torch_dtype)
 
-        with torch.inference_mode():
-            generated_ids = model.generate(
-                input_ids=inputs["input_ids"],
-                pixel_values=inputs["pixel_values"],
-                max_new_tokens=self._max_new_tokens,
-                num_beams=self._num_beams,
-                do_sample=False,
+            import torch
+
+            with torch.inference_mode():
+                generated_ids = runtime.model.generate(
+                    input_ids=inputs["input_ids"],
+                    pixel_values=inputs["pixel_values"],
+                    max_new_tokens=self._max_new_tokens,
+                    num_beams=self._num_beams,
+                    do_sample=False,
+                )
+
+            generated_text = runtime.processor.batch_decode(generated_ids, skip_special_tokens=False)[0]
+            parsed = runtime.processor.post_process_generation(
+                generated_text,
+                task=self._prompt,
+                image_size=(image.width, image.height),
             )
-
-        generated_text = processor.batch_decode(generated_ids, skip_special_tokens=False)[0]
-        parsed = processor.post_process_generation(
-            generated_text,
-            task=self._prompt,
-            image_size=(image.width, image.height),
-        )
         summary = self._extract_summary(parsed)
         if not summary:
             raise RuntimeError("The local vision model returned an empty image description.")
         return VisionDescription(summary=summary)
 
-    def _ensure_runtime(self):
-        if self._processor is not None and self._model is not None:
-            return self._processor, self._model
+    def _load_runtime(self) -> VisionRuntime:
+        try:
+            import torch
+            from transformers import AutoModelForCausalLM, AutoProcessor
+        except ImportError as exc:
+            raise RuntimeError(
+                "Local vision dependencies are unavailable or incompatible. "
+                f"Install compatible torch/transformers dependencies in the backend environment. Original error: {exc}"
+            ) from exc
 
-        with self._lock:
-            if self._processor is not None and self._model is not None:
-                return self._processor, self._model
+        device = self._resolve_device(torch)
+        torch_dtype = torch.float16 if device.startswith("cuda") else torch.float32
+        model_path = self._resolve_model_path()
 
+        processor = AutoProcessor.from_pretrained(
+            model_path,
+            trust_remote_code=True,
+        )
+        model = AutoModelForCausalLM.from_pretrained(
+            model_path,
+            trust_remote_code=True,
+            torch_dtype=torch_dtype,
+        ).to(device)
+        model.eval()
+        return VisionRuntime(
+            processor=processor,
+            model=model,
+            device=device,
+            torch_dtype=torch_dtype,
+        )
+
+    def _unload_runtime(self, runtime: VisionRuntime) -> None:
+        if runtime.device.startswith("cuda"):
             try:
                 import torch
-                from transformers import AutoModelForCausalLM, AutoProcessor
-            except ImportError as exc:
-                raise RuntimeError(
-                    "Local vision dependencies are missing. Install torch and transformers in the backend environment."
-                ) from exc
+            except ImportError:
+                pass
+            else:
+                del runtime
+                gc.collect()
+                torch.cuda.empty_cache()
+                return
 
-            self._device = self._resolve_device(torch)
-            self._torch_dtype = torch.float16 if self._device.startswith("cuda") else torch.float32
-            model_path = self._resolve_model_path()
-
-            self._processor = AutoProcessor.from_pretrained(
-                model_path,
-                trust_remote_code=True,
-            )
-            self._model = AutoModelForCausalLM.from_pretrained(
-                model_path,
-                trust_remote_code=True,
-                torch_dtype=self._torch_dtype,
-            ).to(self._device)
-            self._model.eval()
-            return self._processor, self._model
+        del runtime
+        gc.collect()
 
     def _resolve_device(self, torch_module) -> str:
         if self._device_preference == "auto":

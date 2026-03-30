@@ -41,6 +41,7 @@ class ImageTextServiceTests(unittest.TestCase):
             vision_num_beams=4,
             vision_summary_max_chars=40,
             vision_device='cpu',
+            idle_timeout_seconds=60,
         )
         service._vision = _StubVision('alpha ' * 20)
         service._ocr = _StubOcr([])
@@ -71,6 +72,7 @@ class ImageTextServiceTests(unittest.TestCase):
             vision_num_beams=4,
             vision_summary_max_chars=400,
             vision_device='cpu',
+            idle_timeout_seconds=60,
         )
         service._vision = _StubVision('detail ' * 30)
         service._ocr = _StubOcr([_StubLine('visible text ' * 10)])

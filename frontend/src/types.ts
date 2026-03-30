@@ -92,6 +92,12 @@ export interface RagReindexResult {
   updated_at: string;
 }
 
+export interface AudioTranscriptionResult {
+  text: string;
+  language: string;
+  duration_ms: number;
+}
+
 export type ChatStreamEvent =
   | {
       type: "meta";

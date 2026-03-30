@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import time
+
 import httpx
 
 from ...core.config import Settings
+from ...llm.ollama_runtime import log_ollama_request, ollama_keep_alive_value
 from .types import RagChunk, RagChunkSpec
 
 
@@ -53,15 +56,25 @@ class OllamaEmbedder:
         return embedded_chunks, failed_chunks
 
     async def _embed_text(self, *, client: httpx.AsyncClient, text: str) -> list[float]:
+        keep_alive = ollama_keep_alive_value(self._settings.ollama_keep_alive_seconds)
         payload = {
             "model": self._embedding_model,
             "input": text,
+            "keep_alive": keep_alive,
         }
+        started_at = time.perf_counter()
 
         try:
             response = await client.post("/api/embed", json=payload)
             response.raise_for_status()
             data = response.json()
+            log_ollama_request(
+                kind="embed",
+                model=self._embedding_model,
+                keep_alive=keep_alive,
+                started_at=started_at,
+                response_payload=data,
+            )
             embeddings = data.get("embeddings")
             if isinstance(embeddings, list) and embeddings and isinstance(embeddings[0], list):
                 return [float(value) for value in embeddings[0]]
@@ -71,15 +84,24 @@ class OllamaEmbedder:
         except httpx.HTTPError:
             pass
 
+        started_at = time.perf_counter()
         fallback = await client.post(
             "/api/embeddings",
             json={
                 "model": self._embedding_model,
                 "prompt": text,
+                "keep_alive": keep_alive,
             },
         )
         fallback.raise_for_status()
         data = fallback.json()
+        log_ollama_request(
+            kind="embed",
+            model=self._embedding_model,
+            keep_alive=keep_alive,
+            started_at=started_at,
+            response_payload=data,
+        )
         embedding = data.get("embedding")
         if not isinstance(embedding, list):
             raise ValueError("Invalid embedding payload returned by Ollama")

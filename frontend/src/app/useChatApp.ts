@@ -19,6 +19,7 @@ import {
   reindexRag,
   renameConversation,
   streamChat,
+  transcribeAudio,
 } from "../lib/api";
 import type {
   ConversationDetail,
@@ -28,6 +29,7 @@ import type {
   RetrievalMode,
 } from "../types";
 import { pickLandingTitle } from "./constants";
+import { useAudioRecorder } from "./useAudioRecorder";
 import {
   appendRetryDraft,
   createAssistantDraftMessage,
@@ -56,6 +58,20 @@ function toggleRetrievalMode(current: RetrievalMode, next: Exclude<RetrievalMode
   return current === next ? "none" : next;
 }
 
+function mergeDraftWithTranscript(current: string, transcript: string): string {
+  const normalizedTranscript = transcript.trim();
+  if (!normalizedTranscript) {
+    return current;
+  }
+
+  if (!current.trim()) {
+    return normalizedTranscript;
+  }
+
+  const suffix = current.endsWith("\n") ? "" : "\n";
+  return `${current}${suffix}${normalizedTranscript}`;
+}
+
 export function useChatApp({
   closeMobileSidebar,
   isDesktop,
@@ -78,11 +94,14 @@ export function useChatApp({
   const [landingTitle] = useState(() => pickLandingTitle());
   const [error, setError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
   const [isUpdatingRag, setIsUpdatingRag] = useState(false);
   const [ragUpdateError, setRagUpdateError] = useState<string | null>(null);
   const [ragUpdateResult, setRagUpdateResult] = useState<RagReindexResult | null>(null);
   const { addAttachments, clearAttachments, draftAttachments, removeAttachment, replaceAttachments } =
     useComposerAttachments();
+  const { cancelRecording, isRecording, recordingError, startRecording, stopRecording } =
+    useAudioRecorder();
   const transientAttachmentUrlsRef = useRef<string[]>([]);
   const deferredQuery = useDeferredValue(query);
 
@@ -228,6 +247,13 @@ export function useChatApp({
     return () => window.clearTimeout(timeoutId);
   }, [error]);
 
+  useEffect(() => {
+    if (!recordingError) {
+      return;
+    }
+    setError(recordingError);
+  }, [recordingError]);
+
   const handleModelChange = useCallback((model: string) => {
     setSelectedModel(model);
   }, []);
@@ -264,7 +290,60 @@ export function useChatApp({
     nativeThinkingToggleAvailable,
   ]);
 
+  const handleStartRecording = useCallback(async () => {
+    if (isStreaming || isTranscribing) {
+      return;
+    }
+
+    try {
+      await startRecording();
+    } catch (recordingStartError) {
+      setError(
+        recordingStartError instanceof Error
+          ? recordingStartError.message
+          : "Failed to start audio recording.",
+      );
+    }
+  }, [isStreaming, isTranscribing, setError, startRecording]);
+
+  const handleStopRecording = useCallback(async () => {
+    if (!isRecording || isTranscribing) {
+      return;
+    }
+
+    setIsTranscribing(true);
+    try {
+      const audioBlob = await stopRecording();
+      if (!audioBlob) {
+        return;
+      }
+
+      const result = await transcribeAudio(audioBlob);
+      if (!result.text.trim()) {
+        return;
+      }
+      setDraft((current) => mergeDraftWithTranscript(current, result.text));
+    } catch (transcriptionError) {
+      setError(
+        transcriptionError instanceof Error
+          ? transcriptionError.message
+          : "Failed to transcribe audio.",
+      );
+    } finally {
+      setIsTranscribing(false);
+    }
+  }, [isRecording, isTranscribing, setError, stopRecording]);
+
+  const handleToggleRecording = useCallback(() => {
+    if (isRecording) {
+      void handleStopRecording();
+      return;
+    }
+    void handleStartRecording();
+  }, [handleStartRecording, handleStopRecording, isRecording]);
+
   const handleNewChat = useCallback(() => {
+    cancelRecording();
     clearAttachments();
     startTransition(() => {
       setActiveConversationId(null);
@@ -277,10 +356,11 @@ export function useChatApp({
         closeMobileSidebar();
       }
     });
-  }, [clearAttachments, closeMobileSidebar, isDesktop]);
+  }, [cancelRecording, clearAttachments, closeMobileSidebar, isDesktop]);
 
   const handleSelectConversation = useCallback(
     (conversationId: number) => {
+      cancelRecording();
       startTransition(() => {
         setActiveConversationId(conversationId);
         setError(null);
@@ -293,7 +373,7 @@ export function useChatApp({
         }
       });
     },
-    [closeMobileSidebar, isDesktop, openSessionConversation],
+    [cancelRecording, closeMobileSidebar, isDesktop, openSessionConversation],
   );
 
   const handleRenameConversation = useCallback(
@@ -310,6 +390,7 @@ export function useChatApp({
 
   const handleDeleteConversation = useCallback(
     async (conversationId: number) => {
+      cancelRecording();
       abortAndRemoveSession(conversationId);
       await deleteConversation(conversationId);
       await refreshConversations();
@@ -322,7 +403,7 @@ export function useChatApp({
         clearAttachments();
       }
     },
-    [abortAndRemoveSession, activeConversationId, clearAttachments, refreshConversations],
+    [abortAndRemoveSession, activeConversationId, cancelRecording, clearAttachments, refreshConversations],
   );
 
   const handleUpdateRagDatabase = useCallback(async () => {
@@ -347,7 +428,7 @@ export function useChatApp({
   const handleSend = useCallback(async () => {
     const message = draft.trim();
     const pendingFiles = draftAttachments.map((attachment) => attachment.file);
-    if ((!message && pendingFiles.length === 0) || isStreaming) {
+    if ((!message && pendingFiles.length === 0) || isRecording || isStreaming || isTranscribing) {
       return;
     }
 
@@ -416,7 +497,9 @@ export function useChatApp({
     draft,
     draftAttachments,
     hasRunningOllamaSession,
+    isRecording,
     isStreaming,
+    isTranscribing,
     refreshConversations,
     retrievalMode,
     runStream,
@@ -558,7 +641,9 @@ export function useChatApp({
           draft,
           draftAttachments,
           attachmentUploadAvailable,
+          isRecording,
           isStreaming: visibleStreaming,
+          isTranscribing,
           model: selectedModel,
           models: availableModels,
           onChangeDraft: setDraft,
@@ -569,6 +654,7 @@ export function useChatApp({
           onSelectAttachments: addAttachments,
           onSend: () => void handleSend(),
           onStop: handleStop,
+          onToggleRecording: handleToggleRecording,
           onToggleRag: handleSelectRag,
           onToggleThinking: handleToggleThinking,
           onToggleThinkingTrace: handleToggleThinkingTrace,
@@ -598,7 +684,9 @@ export function useChatApp({
       draft,
       draftAttachments,
       attachmentUploadAvailable,
+      isRecording,
       isStreaming,
+      isTranscribing,
       model: selectedModel,
       models: availableModels,
       onAnimationComplete: handleLandingAnimationComplete,
@@ -608,6 +696,7 @@ export function useChatApp({
       onSelectAttachments: addAttachments,
       onSend: () => void handleSend(),
       onStop: handleStop,
+      onToggleRecording: handleToggleRecording,
       onToggleRag: handleSelectRag,
       onToggleThinking: handleToggleThinking,
       onToggleWeb: handleSelectWeb,

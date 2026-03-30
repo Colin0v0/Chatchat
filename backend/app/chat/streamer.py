@@ -82,7 +82,7 @@ def retrieval_status_items(*, plan: RetrievalPlan) -> list[str]:
     return []
 
 
-def try_acquire_ollama_chat_lock(*, model: str, lock: Lock) -> bool:
+def try_acquire_local_gpu_lock(*, model: str, lock: Lock) -> bool:
     provider, _ = model_provider_and_name(model)
     if provider != "ollama":
         return False
@@ -101,15 +101,15 @@ async def response_event_stream(
     thinking_enabled: bool | None = None,
 ):
     provider, _ = model_provider_and_name(model)
-    ollama_lock_acquired = try_acquire_ollama_chat_lock(
+    local_gpu_lock_acquired = try_acquire_local_gpu_lock(
         model=model,
-        lock=services.ollama_chat_lock,
+        lock=services.local_gpu_lock,
     )
-    if provider == "ollama" and not ollama_lock_acquired:
+    if provider == "ollama" and not local_gpu_lock_acquired:
         yield json.dumps(
             {
                 "type": "error",
-                "message": "Ollama already has another response running. Stop it before starting a new one.",
+                "message": "Local GPU is busy. Stop the current local generation and retry.",
             },
             ensure_ascii=False,
         ) + "\n"
@@ -194,6 +194,6 @@ async def response_event_stream(
         stream_db.rollback()
         yield json.dumps({"type": "error", "message": str(exc)}, ensure_ascii=False) + "\n"
     finally:
-        if ollama_lock_acquired:
-            services.ollama_chat_lock.release()
+        if local_gpu_lock_acquired:
+            services.local_gpu_lock.release()
         stream_db.close()

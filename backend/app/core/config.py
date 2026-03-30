@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./storage/app.db"
     media_root: str = "./storage/media"
     ollama_base_url: str = "http://127.0.0.1:11434"
+    ollama_keep_alive_seconds: int = 0
     openai_base_url: str = "https://api.openai.com/v1"
     openai_api_key: str = ""
     openai_model_allowlist: str = ""
@@ -30,6 +31,12 @@ class Settings(BaseSettings):
     file_text_max_chars: int = 6000
     file_table_row_limit: int = 40
     file_table_column_limit: int = 24
+    audio_transcription_model: str = "turbo"
+    audio_transcription_device: str = "cuda"
+    audio_transcription_compute_type: str = "float16"
+    audio_transcription_vad_filter: bool = True
+    audio_max_upload_size_bytes: int = 25 * 1024 * 1024
+    local_model_idle_timeout_seconds: float = 60.0
     request_timeout_seconds: float = 180.0
     retrieval_context_top_k: int = 6
     rag_vault_path: str = "/data/obsidian"

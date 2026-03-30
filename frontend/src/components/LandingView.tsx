@@ -13,7 +13,9 @@ interface LandingViewProps {
   draft: string;
   draftAttachments: ComposerAttachmentDraft[];
   attachmentUploadAvailable: boolean;
+  isRecording: boolean;
   isStreaming: boolean;
+  isTranscribing: boolean;
   model: string;
   models: ModelOption[];
   retrievalMode: RetrievalMode;
@@ -30,6 +32,7 @@ interface LandingViewProps {
   onSelectAttachments: (files: FileList | File[]) => void;
   onSend: () => void;
   onStop: () => void;
+  onToggleRecording: () => void;
   onToggleRag: () => void;
   onToggleWeb: () => void;
   onToggleThinking: () => void;
@@ -46,7 +49,9 @@ export function LandingView({
   draft,
   draftAttachments,
   attachmentUploadAvailable,
+  isRecording,
   isStreaming,
+  isTranscribing,
   model,
   models,
   retrievalMode,
@@ -63,6 +68,7 @@ export function LandingView({
   onSelectAttachments,
   onSend,
   onStop,
+  onToggleRecording,
   onToggleRag,
   onToggleWeb,
   onToggleThinking,
@@ -115,7 +121,9 @@ export function LandingView({
             centered={false}
             attachmentUploadAvailable={attachmentUploadAvailable}
             attachments={draftAttachments}
+            isRecording={isRecording}
             isStreaming={isStreaming}
+            isTranscribing={isTranscribing}
             model={model}
             models={models}
             onChange={onChangeDraft}
@@ -124,6 +132,7 @@ export function LandingView({
             onSelectAttachments={onSelectAttachments}
             onStop={onStop}
             onSubmit={onSend}
+            onToggleRecording={onToggleRecording}
             onToggleRag={onToggleRag}
             onToggleThinking={onToggleThinking}
             onToggleWeb={onToggleWeb}

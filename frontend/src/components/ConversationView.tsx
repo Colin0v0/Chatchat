@@ -11,7 +11,9 @@ interface ConversationViewProps {
   draft: string;
   draftAttachments: ComposerAttachmentDraft[];
   attachmentUploadAvailable: boolean;
+  isRecording: boolean;
   isStreaming: boolean;
+  isTranscribing: boolean;
   model: string;
   models: ModelOption[];
   retrievalMode: RetrievalMode;
@@ -30,6 +32,7 @@ interface ConversationViewProps {
   onSelectAttachments: (files: FileList | File[]) => void;
   onSend: () => void;
   onStop: () => void;
+  onToggleRecording: () => void;
   onToggleRag: () => void;
   onToggleWeb: () => void;
   onToggleThinking: () => void;
@@ -42,7 +45,9 @@ export function ConversationView({
   draft,
   draftAttachments,
   attachmentUploadAvailable,
+  isRecording,
   isStreaming,
+  isTranscribing,
   model,
   models,
   retrievalMode,
@@ -61,6 +66,7 @@ export function ConversationView({
   onSelectAttachments,
   onSend,
   onStop,
+  onToggleRecording,
   onToggleRag,
   onToggleWeb,
   onToggleThinking,
@@ -143,7 +149,9 @@ export function ConversationView({
         <ChatComposer
           attachmentUploadAvailable={attachmentUploadAvailable}
           attachments={draftAttachments}
+          isRecording={isRecording}
           isStreaming={isStreaming}
+          isTranscribing={isTranscribing}
           model={model}
           models={models}
           onChange={onChangeDraft}
@@ -152,6 +160,7 @@ export function ConversationView({
           onSelectAttachments={onSelectAttachments}
           onStop={onStop}
           onSubmit={onSend}
+          onToggleRecording={onToggleRecording}
           onToggleRag={onToggleRag}
           onToggleThinking={onToggleThinking}
           onToggleWeb={onToggleWeb}

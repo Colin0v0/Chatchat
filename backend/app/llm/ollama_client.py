@@ -4,6 +4,7 @@ import asyncio
 import base64
 import io
 import json
+import time
 from collections.abc import AsyncIterator
 
 import httpx
@@ -11,6 +12,7 @@ from PIL import Image
 
 from ..chat.types import ChatImagePayload, ChatMessagePayload
 from ..core.config import settings
+from .ollama_runtime import log_ollama_request, ollama_keep_alive_value
 from .capabilities import (
     DiscoveredModel,
     OLLAMA_CAPABILITY_CACHE,
@@ -100,15 +102,18 @@ async def stream_ollama_chat(
     messages: list[ChatMessagePayload],
     thinking_enabled: bool | None = None,
 ) -> AsyncIterator[dict]:
+    keep_alive = ollama_keep_alive_value(settings.ollama_keep_alive_seconds)
     payload = {
         "model": model,
         "messages": [ollama_message_payload(message) for message in messages],
         "stream": True,
+        "keep_alive": keep_alive,
     }
     if ollama_supports_thinking(model):
         payload["think"] = True if thinking_enabled is None else thinking_enabled
 
     timeout = httpx.Timeout(settings.request_timeout_seconds, connect=10.0)
+    started_at = time.perf_counter()
     async with httpx.AsyncClient(
         base_url=normalize_base_url(settings.ollama_base_url),
         timeout=timeout,
@@ -129,6 +134,13 @@ async def stream_ollama_chat(
                     event["message"] = {"content": content_delta}
 
                 if chunk.get("done"):
+                    log_ollama_request(
+                        kind="chat",
+                        model=model,
+                        keep_alive=keep_alive,
+                        started_at=started_at,
+                        response_payload=chunk,
+                    )
                     event["done"] = True
 
                 if event:

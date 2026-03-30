@@ -1,4 +1,4 @@
-import { ArrowUp, BookOpen, Globe, Plus, Sparkles, Square } from "lucide-react";
+import { ArrowUp, BookOpen, Globe, LoaderCircle, Mic, Plus, Sparkles, Square } from "lucide-react";
 import { useRef, useState, type ChangeEvent, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
 
 import type { ComposerAttachmentDraft } from "../app/useComposerAttachments";
@@ -40,7 +40,9 @@ interface ChatComposerProps {
   onRemoveAttachment: (attachmentId: string) => void;
   onSubmit: () => void;
   onStop: () => void;
+  isRecording: boolean;
   isStreaming: boolean;
+  isTranscribing: boolean;
   model: string;
   models: ModelOption[];
   onModelChange: (value: string) => void;
@@ -53,6 +55,7 @@ interface ChatComposerProps {
   onToggleRag: () => void;
   onToggleWeb: () => void;
   onToggleThinking: () => void;
+  onToggleRecording: () => void;
   centered?: boolean;
 }
 
@@ -93,6 +96,46 @@ function ToggleChip({
   );
 }
 
+function ComposerVoiceButton({
+  compact = false,
+  disabled,
+  isRecording,
+  isTranscribing,
+  onClick,
+}: {
+  compact?: boolean;
+  disabled: boolean;
+  isRecording: boolean;
+  isTranscribing: boolean;
+  onClick: () => void;
+}) {
+  const sizeClassName = compact ? "h-11 w-11 rounded-[14px]" : "h-9 w-9 rounded-lg";
+  const iconClassName = compact ? "size-4.5" : "size-4";
+  const stateClassName = isRecording
+    ? "bg-app-danger text-white hover:bg-app-danger"
+    : disabled
+      ? "bg-transparent text-app-muted/45"
+      : "bg-transparent text-app-muted hover:text-app-text";
+
+  return (
+    <button
+      aria-label={isRecording ? "Stop voice input" : "Start voice input"}
+      className={`flex shrink-0 items-center justify-center transition-colors ${sizeClassName} ${stateClassName}`}
+      disabled={disabled}
+      onClick={onClick}
+      type="button"
+    >
+      {isTranscribing ? (
+        <LoaderCircle className={`${iconClassName} animate-spin`} />
+      ) : isRecording ? (
+        <Square className={compact ? "size-4 fill-current" : "size-3.5 fill-current"} />
+      ) : (
+        <Mic className={iconClassName} />
+      )}
+    </button>
+  );
+}
+
 export function ChatComposer({
   value,
   attachments,
@@ -101,7 +144,9 @@ export function ChatComposer({
   onRemoveAttachment,
   onSubmit,
   onStop,
+  isRecording,
   isStreaming,
+  isTranscribing,
   model,
   models,
   onModelChange,
@@ -114,6 +159,7 @@ export function ChatComposer({
   onToggleRag,
   onToggleWeb,
   onToggleThinking,
+  onToggleRecording,
   centered = false,
 }: ChatComposerProps) {
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -122,6 +168,7 @@ export function ChatComposer({
   const canSubmit = !submitBlocked && hasDraft;
   const ragEnabled = retrievalMode === "rag";
   const webEnabled = retrievalMode === "web";
+  const voiceDisabled = isStreaming || isTranscribing;
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && !event.shiftKey) {
@@ -235,6 +282,13 @@ export function ChatComposer({
             <ModelSelect model={model} models={models} onChange={onModelChange} />
           </div>
 
+          <ComposerVoiceButton
+            disabled={voiceDisabled}
+            isRecording={isRecording}
+            isTranscribing={isTranscribing}
+            onClick={onToggleRecording}
+          />
+
           <button
             className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors ${
               isStreaming
@@ -271,6 +325,14 @@ export function ChatComposer({
                 thinkingEnabled={thinkingEnabled}
               />
             </div>
+
+            <ComposerVoiceButton
+              compact
+              disabled={voiceDisabled}
+              isRecording={isRecording}
+              isTranscribing={isTranscribing}
+              onClick={onToggleRecording}
+            />
 
             <button
               className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] transition-colors ${
