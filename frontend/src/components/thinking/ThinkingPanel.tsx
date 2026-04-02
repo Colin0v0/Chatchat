@@ -1,5 +1,5 @@
 import { ChevronRight } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 
 interface ThinkingPanelProps {
   expanded: boolean;
@@ -9,13 +9,48 @@ interface ThinkingPanelProps {
 
 export function ThinkingPanel({ expanded, trace, onToggle }: ThinkingPanelProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const stickToBottomRef = useRef(true);
+  const lastExpandedRef = useRef(false);
 
   useEffect(() => {
-    if (!expanded || !scrollRef.current) {
+    const scrollContainer = scrollRef.current;
+    if (!expanded || !scrollContainer) {
       return;
     }
 
-    scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    const activeContainer = scrollContainer;
+
+    function handleScroll() {
+      const distanceToBottom =
+        activeContainer.scrollHeight - activeContainer.scrollTop - activeContainer.clientHeight;
+      stickToBottomRef.current = distanceToBottom <= 24;
+    }
+
+    handleScroll();
+    activeContainer.addEventListener("scroll", handleScroll);
+    return () => activeContainer.removeEventListener("scroll", handleScroll);
+  }, [expanded]);
+
+  useLayoutEffect(() => {
+    const scrollContainer = scrollRef.current;
+    if (!expanded || !scrollContainer) {
+      lastExpandedRef.current = expanded;
+      return;
+    }
+
+    const expandedJustOpened = !lastExpandedRef.current;
+    lastExpandedRef.current = expanded;
+
+    if (!expandedJustOpened && !stickToBottomRef.current) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      scrollContainer.scrollTop = scrollContainer.scrollHeight;
+      stickToBottomRef.current = true;
+    });
+
+    return () => window.cancelAnimationFrame(frame);
   }, [expanded, trace]);
 
   return (
