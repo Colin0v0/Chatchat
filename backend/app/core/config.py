@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     openai_local_model_allowlist: str = ""
     openai_local_vision_model_allowlist: str = ""
     openai_local_stream: bool = True
+    model_catalog_path: str = "./model_catalog.json"
+    model_catalog_strict: bool = True
     default_provider: str = "ollama"
     default_model: str = "qwen2.5:7b"
     attachment_max_upload_count: int = 8

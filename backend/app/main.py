@@ -11,6 +11,7 @@ from .audio import build_audio_services
 from .chat.state import build_chat_services
 from .core.config import settings
 from .core.logging import configure_logging
+from .llm.catalog import ModelCatalogError, validate_model_catalog
 from .storage.database import Base, engine, ensure_schema
 from .storage.media import MEDIA_ROOT
 
@@ -33,6 +34,10 @@ def create_app() -> FastAPI:
 
     @app.on_event("startup")
     def on_startup() -> None:
+        try:
+            validate_model_catalog()
+        except ModelCatalogError as exc:
+            raise RuntimeError(f"Model catalog validation failed: {exc}") from exc
         Base.metadata.create_all(bind=engine)
         ensure_schema()
 

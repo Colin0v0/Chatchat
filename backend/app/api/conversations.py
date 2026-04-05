@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from ..chat.context import conversation_media_paths, conversation_options, message_preview, MESSAGE_LOAD_OPTION
 from ..core.config import settings
+from ..llm.catalog import resolve_model_route
 from ..llm import normalize_model
 from ..schemas import ConversationCreate, ConversationDetail, ConversationSummary, ConversationUpdate
 from ..storage.database import get_db
@@ -41,9 +42,13 @@ def list_conversations(db: Session = Depends(get_db)):
 
 @router.post("", response_model=ConversationSummary)
 def create_conversation(payload: ConversationCreate, db: Session = Depends(get_db)):
+    target_model = payload.model or normalize_model(settings.default_model)
+    if settings.model_catalog_strict and resolve_model_route(target_model) is None:
+        raise HTTPException(status_code=400, detail=f"Model not enabled: {target_model}")
+
     conversation = Conversation(
         title=payload.title,
-        model=payload.model or normalize_model(settings.default_model),
+        model=target_model,
     )
     db.add(conversation)
     db.commit()

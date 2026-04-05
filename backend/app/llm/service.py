@@ -3,7 +3,10 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 
 from ..chat.types import ChatMessagePayload
+from ..core.config import settings
 from .capabilities import model_provider_and_name
+from .capabilities import normalize_model as normalize_model_id
+from .catalog import resolve_effective_thinking, resolve_model_route
 from .ollama_client import stream_ollama_chat
 from .openai_client import stream_openai_chat
 
@@ -14,13 +17,31 @@ async def stream_chat(
     messages: list[ChatMessagePayload],
     thinking_enabled: bool | None = None,
 ) -> AsyncIterator[dict]:
-    provider, model_name = model_provider_and_name(model)
+    route = resolve_model_route(model)
+    if settings.model_catalog_strict and route is None:
+        raise ValueError(
+            f"Model is not enabled in catalog: {normalize_model_id(model)}"
+        )
+
+    effective_thinking = resolve_effective_thinking(
+        model,
+        thinking_enabled,
+        thinking_mode=route["thinking_mode"] if route else None,
+    )
+    if route:
+        provider = route["provider"]
+        model_name = route["upstream_model"]
+    else:
+        provider, model_name = model_provider_and_name(model)
+
     if provider in ("openai", "openai_local"):
         async for chunk in stream_openai_chat(
             model=model_name,
             messages=messages,
             provider=provider,
-            thinking_enabled=thinking_enabled,
+            thinking_enabled=effective_thinking,
+            base_url_override=route["base_url"] if route else None,
+            api_key_override=route["api_key"] if route else None,
         ):
             yield chunk
         return
@@ -28,7 +49,9 @@ async def stream_chat(
     async for chunk in stream_ollama_chat(
         model=model_name,
         messages=messages,
-        thinking_enabled=thinking_enabled,
+        thinking_enabled=effective_thinking,
+        base_url_override=route["base_url"] if route else None,
+        context_window=route["context_window"] if route else None,
     ):
         yield chunk
 

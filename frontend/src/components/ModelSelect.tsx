@@ -1,5 +1,5 @@
 import { Check, ChevronDown } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 
 import { toModelLabel } from "../lib/models";
 import type { ModelOption } from "../types";
@@ -22,6 +22,15 @@ function createFallbackOption(id: string): ModelOption {
     chat_model: null,
     reasoning_model: null,
   };
+}
+
+function providerOf(modelId: string): string {
+  const separatorIndex = modelId.indexOf(":");
+  if (separatorIndex < 0) {
+    return "unknown";
+  }
+
+  return modelId.slice(0, separatorIndex);
 }
 
 export function ModelSelect({ model, models, onChange, compact = false }: ModelSelectProps) {
@@ -79,21 +88,27 @@ export function ModelSelect({ model, models, onChange, compact = false }: ModelS
 
       {open ? (
         <div className={menuClassName}>
-          {visibleModels.map((item) => {
+          {visibleModels.map((item, index) => {
             const active = item.id === displayModelId;
+            const previousProvider = index > 0 ? providerOf(visibleModels[index - 1].id) : null;
+            const currentProvider = providerOf(item.id);
+            const showProviderDivider = previousProvider !== null && previousProvider !== currentProvider;
+
             return (
-              <button
-                className={itemClassName(active)}
-                key={item.id}
-                onClick={() => {
-                  onChange(item.chat_model ?? item.id);
-                  setOpen(false);
-                }}
-                type="button"
-              >
-                <span className="truncate">{item.label}</span>
-                {active ? <Check className="size-4 text-[#5f564a]" /> : null}
-              </button>
+              <Fragment key={item.id}>
+                {showProviderDivider ? <div className="border-t border-app-border/80" role="separator" /> : null}
+                <button
+                  className={itemClassName(active)}
+                  onClick={() => {
+                    onChange(item.chat_model ?? item.id);
+                    setOpen(false);
+                  }}
+                  type="button"
+                >
+                  <span className="truncate">{item.label}</span>
+                  {active ? <Check className="size-4 text-[#5f564a]" /> : null}
+                </button>
+              </Fragment>
             );
           })}
         </div>

@@ -13,6 +13,10 @@ class DiscoveredModel(TypedDict):
     supports_thinking: bool
 
 
+class DiscoveredModelWithDisplayName(DiscoveredModel, total=False):
+    display_name: str
+
+
 class ModelOption(TypedDict):
     id: str
     label: str

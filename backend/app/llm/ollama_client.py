@@ -108,6 +108,8 @@ async def stream_ollama_chat(
     model: str,
     messages: list[ChatMessagePayload],
     thinking_enabled: bool | None = None,
+    base_url_override: str | None = None,
+    context_window: int | None = None,
 ) -> AsyncIterator[dict]:
     keep_alive = ollama_keep_alive_value(settings.ollama_keep_alive_seconds)
     payload = {
@@ -118,11 +120,13 @@ async def stream_ollama_chat(
     }
     if ollama_supports_thinking(model):
         payload["think"] = True if thinking_enabled is None else thinking_enabled
+    if isinstance(context_window, int) and context_window > 0:
+        payload["options"] = {"num_ctx": context_window}
 
     timeout = httpx.Timeout(settings.request_timeout_seconds, connect=10.0)
     started_at = time.perf_counter()
     async with httpx.AsyncClient(
-        base_url=normalize_base_url(settings.ollama_base_url),
+        base_url=normalize_base_url(base_url_override or settings.ollama_base_url),
         timeout=timeout,
     ) as client:
         async with client.stream("POST", "/api/chat", json=payload) as response:
