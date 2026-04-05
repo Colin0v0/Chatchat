@@ -7,6 +7,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 RetrievalMode = Literal["none", "rag", "web"]
+FeedbackValue = Literal["up", "down"]
+MemoryScope = Literal["global", "conversation"]
+MemoryKind = Literal["profile", "preference", "goal", "project", "fact", "constraint"]
 
 
 class ConversationSummary(BaseModel):
@@ -36,6 +39,10 @@ class RegenerateRequest(BaseModel):
     thinking_enabled: Optional[bool] = None
 
 
+class MessageFeedbackUpdate(BaseModel):
+    value: Optional[FeedbackValue] = None
+
+
 class MessageAttachmentOut(BaseModel):
     id: int
     kind: str
@@ -63,12 +70,32 @@ class MessageSource(BaseModel):
     match_reason: str = ""
 
 
+class MessageContextSectionOut(BaseModel):
+    kind: str
+    title: str
+    body: str
+    item_count: int = 0
+
+
+class MessageContextOut(BaseModel):
+    query: str = ""
+    strategy: str = "balanced"
+    retrieval_mode: RetrievalMode = "none"
+    older_message_count: int = 0
+    recent_message_count: int = 0
+    memory_count: int = 0
+    source_count: int = 0
+    sections: list[MessageContextSectionOut] = Field(default_factory=list)
+
+
 class MessageOut(BaseModel):
     id: int
     role: str
     content: str
     attachments: list[MessageAttachmentOut] = Field(default_factory=list)
     sources: list[MessageSource] = Field(default_factory=list)
+    context: Optional[MessageContextOut] = None
+    feedback: Optional[FeedbackValue] = None
     created_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
@@ -109,3 +136,52 @@ class AudioTranscriptionOut(BaseModel):
     text: str
     language: str
     duration_ms: int
+
+
+class MemoryItemOut(BaseModel):
+    id: int
+    scope: MemoryScope
+    kind: MemoryKind
+    title: str
+    detail: str = ""
+    tags: list[str] = Field(default_factory=list)
+    confidence: float
+    pinned: bool
+    active: bool
+    conversation_id: Optional[int] = None
+    source_user_message_id: Optional[int] = None
+    source_assistant_message_id: Optional[int] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    last_used_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class MemoryCollectionOut(BaseModel):
+    global_items: list[MemoryItemOut] = Field(default_factory=list)
+    conversation_items: list[MemoryItemOut] = Field(default_factory=list)
+
+
+class MemoryCreate(BaseModel):
+    scope: MemoryScope = "global"
+    kind: MemoryKind = "fact"
+    title: str = Field(min_length=1, max_length=255)
+    detail: str = ""
+    tags: list[str] = Field(default_factory=list)
+    confidence: float = Field(default=0.7, ge=0.0, le=1.0)
+    pinned: bool = False
+    active: bool = True
+    conversation_id: Optional[int] = None
+
+
+class MemoryUpdate(BaseModel):
+    scope: MemoryScope
+    kind: MemoryKind
+    title: str = Field(min_length=1, max_length=255)
+    detail: str = ""
+    tags: list[str] = Field(default_factory=list)
+    confidence: float = Field(default=0.7, ge=0.0, le=1.0)
+    pinned: bool = False
+    active: bool = True
+    conversation_id: Optional[int] = None

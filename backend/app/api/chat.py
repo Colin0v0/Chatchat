@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from sqlalchemy.orm import Session
 
 from ..chat.state import ChatServices, get_chat_services
 from ..chat.workflow import chat_stream_response, regenerate_chat_response
-from ..schemas import RegenerateRequest, RetrievalMode
+from ..schemas import MessageFeedbackUpdate, RegenerateRequest, RetrievalMode
 from ..storage.database import get_db
+from ..storage.models import Message
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
@@ -49,3 +50,20 @@ async def chat_stream(
         thinking_enabled=thinking_enabled,
         files=files,
     )
+
+
+@router.patch("/messages/{message_id}/feedback")
+async def update_message_feedback(
+    message_id: int,
+    payload: MessageFeedbackUpdate,
+    db: Session = Depends(get_db),
+):
+    message = db.get(Message, message_id)
+    if message is None or message.role != "assistant":
+        raise HTTPException(status_code=404, detail="Assistant message not found")
+
+    message.feedback_value = payload.value
+    db.add(message)
+    db.commit()
+    db.refresh(message)
+    return {"id": message.id, "feedback": message.feedback}

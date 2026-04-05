@@ -4,7 +4,7 @@ from typing import Literal, TypedDict
 
 from ..core.config import settings
 
-Provider = Literal["ollama", "openai"]
+Provider = Literal["ollama", "openai", "openai_local"]
 
 
 class DiscoveredModel(TypedDict):
@@ -47,11 +47,15 @@ def parse_csv_allowlist(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
-def parse_openai_allowlist() -> list[str]:
+def parse_openai_allowlist(provider: Provider = "openai") -> list[str]:
+    if provider == "openai_local":
+        return parse_csv_allowlist(settings.openai_local_model_allowlist)
     return parse_csv_allowlist(settings.openai_model_allowlist)
 
 
-def parse_openai_vision_allowlist() -> set[str]:
+def parse_openai_vision_allowlist(provider: Provider = "openai") -> set[str]:
+    if provider == "openai_local":
+        return set(parse_csv_allowlist(settings.openai_local_vision_model_allowlist))
     return set(parse_csv_allowlist(settings.openai_vision_model_allowlist))
 
 
@@ -75,13 +79,13 @@ def filter_chat_model_names(model_names: list[str]) -> list[str]:
 
 def model_provider_and_name(model: str) -> tuple[Provider, str]:
     parts = model.split(":", 1)
-    if len(parts) == 2 and parts[0] in ("ollama", "openai") and parts[1].strip():
+    if len(parts) == 2 and parts[0] in ("ollama", "openai", "openai_local") and parts[1].strip():
         return parts[0], parts[1].strip()
-    if len(parts) == 2 and parts[0] not in ("ollama", "openai"):
+    if len(parts) == 2 and parts[0] not in ("ollama", "openai", "openai_local"):
         return "ollama", model
 
-    if settings.default_provider == "openai":
-        return "openai", model
+    if settings.default_provider in ("openai", "openai_local"):
+        return settings.default_provider, model
     return "ollama", model
 
 
@@ -103,6 +107,6 @@ def present_model_name(model: str) -> str:
 
 def supports_native_image_input(model: str) -> bool:
     provider, model_name = model_provider_and_name(model)
-    if provider == "openai":
-        return model_name in parse_openai_vision_allowlist()
+    if provider in ("openai", "openai_local"):
+        return model_name in parse_openai_vision_allowlist(provider)
     return "vision" in OLLAMA_CAPABILITY_CACHE.get(model_name, set())

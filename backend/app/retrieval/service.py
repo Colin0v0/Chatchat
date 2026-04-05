@@ -11,8 +11,12 @@ from .strategy import RetrievalStrategy
 from .types import ContextEntry, ContextPayload, PromptContextPayload
 
 if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
+
     from .rag import RagService
     from .websearch import WebSearchService
+    from .file_context import ConversationFileContextService
+    from ..storage.models import Message
 
 
 class RetrievalService:
@@ -21,9 +25,11 @@ class RetrievalService:
         settings: Settings,
         rag_service: "RagService",
         web_search_service: "WebSearchService",
+        file_context_service: "ConversationFileContextService",
     ):
         self._rag_service = rag_service
         self._web_search_service = web_search_service
+        self._file_context_service = file_context_service
         self._context_top_k = max(1, settings.retrieval_context_top_k)
 
     def plan_retrieval(
@@ -37,8 +43,11 @@ class RetrievalService:
     async def build_context_payload(
         self,
         *,
+        db: "Session",
         query: str,
         plan: RetrievalPlan,
+        conversation_messages: list["Message"],
+        include_file_context: bool,
     ) -> PromptContextPayload:
         debug = self._base_debug(plan=plan)
         configuration_refusal = self._resolve_configuration_refusal(query=query, plan=plan)
@@ -53,13 +62,21 @@ class RetrievalService:
         if plan.mode == "none":
             return PromptContextPayload(context_message=None, debug=debug)
 
-        tasks = []
+        tasks: list[asyncio.Future | asyncio.Task | object] = []
         if plan.mode == "rag":
             tasks.append(self._rag_service.retrieve_context(plan.query))
         if plan.mode == "web":
             tasks.append(self._web_search_service.retrieve_context(plan.query))
+        if include_file_context:
+            tasks.append(
+                self._file_context_service.retrieve_context(
+                    db=db,
+                    query=query,
+                    messages=conversation_messages,
+                )
+            )
 
-        results = await asyncio.gather(*tasks)
+        results = await asyncio.gather(*tasks) if tasks else []
         merged_sources = self._merge_sources(results)
         merged_entries = self._merge_entries(results, strategy=plan.strategy)
         refusal_message = self._resolve_refusal_message(results, query=query)
@@ -109,6 +126,8 @@ class RetrievalService:
                     score += strategy.web_weight_bonus
                 if entry.source.type == "note":
                     score += strategy.rag_weight_bonus
+                if entry.source.type == "file":
+                    score += strategy.file_weight_bonus
                 weighted_entries.append((score, entry))
 
         ranked = [item for _, item in sorted(weighted_entries, key=lambda pair: pair[0], reverse=True)]
@@ -128,12 +147,14 @@ class RetrievalService:
             "retrieval_query": plan.query,
             "rag_executed": False,
             "web_executed": False,
+            "file_executed": False,
         }
 
     def _merge_debug(self, results: list[ContextPayload], *, plan: RetrievalPlan) -> dict[str, object]:
         merged = self._base_debug(plan=plan)
         merged["rag_executed"] = plan.mode == "rag"
         merged["web_executed"] = plan.mode == "web"
+        merged["file_executed"] = any(result.debug.get("file_hits") is not None for result in results if result.debug)
         for result in results:
             if not result.debug:
                 continue
@@ -180,6 +201,12 @@ class RetrievalService:
                 fields.append(f"path: {source.path}")
                 if source.heading:
                     fields.append(f"heading: {source.heading}")
+            elif source.type == "file":
+                fields.append(f"path: {source.path}")
+                if source.title:
+                    fields.append(f"title: {source.title}")
+                if source.heading:
+                    fields.append(f"heading: {source.heading}")
             else:
                 if source.title:
                     fields.append(f"title: {source.title}")
@@ -202,7 +229,7 @@ class RetrievalService:
         content = (
             "Use the following references when answering. "
             "If the evidence is insufficient, say so plainly. "
-            "When you rely on a note, cite its path. When you rely on the web, cite the URL or site name. "
+            "When you rely on a note, cite its path. When you rely on a file, cite its filename or attachment name. When you rely on the web, cite the URL or site name. "
             "Do not cite the synthetic [Source N] labels in the final answer. "
             + response_language_instruction(query)
             + "\n"

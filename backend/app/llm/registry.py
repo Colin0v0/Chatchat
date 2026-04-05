@@ -30,7 +30,7 @@ def build_model_options(models: list[DiscoveredModel]) -> list[ModelOption]:
             ModelOption(
                 id=model,
                 label=present_model_name(model),
-                supports_thinking=pair is not None,
+                supports_thinking=pair is not None or supports_native_thinking,
                 supports_thinking_trace=supports_thinking_trace,
                 supports_image_input=supports_image_input,
                 supports_attachment_upload=True,

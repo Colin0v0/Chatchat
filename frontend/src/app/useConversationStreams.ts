@@ -21,6 +21,7 @@ import {
   replaceConversationMessageId,
   RunStreamOptions,
   setAssistantDraftId,
+  setAssistantDraftContext,
   setAssistantDraftSources,
   sortConversations,
   stageFromStatusItems,
@@ -31,6 +32,20 @@ import {
   toConversationSummary,
   toStreamErrorMessage,
 } from "./chatSessionUtils";
+
+const THINK_BLOCK_PATTERN = /<think>[\s\S]*?<\/think>/gi;
+const EMPTY_THINK_TAGS_PATTERN = /^(?:\s*<think>\s*<\/think>\s*)+$/i;
+
+function sanitizeTokenContent(content: string): string {
+  const trimmed = content.trim();
+  if (!trimmed) {
+    return content;
+  }
+  if (EMPTY_THINK_TAGS_PATTERN.test(trimmed)) {
+    return "";
+  }
+  return content.replace(THINK_BLOCK_PATTERN, "");
+}
 
 const MIN_STAGE_DISPLAY_MS: Partial<Record<StreamingStage, number>> = {
   analyzing_attachments: 720,
@@ -281,8 +296,12 @@ export function useConversationStreams({
   const handleStreamEvent = useCallback(
     (conversationId: number, event: ChatStreamEvent) => {
       if (event.type === "token") {
+        const cleanContent = sanitizeTokenContent(event.content);
+        if (!cleanContent) {
+          return;
+        }
         updateSessionConversation(conversationId, (current) =>
-          appendAssistantDraftContent(current, event.content),
+          appendAssistantDraftContent(current, cleanContent),
         );
         commitSessionStage(conversationId, null);
         return;
@@ -300,6 +319,13 @@ export function useConversationStreams({
       if (event.type === "sources") {
         updateSessionConversation(conversationId, (current) =>
           setAssistantDraftSources(current, event.sources),
+        );
+        return;
+      }
+
+      if (event.type === "context") {
+        updateSessionConversation(conversationId, (current) =>
+          setAssistantDraftContext(current, event.context),
         );
         return;
       }
@@ -411,13 +437,22 @@ export function useConversationStreams({
                     session.conversation,
                     event.assistant_message_id,
                   );
-                  updateSessionConversation(streamConversationId, () => nextConversation);
-                  upsertConversationSummary(nextConversation);
+                  const titledConversation = {
+                    ...nextConversation,
+                    title: event.conversation_title ?? nextConversation.title,
+                  };
+                  updateSessionConversation(streamConversationId, () => titledConversation);
+                  upsertConversationSummary(titledConversation);
                 }
               } else {
                 const session = streamSessionsRef.current[streamSessionKey(streamConversationId)];
                 if (session) {
-                  upsertConversationSummary(session.conversation);
+                  const titledConversation = {
+                    ...session.conversation,
+                    title: event.conversation_title ?? session.conversation.title,
+                  };
+                  updateSessionConversation(streamConversationId, () => titledConversation);
+                  upsertConversationSummary(titledConversation);
                 }
               }
 

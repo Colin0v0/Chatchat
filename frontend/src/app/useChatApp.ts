@@ -20,6 +20,7 @@ import {
   renameConversation,
   streamChat,
   transcribeAudio,
+  updateMessageFeedback,
 } from "../lib/api";
 import type {
   ConversationDetail,
@@ -28,7 +29,7 @@ import type {
   RagReindexResult,
   RetrievalMode,
 } from "../types";
-import { pickLandingTitle } from "./constants";
+import { deriveConversationTitle, pickLandingTitle } from "./constants";
 import { useAudioRecorder } from "./useAudioRecorder";
 import {
   appendRetryDraft,
@@ -39,6 +40,7 @@ import {
   restoreAttachmentFiles,
   stageForRetrievalMode,
 } from "./chatSessionUtils";
+import { useMemoryManager } from "./useMemoryManager";
 import {
   createInitialModelOptions,
   createModelOption,
@@ -98,6 +100,10 @@ export function useChatApp({
   const [isUpdatingRag, setIsUpdatingRag] = useState(false);
   const [ragUpdateError, setRagUpdateError] = useState<string | null>(null);
   const [ragUpdateResult, setRagUpdateResult] = useState<RagReindexResult | null>(null);
+  const memoryManager = useMemoryManager({
+    activeConversationId: activeConversationId && activeConversationId > 0 ? activeConversationId : null,
+    open: settingsOpen,
+  });
   const { addAttachments, clearAttachments, draftAttachments, removeAttachment, replaceAttachments } =
     useComposerAttachments();
   const { cancelRecording, isRecording, recordingError, startRecording, stopRecording } =
@@ -113,19 +119,27 @@ export function useChatApp({
     selectedModelOption.supports_thinking_trace && !selectedModelOption.reasoning_model;
   const nativeThinkingToggleAvailable =
     nativeThinkingSupported && selectedModel.startsWith("ollama:deepseek-r1");
+  const manualThinkingToggleAvailable =
+    selectedModelOption.supports_thinking &&
+    !selectedModelOption.chat_model &&
+    !selectedModelOption.reasoning_model;
   const nativeThinkingForced = nativeThinkingSupported && !nativeThinkingToggleAvailable;
   const nativeThinkingEnabled = nativeThinkingByModel[selectedModel] ?? true;
-  const thinkingToggleAvailable = selectedModelOption.supports_thinking || nativeThinkingToggleAvailable;
+  const thinkingToggleAvailable =
+    nativeThinkingToggleAvailable ||
+    manualThinkingToggleAvailable ||
+    Boolean(selectedModelOption.chat_model || selectedModelOption.reasoning_model);
   const thinkingAvailable = thinkingToggleAvailable;
   const thinkingEnabled =
     nativeThinkingForced
       ? true
-      : nativeThinkingToggleAvailable
+      : nativeThinkingToggleAvailable || manualThinkingToggleAvailable
       ? nativeThinkingEnabled
       : selectedModelOption.supports_thinking &&
         selectedModelOption.reasoning_model === selectedModel;
   const thinkingRequestEnabled =
-    selectedModel.startsWith("ollama:") && nativeThinkingSupported
+    (selectedModel.startsWith("ollama:") && nativeThinkingSupported) ||
+    selectedModel.startsWith("openai_local:")
       ? thinkingEnabled
       : null;
   const attachmentUploadAvailable = selectedModelOption.supports_attachment_upload;
@@ -267,7 +281,7 @@ export function useChatApp({
       return;
     }
 
-    if (nativeThinkingToggleAvailable) {
+    if (nativeThinkingToggleAvailable || manualThinkingToggleAvailable) {
       setNativeThinkingByModel((current) => ({
         ...current,
         [selectedModel]: !thinkingEnabled,
@@ -288,6 +302,7 @@ export function useChatApp({
     nativeThinkingForced,
     thinkingToggleAvailable,
     nativeThinkingToggleAvailable,
+    manualThinkingToggleAvailable,
   ]);
 
   const handleStartRecording = useCallback(async () => {
@@ -453,7 +468,7 @@ export function useChatApp({
         }
       : {
           id: tempConversationId,
-          title: message.slice(0, 48) || "Attachment chat",
+          title: deriveConversationTitle(message, tempAttachments.length),
           model: effectiveModel,
           messages: [tempUserMessage, createAssistantDraftMessage()],
         };
@@ -614,6 +629,24 @@ export function useChatApp({
     setDraft(content);
   }, []);
 
+  const handleMessageFeedback = useCallback(async (messageId: number, value: "up" | "down" | null) => {
+    try {
+      await updateMessageFeedback(messageId, value);
+      setActiveConversation((current) =>
+        current
+          ? {
+              ...current,
+              messages: current.messages.map((message) =>
+                message.id === messageId ? { ...message, feedback: value } : message,
+              ),
+            }
+          : current,
+      );
+    } catch (feedbackError) {
+      setError(feedbackError instanceof Error ? feedbackError.message : "Failed to save feedback.");
+    }
+  }, [setError]);
+
   const handleSelectRag = useCallback(() => {
     setRetrievalMode((current) => toggleRetrievalMode(current, "rag"));
   }, []);
@@ -647,6 +680,8 @@ export function useChatApp({
           model: selectedModel,
           models: availableModels,
           onChangeDraft: setDraft,
+          onFeedback: (messageId: number, value: "up" | "down" | null) =>
+            void handleMessageFeedback(messageId, value),
           onModelChange: handleModelChange,
           onRemoveDraftAttachment: removeAttachment,
           onRetry: handleRetryAssistant,
@@ -709,7 +744,10 @@ export function useChatApp({
       title: landingTitle,
     },
     settingsProps: {
+      activeConversationId: activeConversationId && activeConversationId > 0 ? activeConversationId : null,
+      activeConversationTitle: activeConversation?.title ?? "",
       isUpdating: isUpdatingRag,
+      memories: memoryManager,
       onClose: () => setSettingsOpen(false),
       onUpdateDatabase: () => void handleUpdateRagDatabase(),
       open: settingsOpen,

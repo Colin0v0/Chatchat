@@ -5,7 +5,7 @@ from typing import Literal
 
 from ..chat.types import ChatMessagePayload
 
-SourceType = Literal["note", "web"]
+SourceType = Literal["note", "web", "file"]
 
 
 @dataclass(frozen=True)

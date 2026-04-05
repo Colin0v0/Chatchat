@@ -11,8 +11,10 @@ from ..llm import model_provider_and_name, stream_chat
 from ..retrieval import RetrievalMode, RetrievalPlan
 from ..storage.database import SessionLocal
 from ..storage.models import Conversation
-from .context import latest_user_query, load_history_messages, save_assistant_message
+from .context import latest_user_query, load_history_messages, save_assistant_message, select_history_window
 from .history import MessageHistoryService
+from .prompt_builder import build_prompt_composition
+from .strategy import choose_context_strategy
 from .state import ChatServices
 
 
@@ -27,18 +29,29 @@ async def refusal_stream(
         conversation=conversation,
         content=refusal_message,
         sources=[],
+        context_payload=None,
     )
     yield json.dumps({"type": "token", "content": refusal_message}, ensure_ascii=False) + "\n"
-    yield json.dumps({"type": "done", "assistant_message_id": assistant_message.id}) + "\n"
+    yield json.dumps(
+        {
+            "type": "done",
+            "assistant_message_id": assistant_message.id,
+            "conversation_title": conversation.title,
+        },
+        ensure_ascii=False,
+    ) + "\n"
 
 
 async def assistant_event_stream(
     *,
+    services: ChatServices,
     db: Session,
     conversation: Conversation,
     model: str,
+    user_message_id: int,
     message_history: list[ChatMessagePayload],
     sources: list[dict[str, str | float | None]],
+    context_payload: dict[str, object] | None = None,
     thinking_enabled: bool | None = None,
 ):
     assistant_chunks: list[str] = []
@@ -67,14 +80,30 @@ async def assistant_event_stream(
                     conversation=conversation,
                     content=full_response,
                     sources=sources,
+                    context_payload=context_payload,
                 )
-                yield json.dumps({"type": "done", "assistant_message_id": assistant_message.id}) + "\n"
+                services.memory_service.schedule_refresh(
+                    conversation_id=conversation.id,
+                    user_message_id=user_message_id,
+                    assistant_message_id=assistant_message.id,
+                    response_model=model,
+                )
+                yield json.dumps(
+                    {
+                        "type": "done",
+                        "assistant_message_id": assistant_message.id,
+                        "conversation_title": conversation.title,
+                    },
+                    ensure_ascii=False,
+                ) + "\n"
                 return
             yield json.dumps({"type": "done"}) + "\n"
             return
 
 
-def retrieval_status_items(*, plan: RetrievalPlan) -> list[str]:
+def retrieval_status_items(*, plan: RetrievalPlan, include_file_context: bool) -> list[str]:
+    if include_file_context:
+        return ["Reading files"]
     if plan.mode == "rag":
         return ["Reading notes"]
     if plan.mode == "web":
@@ -130,31 +159,53 @@ async def response_event_stream(
         if conversation is None:
             raise RuntimeError("Conversation not found during streaming.")
 
-        history_messages = load_history_messages(stream_db, history_message_ids)
+        all_history_messages = load_history_messages(stream_db, history_message_ids)
+        strategy = choose_context_strategy(
+            query=query,
+            retrieval_mode=retrieval_mode,
+            has_conversation_attachments=any(message.attachments for message in all_history_messages),
+            default_history_budget=services.history_token_budget,
+            default_summary_budget=services.summary_token_budget,
+        )
+        history_window = select_history_window(
+            all_history_messages,
+            message_limit=services.history_message_limit,
+            token_budget=strategy.history_token_budget,
+        )
         message_history_service = MessageHistoryService(stream_db, services.attachment_context_service)
         needs_retrieval_grounding = retrieval_mode != "none" and message_history_service.needs_retrieval_grounding(
-            messages=history_messages,
+            messages=history_window.recent_messages,
         )
-        if message_history_service.needs_image_text(model=model, messages=history_messages) or needs_retrieval_grounding:
+        if message_history_service.needs_image_text(model=model, messages=history_window.recent_messages) or needs_retrieval_grounding:
             yield json.dumps({"type": "status", "items": ["Reading image"]}, ensure_ascii=False) + "\n"
 
-        prepared_history = await message_history_service.prepare(model=model, messages=history_messages)
-        prepared_retrieval_history = await message_history_service.prepare_retrieval_history(messages=history_messages)
+        prepared_history = await message_history_service.prepare(model=model, messages=history_window.recent_messages)
+        prepared_retrieval_history = await message_history_service.prepare_retrieval_history(
+            messages=history_window.recent_messages,
+        )
         if prepared_history.used_image_text or prepared_retrieval_history.used_image_text:
             yield json.dumps({"type": "status", "items": []}, ensure_ascii=False) + "\n"
 
         retrieval_query = latest_user_query(prepared_retrieval_history.messages, query)
+        memory_prompt = services.memory_service.build_prompt_payload(
+            db=stream_db,
+            conversation_id=conversation.id,
+            query=query or retrieval_query,
+        )
         retrieval_plan = services.retrieval_service.plan_retrieval(
             query=retrieval_query,
             retrieval_mode=retrieval_mode,
         )
-        status_items = retrieval_status_items(plan=retrieval_plan)
+        status_items = retrieval_status_items(plan=retrieval_plan, include_file_context=strategy.file_retrieval_enabled)
         if status_items:
             yield json.dumps({"type": "status", "items": status_items}, ensure_ascii=False) + "\n"
 
         prompt_context = await services.retrieval_service.build_context_payload(
+            db=stream_db,
             query=query or retrieval_query,
             plan=retrieval_plan,
+            conversation_messages=all_history_messages,
+            include_file_context=strategy.file_retrieval_enabled,
         )
 
         if status_items:
@@ -169,16 +220,30 @@ async def response_event_stream(
                 yield part
             return
 
-        hydrated_history = list(prepared_history.messages)
-        if prompt_context.context_message:
-            hydrated_history = [prompt_context.context_message, *hydrated_history]
+        prompt_composition = build_prompt_composition(
+            query=query or retrieval_query,
+            history_window=history_window,
+            strategy=strategy,
+            memory_prompt=memory_prompt,
+            retrieval_plan=retrieval_plan,
+            retrieval_payload=prompt_context,
+        )
+        hydrated_history = [*prompt_composition.prefix_messages, *prepared_history.messages]
+        if prompt_composition.inspection.get("sections"):
+            yield json.dumps(
+                {"type": "context", "context": prompt_composition.inspection},
+                ensure_ascii=False,
+            ) + "\n"
 
         async for part in assistant_event_stream(
+            services=services,
             db=stream_db,
             conversation=conversation,
             model=model,
+            user_message_id=message_id,
             message_history=hydrated_history,
             sources=prompt_context.sources,
+            context_payload=prompt_composition.inspection,
             thinking_enabled=thinking_enabled,
         ):
             yield part

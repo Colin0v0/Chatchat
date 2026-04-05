@@ -1,8 +1,0 @@
-﻿FROM F:/Ollama/ours/Huihui-Qwen3.5-9B-Claude-4.6-Opus-abliterated.Q5_K_S.gguf
-RENDERER qwen3.5
-PARSER qwen3.5
-PARAMETER num_ctx 8000 
-PARAMETER top_p 0.95
-PARAMETER presence_penalty 1.5
-PARAMETER temperature 1
-PARAMETER top_k 20

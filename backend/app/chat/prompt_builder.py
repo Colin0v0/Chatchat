@@ -1,0 +1,269 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Literal
+
+from ..chat.types import ChatMessagePayload
+from ..memory.types import MemoryPromptPayload
+from ..retrieval import RetrievalPlan
+from ..retrieval.types import PromptContextPayload
+from ..storage.models import Message
+from .strategy import ContextStrategy
+from .token_budget import estimate_text_tokens, truncate_text_to_token_budget
+
+SectionKind = Literal["summary", "history", "memory", "retrieval"]
+
+SUMMARY_SYSTEM_PROMPT = (
+    "Earlier turns were compacted into the following conversation recap. "
+    "Treat it as a lossy summary of older context and defer to the recent turns if there is any conflict."
+)
+
+
+@dataclass(frozen=True)
+class HistoryWindow:
+    older_messages: list[Message]
+    recent_messages: list[Message]
+
+
+@dataclass(frozen=True)
+class PromptSection:
+    kind: SectionKind
+    title: str
+    body: str
+    item_count: int
+
+    def to_payload(self) -> dict[str, object]:
+        return {
+            "kind": self.kind,
+            "title": self.title,
+            "body": self.body,
+            "item_count": self.item_count,
+        }
+
+
+@dataclass(frozen=True)
+class PromptComposition:
+    prefix_messages: list[ChatMessagePayload]
+    inspection: dict[str, object]
+
+
+def build_prompt_composition(
+    *,
+    query: str,
+    history_window: HistoryWindow,
+    strategy: ContextStrategy,
+    memory_prompt: MemoryPromptPayload,
+    retrieval_plan: RetrievalPlan,
+    retrieval_payload: PromptContextPayload,
+) -> PromptComposition:
+    sections: list[PromptSection] = []
+    prefix_messages: list[ChatMessagePayload] = []
+
+    summary_text = summarize_older_history(
+        messages=history_window.older_messages,
+        token_budget=strategy.summary_token_budget,
+    )
+    if summary_text:
+        prefix_messages.append(
+            ChatMessagePayload(
+                role="system",
+                content=f"{SUMMARY_SYSTEM_PROMPT}\n\nConversation recap:\n{summary_text}",
+            )
+        )
+        sections.append(
+            PromptSection(
+                kind="summary",
+                title="Earlier Summary",
+                body=summary_text,
+                item_count=count_turns(history_window.older_messages),
+            )
+        )
+
+    recent_history_body = render_recent_history(history_window.recent_messages)
+    if recent_history_body:
+        sections.append(
+            PromptSection(
+                kind="history",
+                title="Recent Turns",
+                body=recent_history_body,
+                item_count=len(history_window.recent_messages),
+            )
+        )
+
+    if memory_prompt.message is not None:
+        prefix_messages.append(memory_prompt.message)
+        sections.append(
+            PromptSection(
+                kind="memory",
+                title="Memory Brief",
+                body=memory_prompt.message.content,
+                item_count=int(memory_prompt.debug.get("memory_used", 0) or 0),
+            )
+        )
+
+    retrieval_sources = retrieval_payload.sources
+    if retrieval_payload.context_message is not None:
+        prefix_messages.append(retrieval_payload.context_message)
+        retrieval_body = render_retrieval_sources(retrieval_sources)
+        sections.append(
+            PromptSection(
+                kind="retrieval",
+                title="Retrieved Context",
+                body=retrieval_body,
+                item_count=len(retrieval_sources),
+            )
+        )
+
+    inspection = {
+        "query": query,
+        "strategy": strategy.name,
+        "retrieval_mode": retrieval_plan.mode,
+        "older_message_count": len(history_window.older_messages),
+        "recent_message_count": len(history_window.recent_messages),
+        "memory_count": int(memory_prompt.debug.get("memory_used", 0) or 0),
+        "source_count": len(retrieval_sources),
+        "sections": [section.to_payload() for section in sections],
+    }
+    return PromptComposition(prefix_messages=prefix_messages, inspection=inspection)
+
+
+def count_turns(messages: list[Message]) -> int:
+    count = 0
+    expecting_user = True
+    for message in messages:
+        if message.role == "user" and expecting_user:
+            count += 1
+            expecting_user = False
+            continue
+        if message.role == "assistant":
+            expecting_user = True
+    return count or (1 if messages else 0)
+
+
+def summarize_older_history(*, messages: list[Message], token_budget: int) -> str:
+    if not messages:
+        return ""
+
+    max_tokens = max(96, token_budget)
+    lines: list[str] = []
+    used_tokens = 0
+    turn_index = 0
+    pending_user: Message | None = None
+
+    for message in messages:
+        if message.role == "user":
+            pending_user = message
+            continue
+
+        if message.role != "assistant":
+            continue
+
+        turn_index += 1
+        lines_for_turn = render_turn_lines(turn_index=turn_index, user_message=pending_user, assistant_message=message)
+        if not lines_for_turn:
+            pending_user = None
+            continue
+
+        block = "\n".join(lines_for_turn)
+        block_tokens = estimate_text_tokens(block)
+        next_tokens = used_tokens + block_tokens
+        if lines and next_tokens > max_tokens:
+            break
+        if not lines and block_tokens > max_tokens:
+            block = truncate_text_to_token_budget(block, token_budget=max_tokens)
+            lines.append(block)
+            break
+
+        lines.append(block)
+        used_tokens = next_tokens
+        pending_user = None
+
+    if pending_user is not None:
+        next_block = "\n".join(render_turn_lines(turn_index=turn_index + 1, user_message=pending_user, assistant_message=None))
+        if next_block:
+            remaining_tokens = max_tokens - used_tokens
+            if remaining_tokens > 8:
+                if estimate_text_tokens(next_block) > remaining_tokens:
+                    next_block = truncate_text_to_token_budget(next_block, token_budget=remaining_tokens)
+                lines.append(next_block)
+
+    return "\n\n".join(lines)
+
+
+def render_turn_lines(
+    *,
+    turn_index: int,
+    user_message: Message | None,
+    assistant_message: Message | None,
+) -> list[str]:
+    lines = [f"Turn {turn_index}"]
+    user_text = summarize_message_content(user_message)
+    assistant_text = summarize_message_content(assistant_message)
+
+    if user_text:
+        lines.append(f"User: {user_text}")
+    if assistant_text:
+        lines.append(f"Assistant: {assistant_text}")
+    return lines if len(lines) > 1 else []
+
+
+def summarize_message_content(message: Message | None) -> str:
+    if message is None:
+        return ""
+
+    parts: list[str] = []
+    content = compact_text(message.content, token_limit=72)
+    if content:
+        parts.append(content)
+
+    if message.attachments:
+        names = ", ".join(attachment.original_name for attachment in message.attachments[:3])
+        suffix = "" if len(message.attachments) <= 3 else ", …"
+        parts.append(f"attachments: {names}{suffix}")
+
+    attachment_context = compact_text(message.attachment_context or "", token_limit=56)
+    if attachment_context and attachment_context not in parts:
+        parts.append(f"attachment brief: {attachment_context}")
+
+    return " | ".join(parts)
+
+
+def compact_text(value: str, *, token_limit: int) -> str:
+    normalized = " ".join(value.split()).strip()
+    if not normalized:
+        return ""
+    if estimate_text_tokens(normalized) <= token_limit:
+        return normalized
+    return truncate_text_to_token_budget(normalized, token_budget=token_limit)
+
+
+def render_recent_history(messages: list[Message]) -> str:
+    lines: list[str] = []
+    for message in messages:
+        role = "User" if message.role == "user" else "Assistant"
+        summary = summarize_message_content(message)
+        if summary:
+            lines.append(f"{role}: {summary}")
+    return "\n".join(lines)
+
+
+def render_retrieval_sources(sources: list[dict[str, object]]) -> str:
+    if not sources:
+        return "No external sources were injected."
+
+    lines: list[str] = []
+    for index, source in enumerate(sources, start=1):
+        source_type = str(source.get("type", "note")).strip() or "note"
+        label = str(
+            source.get("title")
+            or source.get("path")
+            or source.get("url")
+            or source.get("domain")
+            or f"Source {index}"
+        ).strip()
+        excerpt = compact_text(str(source.get("excerpt", "")).strip(), token_limit=72)
+        line = f"{index}. [{source_type}] {label}"
+        if excerpt:
+            line += f" :: {excerpt}"
+        lines.append(line)
+    return "\n".join(lines)

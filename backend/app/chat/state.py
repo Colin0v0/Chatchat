@@ -6,8 +6,12 @@ from threading import Lock
 from fastapi import Request
 
 from ..core.config import Settings
-from ..multimodal import AttachmentContextService, FileParser, ImageTextService
+from ..memory.service import MemoryService
+from ..multimodal.attachment import AttachmentContextService
+from ..multimodal.file_parser import FileParser
+from ..multimodal.image import ImageTextService
 from ..retrieval.rag import RagService
+from ..retrieval.file_context import ConversationFileContextService
 from ..retrieval import RetrievalService
 from ..retrieval.websearch import WebSearchService
 
@@ -16,8 +20,12 @@ from ..retrieval.websearch import WebSearchService
 class ChatServices:
     rag_service: RagService
     web_search_service: WebSearchService
+    memory_service: MemoryService
     attachment_context_service: AttachmentContextService
     retrieval_service: RetrievalService
+    history_message_limit: int
+    history_token_budget: int
+    summary_token_budget: int
     local_gpu_lock: Lock
 
 
@@ -47,12 +55,18 @@ def build_chat_services(settings: Settings, *, local_gpu_lock: Lock) -> ChatServ
         settings,
         rag_service,
         web_search_service,
+        ConversationFileContextService(settings, attachment_context_service),
     )
+    memory_service = MemoryService(settings)
     return ChatServices(
         rag_service=rag_service,
         web_search_service=web_search_service,
+        memory_service=memory_service,
         attachment_context_service=attachment_context_service,
         retrieval_service=retrieval_service,
+        history_message_limit=max(1, settings.chat_history_message_limit),
+        history_token_budget=max(256, settings.chat_history_token_budget),
+        summary_token_budget=max(128, settings.chat_summary_token_budget),
         local_gpu_lock=local_gpu_lock,
     )
 

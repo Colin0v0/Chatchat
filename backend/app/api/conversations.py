@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import desc, select
+from sqlalchemy import delete, desc, select
 from sqlalchemy.orm import Session
 
 from ..chat.context import conversation_media_paths, conversation_options, message_preview, MESSAGE_LOAD_OPTION
@@ -12,7 +12,7 @@ from ..llm import normalize_model
 from ..schemas import ConversationCreate, ConversationDetail, ConversationSummary, ConversationUpdate
 from ..storage.database import get_db
 from ..storage.media import remove_media_files
-from ..storage.models import Conversation
+from ..storage.models import Conversation, MemoryItem
 
 router = APIRouter(prefix="/api/conversations", tags=["conversations"])
 
@@ -105,5 +105,6 @@ def delete_conversation(conversation_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Conversation not found")
 
     remove_media_files(conversation_media_paths(conversation))
+    db.execute(delete(MemoryItem).where(MemoryItem.conversation_id == conversation_id))
     db.delete(conversation)
     db.commit()

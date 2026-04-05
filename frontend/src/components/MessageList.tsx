@@ -1,7 +1,8 @@
 import { Check, Copy, CornerUpLeft, RotateCcw, ThumbsDown, ThumbsUp } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
-import type { ChatMessage } from "../types";
+import type { ChatMessage, FeedbackValue } from "../types";
+import { ContextPanel } from "./context/ContextPanel";
 import { MarkdownMessage } from "./markdown/MarkdownMessage";
 import { MessageAttachmentStrip } from "./message/MessageAttachmentStrip";
 import { MessageSources } from "./message/MessageSources";
@@ -10,6 +11,7 @@ import { ThinkingPanel } from "./thinking/ThinkingPanel";
 interface MessageListProps {
   items: ChatMessage[];
   isStreaming?: boolean;
+  onFeedback?: (messageId: number, value: FeedbackValue | null) => void;
   onRetry?: (messageId: number | string) => void;
   onReuseUserMessage?: (content: string) => void;
   collapsedMessageIds?: ReadonlySet<number | string>;
@@ -98,13 +100,17 @@ function ActionIconButton({
 
 function AssistantActions({
   content,
+  feedback,
   messageId,
   hidden = false,
+  onFeedback,
   onRetry,
 }: {
   content: string;
+  feedback?: FeedbackValue | null;
   messageId: number | string;
   hidden?: boolean;
+  onFeedback?: (messageId: number, value: FeedbackValue | null) => void;
   onRetry?: (messageId: number | string) => void;
 }) {
   const [copied, setCopied] = useState(false);
@@ -128,11 +134,21 @@ function AssistantActions({
       <ActionIconButton ariaLabel="Copy response" onClick={() => void handleCopy()}>
         {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
       </ActionIconButton>
-      <ActionIconButton ariaLabel="Good response">
-        <ThumbsUp className="size-4" />
+      <ActionIconButton
+        ariaLabel="Good response"
+        onClick={() =>
+          typeof messageId === "number" ? onFeedback?.(messageId, feedback === "up" ? null : "up") : undefined
+        }
+      >
+        <ThumbsUp className={`size-4 ${feedback === "up" ? "fill-current text-app-accent-strong" : ""}`} />
       </ActionIconButton>
-      <ActionIconButton ariaLabel="Bad response">
-        <ThumbsDown className="size-4" />
+      <ActionIconButton
+        ariaLabel="Bad response"
+        onClick={() =>
+          typeof messageId === "number" ? onFeedback?.(messageId, feedback === "down" ? null : "down") : undefined
+        }
+      >
+        <ThumbsDown className={`size-4 ${feedback === "down" ? "fill-current text-[#9d3d32]" : ""}`} />
       </ActionIconButton>
       <ActionIconButton
         ariaLabel="Retry response"
@@ -194,6 +210,7 @@ function UserActions({
 export function MessageList({
   items,
   isStreaming = false,
+  onFeedback,
   onRetry,
   onReuseUserMessage,
   collapsedMessageIds,
@@ -272,11 +289,15 @@ export function MessageList({
 
               {showSources ? <MessageSources sources={item.sources ?? []} /> : null}
 
+              {item.context ? <ContextPanel context={item.context} /> : null}
+
               {!isEmptyAssistant ? (
                 <AssistantActions
                   content={item.content}
+                  feedback={item.feedback}
                   hidden={hideActions || item.id === activeStreamingAssistantId}
                   messageId={item.id}
+                  onFeedback={onFeedback}
                   onRetry={onRetry}
                 />
               ) : null}

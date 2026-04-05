@@ -4,6 +4,7 @@ import type {
   ChatStreamEvent,
   ConversationDetail,
   ConversationSummary,
+  MessageContext,
   MessageAttachment,
   RetrievalMode,
 } from "../types";
@@ -28,7 +29,7 @@ export type RunStreamOptions = {
   }) => Promise<void>;
 };
 
-export type StreamingStage = "analyzing_attachments" | "reading_notes" | "searching";
+export type StreamingStage = "analyzing_attachments" | "reading_notes" | "reading_files" | "searching";
 
 export type StreamSessionStatus = "running" | "completed" | "stopped" | "error";
 
@@ -55,6 +56,9 @@ export function stageFromStatusItems(items: string[]): StreamingStage | null {
   if (normalizedItems.has("Reading notes")) {
     return "reading_notes";
   }
+  if (normalizedItems.has("Reading files")) {
+    return "reading_files";
+  }
   if (normalizedItems.has("Searching")) {
     return "searching";
   }
@@ -77,6 +81,9 @@ export function labelForStage(stage: StreamingStage | null): string | null {
   }
   if (stage === "reading_notes") {
     return "Reading notes";
+  }
+  if (stage === "reading_files") {
+    return "Reading files";
   }
   if (stage === "searching") {
     return "Searching";
@@ -203,6 +210,16 @@ export function setAssistantDraftSources(
   return updateAssistantDraft(conversation, (message) => ({
     ...message,
     sources,
+  }));
+}
+
+export function setAssistantDraftContext(
+  conversation: ConversationDetail,
+  context: MessageContext,
+): ConversationDetail {
+  return updateAssistantDraft(conversation, (message) => ({
+    ...message,
+    context,
   }));
 }
 

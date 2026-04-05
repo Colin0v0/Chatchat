@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef } from "react";
 
 import type { ComposerAttachmentDraft } from "../app/useComposerAttachments";
-import type { ConversationDetail, ModelOption, RetrievalMode } from "../types";
+import type { ConversationDetail, FeedbackValue, ModelOption, RetrievalMode } from "../types";
 import { ChatComposer } from "./ChatComposer";
 import { MessageList } from "./MessageList";
 
@@ -27,6 +27,7 @@ interface ConversationViewProps {
   onChangeDraft: (value: string) => void;
   onModelChange: (value: string) => void;
   onRemoveDraftAttachment: (attachmentId: string) => void;
+  onFeedback: (messageId: number, value: FeedbackValue | null) => void;
   onRetry: (messageId: number | string) => void;
   onReuseUserMessage: (content: string) => void;
   onSelectAttachments: (files: FileList | File[]) => void;
@@ -61,6 +62,7 @@ export function ConversationView({
   onChangeDraft,
   onModelChange,
   onRemoveDraftAttachment,
+  onFeedback,
   onRetry,
   onReuseUserMessage,
   onSelectAttachments,
@@ -133,6 +135,7 @@ export function ConversationView({
         <div className="px-4 md:px-6">
           <MessageList
             collapsedMessageIds={collapsedMessageIds}
+            onFeedback={onFeedback}
             isStreaming={isStreaming}
             items={conversation.messages}
             onRetry={onRetry}

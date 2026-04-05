@@ -15,8 +15,13 @@ async def stream_chat(
     thinking_enabled: bool | None = None,
 ) -> AsyncIterator[dict]:
     provider, model_name = model_provider_and_name(model)
-    if provider == "openai":
-        async for chunk in stream_openai_chat(model=model_name, messages=messages):
+    if provider in ("openai", "openai_local"):
+        async for chunk in stream_openai_chat(
+            model=model_name,
+            messages=messages,
+            provider=provider,
+            thinking_enabled=thinking_enabled,
+        ):
             yield chunk
         return
 

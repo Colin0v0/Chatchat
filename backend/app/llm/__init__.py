@@ -9,7 +9,7 @@ from .capabilities import (
     supports_native_image_input,
 )
 from .ollama_client import list_ollama_models
-from .openai_client import list_openai_models
+from .openai_client import list_openai_local_models, list_openai_models
 from .registry import build_model_options
 from .service import complete_chat, stream_chat
 
@@ -20,6 +20,7 @@ __all__ = [
     "build_model_options",
     "complete_chat",
     "list_ollama_models",
+    "list_openai_local_models",
     "list_openai_models",
     "model_provider_and_name",
     "namespaced_model",

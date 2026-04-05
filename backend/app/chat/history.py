@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from sqlalchemy.orm import Session
 
 from .types import ChatImagePayload, ChatMessagePayload
-from ..multimodal import AttachmentContextService
+from ..multimodal.attachment import AttachmentContextService
 from ..llm import supports_native_image_input
 from ..storage.media import read_image_data_url
 from ..storage.models import Message

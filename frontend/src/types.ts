@@ -1,4 +1,5 @@
 export type Role = "user" | "assistant" | "system";
+export type FeedbackValue = "up" | "down";
 
 export interface MessageAttachment {
   id: number | string;
@@ -11,7 +12,7 @@ export interface MessageAttachment {
 }
 
 export interface MessageSource {
-  type?: "note" | "web";
+  type?: "note" | "web" | "file";
   path: string;
   heading: string;
   excerpt: string;
@@ -23,6 +24,24 @@ export interface MessageSource {
   trust?: string;
   freshness?: string;
   match_reason?: string;
+}
+
+export interface MessageContextSection {
+  kind: "summary" | "history" | "memory" | "retrieval";
+  title: string;
+  body: string;
+  item_count: number;
+}
+
+export interface MessageContext {
+  query: string;
+  strategy: string;
+  retrieval_mode: RetrievalMode;
+  older_message_count: number;
+  recent_message_count: number;
+  memory_count: number;
+  source_count: number;
+  sections: MessageContextSection[];
 }
 
 export interface ConversationSummary {
@@ -39,6 +58,8 @@ export interface ChatMessage {
   content: string;
   attachments?: MessageAttachment[];
   sources?: MessageSource[];
+  context?: MessageContext | null;
+  feedback?: FeedbackValue | null;
   created_at?: string | null;
   localStatus?: "stopped";
 }
@@ -92,6 +113,44 @@ export interface RagReindexResult {
   updated_at: string;
 }
 
+export type MemoryScope = "global" | "conversation";
+export type MemoryKind = "profile" | "preference" | "goal" | "project" | "fact" | "constraint";
+
+export interface MemoryItem {
+  id: number;
+  scope: MemoryScope;
+  kind: MemoryKind;
+  title: string;
+  detail: string;
+  tags: string[];
+  confidence: number;
+  pinned: boolean;
+  active: boolean;
+  conversation_id: number | null;
+  source_user_message_id: number | null;
+  source_assistant_message_id: number | null;
+  created_at: string | null;
+  updated_at: string | null;
+  last_used_at: string | null;
+}
+
+export interface MemoryCollection {
+  global_items: MemoryItem[];
+  conversation_items: MemoryItem[];
+}
+
+export interface MemoryUpsertPayload {
+  scope: MemoryScope;
+  kind: MemoryKind;
+  title: string;
+  detail: string;
+  tags: string[];
+  confidence: number;
+  pinned: boolean;
+  active: boolean;
+  conversation_id: number | null;
+}
+
 export interface AudioTranscriptionResult {
   text: string;
   language: string;
@@ -118,12 +177,17 @@ export type ChatStreamEvent =
       sources: MessageSource[];
     }
   | {
+      type: "context";
+      context: MessageContext;
+    }
+  | {
       type: "status";
       items: string[];
     }
   | {
       type: "done";
       assistant_message_id?: number;
+      conversation_title?: string;
     }
   | {
       type: "error";

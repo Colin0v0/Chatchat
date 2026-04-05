@@ -11,11 +11,17 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./storage/app.db"
     media_root: str = "./storage/media"
     ollama_base_url: str = "http://127.0.0.1:11434"
+    ollama_model_denylist: str = ""
     ollama_keep_alive_seconds: int = 0
     openai_base_url: str = "https://api.openai.com/v1"
     openai_api_key: str = ""
     openai_model_allowlist: str = ""
     openai_vision_model_allowlist: str = ""
+    openai_local_base_url: str = "http://127.0.0.1:18000/v1"
+    openai_local_api_key: str = ""
+    openai_local_model_allowlist: str = ""
+    openai_local_vision_model_allowlist: str = ""
+    openai_local_stream: bool = True
     default_provider: str = "ollama"
     default_model: str = "qwen2.5:7b"
     attachment_max_upload_count: int = 8
@@ -38,7 +44,17 @@ class Settings(BaseSettings):
     audio_max_upload_size_bytes: int = 25 * 1024 * 1024
     local_model_idle_timeout_seconds: float = 60.0
     request_timeout_seconds: float = 180.0
+    chat_history_message_limit: int = 14
+    chat_history_token_budget: int = 3600
+    chat_summary_token_budget: int = 1200
+    memory_model: str = ""
+    memory_recall_top_k: int = 4
+    memory_pinned_top_k: int = 3
+    memory_extract_max_items: int = 6
     retrieval_context_top_k: int = 6
+    file_retrieval_top_k: int = 3
+    file_retrieval_chunk_token_limit: int = 220
+    file_retrieval_min_score: float = 0.18
     rag_vault_path: str = "/data/obsidian"
     rag_index_path: str = "./storage/rag/index.json"
     rag_embedding_model: str = "nomic-embed-text"
@@ -56,6 +72,7 @@ class Settings(BaseSettings):
     web_search_min_score: float = 0.35
     web_search_content_max_chars: int = 1600
     web_search_translation_model: str = "ollama:translategemma"
+    conversation_title_max_length: int = 40
 
     model_config = SettingsConfigDict(
         env_file=str(ENV_FILE),

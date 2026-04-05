@@ -47,6 +47,13 @@ async def list_ollama_models() -> list[DiscoveredModel]:
 
     payload = response.json()
     model_names = [item["name"] for item in payload.get("models", []) if item.get("name")]
+    denylist = {
+        name.strip().lower()
+        for name in settings.ollama_model_denylist.split(",")
+        if name.strip()
+    }
+    if denylist:
+        model_names = [name for name in model_names if name.strip().lower() not in denylist]
     chat_model_names = filter_chat_model_names(model_names)
     capability_results = await asyncio.gather(
         *[fetch_ollama_capabilities(name) for name in chat_model_names],

@@ -7,6 +7,7 @@ class RetrievalStrategy:
     name: str
     rag_weight_bonus: float = 0.0
     web_weight_bonus: float = 0.0
+    file_weight_bonus: float = 0.0
     instruction: str = ""
 
 
@@ -18,11 +19,13 @@ NOTE_FIRST = RetrievalStrategy(
     name="note-first",
     rag_weight_bonus=0.10,
     web_weight_bonus=-0.02,
+    file_weight_bonus=0.06,
     instruction="Prefer note references when they directly answer the question. Use web references only as supporting context.",
 )
 WEB_FIRST = RetrievalStrategy(
     name="web-first",
     rag_weight_bonus=-0.02,
     web_weight_bonus=0.10,
+    file_weight_bonus=0.04,
     instruction="Prefer web references for public, freshness-sensitive, or lookup-style questions. Use notes only as supporting context.",
 )

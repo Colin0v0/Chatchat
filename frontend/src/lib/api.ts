@@ -4,10 +4,14 @@ import type {
   ChatStreamRequest,
   ConversationDetail,
   ConversationSummary,
+  MemoryCollection,
+  MemoryItem,
+  MemoryUpsertPayload,
   ModelOption,
   ModelsPayload,
   RagReindexResult,
   RegenerateChatRequest,
+  FeedbackValue,
 } from "../types";
 import { toModelLabel } from "./models";
 
@@ -142,6 +146,36 @@ export function reindexRag() {
   });
 }
 
+export function fetchMemories(conversationId?: number | null) {
+  const suffix =
+    conversationId == null ? "" : `?conversation_id=${encodeURIComponent(String(conversationId))}`;
+  return apiFetch<MemoryCollection>(`/api/memories${suffix}`);
+}
+
+export function createMemory(payload: MemoryUpsertPayload) {
+  return apiFetch<MemoryItem>("/api/memories", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateMemory(memoryId: number, payload: MemoryUpsertPayload) {
+  return apiFetch<MemoryItem>(`/api/memories/${memoryId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteMemory(memoryId: number) {
+  const response = await fetch(toApiUrl(`/api/memories/${memoryId}`), {
+    method: "DELETE",
+  });
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response));
+  }
+}
+
 interface StreamRequestOptions {
   onEvent: (event: ChatStreamEvent) => void;
   signal?: AbortSignal;
@@ -273,4 +307,11 @@ export async function regenerateChat(payload: RegenerateChatRequest, options: St
   if (buffer.trim()) {
     options.onEvent(JSON.parse(buffer) as ChatStreamEvent);
   }
+}
+
+export function updateMessageFeedback(messageId: number, value: FeedbackValue | null) {
+  return apiFetch<{ id: number; feedback: FeedbackValue | null }>(`/api/chat/messages/${messageId}/feedback`, {
+    method: "PATCH",
+    body: JSON.stringify({ value }),
+  });
 }
