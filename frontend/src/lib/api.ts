@@ -181,12 +181,26 @@ interface StreamRequestOptions {
   signal?: AbortSignal;
 }
 
+function audioExtensionForMimeType(mimeType: string): string {
+  switch (mimeType) {
+    case "audio/mp4":
+      return ".mp4";
+    case "audio/wav":
+    case "audio/wave":
+    case "audio/x-wav":
+      return ".wav";
+    default:
+      return ".webm";
+  }
+}
+
 function appendAudioFile(formData: FormData, file: Blob) {
+  const mimeType = file.type || "audio/webm";
   const namedFile =
     file instanceof File
       ? file
-      : new File([file], "recording.webm", {
-          type: file.type || "audio/webm",
+      : new File([file], `recording${audioExtensionForMimeType(mimeType)}`, {
+          type: mimeType,
           lastModified: Date.now(),
         });
   formData.append("file", namedFile);

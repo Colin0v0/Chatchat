@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from ..chat.types import ChatMessagePayload
 from ..llm import model_provider_and_name, stream_chat
+from ..llm.catalog import resolve_context_window
 from ..retrieval import RetrievalMode, RetrievalPlan
 from ..storage.database import SessionLocal
 from ..storage.models import Conversation
@@ -160,12 +161,20 @@ async def response_event_stream(
             raise RuntimeError("Conversation not found during streaming.")
 
         all_history_messages = load_history_messages(stream_db, history_message_ids)
+        model_context_window = resolve_context_window(model)
+        history_budget = services.history_token_budget
+        summary_budget = services.summary_token_budget
+        if isinstance(model_context_window, int) and model_context_window > 0:
+            # Reserve token headroom for generation, tools, and retrieval snippets.
+            history_budget = min(history_budget, max(900, int(model_context_window * 0.36)))
+            summary_budget = min(summary_budget, max(450, int(model_context_window * 0.14)))
+
         strategy = choose_context_strategy(
             query=query,
             retrieval_mode=retrieval_mode,
             has_conversation_attachments=any(message.attachments for message in all_history_messages),
-            default_history_budget=services.history_token_budget,
-            default_summary_budget=services.summary_token_budget,
+            default_history_budget=history_budget,
+            default_summary_budget=summary_budget,
         )
         history_window = select_history_window(
             all_history_messages,

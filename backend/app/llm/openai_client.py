@@ -19,15 +19,19 @@ from .capabilities import (
 )
 
 
-def openai_base_url(provider: Provider = "openai") -> str:
+def openai_base_url(provider: Provider = "openai", base_url_override: str | None = None) -> str:
+    if base_url_override:
+        return base_url_override
     if provider == "openai_local":
         return settings.openai_local_base_url
     return settings.openai_base_url
 
 
-def openai_headers(provider: Provider = "openai") -> dict[str, str]:
+def openai_headers(provider: Provider = "openai", api_key_override: str | None = None) -> dict[str, str]:
     headers: dict[str, str] = {}
-    api_key = settings.openai_local_api_key if provider == "openai_local" else settings.openai_api_key
+    api_key = api_key_override or (
+        settings.openai_local_api_key if provider == "openai_local" else settings.openai_api_key
+    )
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
     return headers
@@ -233,6 +237,8 @@ async def stream_openai_chat(
     messages: list[ChatMessagePayload],
     provider: Provider = "openai",
     thinking_enabled: bool | None = None,
+    base_url_override: str | None = None,
+    api_key_override: str | None = None,
 ) -> AsyncIterator[dict]:
     use_stream = not (provider == "openai_local" and not settings.openai_local_stream)
     payload = {
@@ -252,9 +258,9 @@ async def stream_openai_chat(
         fallback_payload = dict(payload)
         fallback_payload["stream"] = False
         async with httpx.AsyncClient(
-            base_url=normalize_base_url(openai_base_url(provider)),
+            base_url=normalize_base_url(openai_base_url(provider, base_url_override)),
             timeout=timeout,
-            headers=openai_headers(provider),
+            headers=openai_headers(provider, api_key_override),
         ) as fallback_client:
             fallback_response = await fallback_client.post("/chat/completions", json=fallback_payload)
             fallback_response.raise_for_status()
@@ -281,9 +287,9 @@ async def stream_openai_chat(
         return
 
     async with httpx.AsyncClient(
-        base_url=normalize_base_url(openai_base_url(provider)),
+        base_url=normalize_base_url(openai_base_url(provider, base_url_override)),
         timeout=timeout,
-        headers=openai_headers(provider),
+        headers=openai_headers(provider, api_key_override),
     ) as client:
         emitted_any = False
         try:

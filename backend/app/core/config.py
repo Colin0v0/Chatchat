@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     openai_local_model_allowlist: str = ""
     openai_local_vision_model_allowlist: str = ""
     openai_local_stream: bool = True
+    model_catalog_path: str = "./model_catalog.json"
+    model_catalog_strict: bool = True
     default_provider: str = "ollama"
     default_model: str = "qwen2.5:7b"
     attachment_max_upload_count: int = 8
@@ -37,10 +39,8 @@ class Settings(BaseSettings):
     file_text_max_chars: int = 6000
     file_table_row_limit: int = 40
     file_table_column_limit: int = 24
-    audio_transcription_model: str = "turbo"
-    audio_transcription_device: str = "cuda"
-    audio_transcription_compute_type: str = "float16"
-    audio_transcription_vad_filter: bool = True
+    audio_transcription_model: str = "iic/SenseVoiceSmall"
+    audio_transcription_device: str = "cpu"
     audio_max_upload_size_bytes: int = 25 * 1024 * 1024
     local_model_idle_timeout_seconds: float = 60.0
     request_timeout_seconds: float = 180.0

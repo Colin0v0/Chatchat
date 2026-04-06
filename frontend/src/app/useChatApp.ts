@@ -328,12 +328,12 @@ export function useChatApp({
 
     setIsTranscribing(true);
     try {
-      const audioBlob = await stopRecording();
-      if (!audioBlob) {
+      const capture = await stopRecording();
+      if (!capture.audioBlob) {
         return;
       }
 
-      const result = await transcribeAudio(audioBlob);
+      const result = await transcribeAudio(capture.audioBlob);
       if (!result.text.trim()) {
         return;
       }

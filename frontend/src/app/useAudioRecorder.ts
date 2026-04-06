@@ -1,16 +1,38 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+export interface RecordingCaptureResult {
+  audioBlob: Blob | null;
+}
+
 function resolveMimeType() {
-  const candidates = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"];
+  const candidates = ["audio/webm;codecs=opus", "audio/mp4", "audio/webm"];
   return candidates.find((item) => MediaRecorder.isTypeSupported(item)) ?? "";
 }
 
 function createRecorder(stream: MediaStream): MediaRecorder {
   const mimeType = resolveMimeType();
-  if (mimeType) {
-    return new MediaRecorder(stream, { mimeType });
+  return mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+}
+
+function toRecordingError(error: unknown): string {
+  if (!(error instanceof DOMException)) {
+    return "Failed to access the microphone.";
   }
-  return new MediaRecorder(stream);
+
+  switch (error.name) {
+    case "NotAllowedError":
+      return "Microphone permission was denied.";
+    case "NotFoundError":
+      return "No microphone was found on this device.";
+    case "NotReadableError":
+      return "The microphone is busy or unavailable.";
+    case "SecurityError":
+      return "Voice input requires HTTPS or localhost.";
+    case "OverconstrainedError":
+      return "The selected microphone settings are not supported.";
+    default:
+      return "Failed to access the microphone.";
+  }
 }
 
 export function useAudioRecorder() {
@@ -30,15 +52,33 @@ export function useAudioRecorder() {
     if (isRecording) {
       return;
     }
-    if (typeof window === "undefined" || !("MediaRecorder" in window)) {
+    if (typeof window === "undefined" || !window.isSecureContext) {
+      throw new Error("Voice input requires HTTPS or localhost.");
+    }
+    if (!("MediaRecorder" in window)) {
       throw new Error("This browser does not support audio recording.");
     }
     if (!navigator.mediaDevices?.getUserMedia) {
-      throw new Error("Audio input is not available in this browser.");
+      throw new Error("Microphone access is not available in this browser.");
     }
 
     setRecordingError(null);
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          autoGainControl: true,
+          echoCancellation: true,
+          noiseSuppression: true,
+        },
+      });
+    } catch (error) {
+      const message = toRecordingError(error);
+      setRecordingError(message);
+      throw new Error(message);
+    }
+
     const recorder = createRecorder(stream);
     chunksRef.current = [];
     shouldDiscardRef.current = false;
@@ -54,36 +94,42 @@ export function useAudioRecorder() {
 
     recorderRef.current = recorder;
     streamRef.current = stream;
-    recorder.start();
+    recorder.start(250);
     setIsRecording(true);
   }, [isRecording]);
 
-  const stopRecording = useCallback(async () => {
+  const stopRecording = useCallback(async (): Promise<RecordingCaptureResult> => {
     const recorder = recorderRef.current;
     if (!recorder || recorder.state === "inactive") {
+      recorderRef.current = null;
       setIsRecording(false);
       cleanupStream();
-      return null;
+      shouldDiscardRef.current = false;
+      chunksRef.current = [];
+      return { audioBlob: null };
     }
 
-    return new Promise<Blob | null>((resolve) => {
+    return new Promise<RecordingCaptureResult>((resolve) => {
       const handleStop = () => {
         recorderRef.current = null;
         setIsRecording(false);
         cleanupStream();
 
-        if (shouldDiscardRef.current || chunksRef.current.length === 0) {
-          chunksRef.current = [];
+        if (shouldDiscardRef.current) {
           shouldDiscardRef.current = false;
-          resolve(null);
+          chunksRef.current = [];
+          resolve({ audioBlob: null });
           return;
         }
 
-        const blob = new Blob(chunksRef.current, {
-          type: recorder.mimeType || "audio/webm",
-        });
+        const audioBlob =
+          chunksRef.current.length > 0
+            ? new Blob(chunksRef.current, {
+                type: recorder.mimeType || "audio/webm",
+              })
+            : null;
         chunksRef.current = [];
-        resolve(blob);
+        resolve({ audioBlob });
       };
 
       recorder.addEventListener("stop", handleStop, { once: true });

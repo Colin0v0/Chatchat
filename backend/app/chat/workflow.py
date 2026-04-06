@@ -8,6 +8,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from ..core.config import settings
+from ..llm.catalog import resolve_model_route
 from ..llm import normalize_model
 from ..retrieval import RetrievalMode
 from ..schemas import RegenerateRequest
@@ -38,7 +39,12 @@ async def regenerate_chat_response(
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
+    if settings.model_catalog_strict and resolve_model_route(conversation.model) is None:
+        raise HTTPException(status_code=400, detail=f"Model not enabled: {conversation.model}")
+
     if payload.model and conversation.model != payload.model:
+        if settings.model_catalog_strict and resolve_model_route(payload.model) is None:
+            raise HTTPException(status_code=400, detail=f"Model not enabled: {payload.model}")
         conversation.model = payload.model
         db.add(conversation)
         db.commit()
@@ -110,6 +116,10 @@ async def chat_stream_response(
 ) -> StreamingResponse:
     content = message.strip()
     uploads = files or []
+    target_model = model or normalize_model(settings.default_model)
+    if settings.model_catalog_strict and resolve_model_route(target_model) is None:
+        raise HTTPException(status_code=400, detail=f"Model not enabled: {target_model}")
+
     if not content and not uploads:
         raise HTTPException(status_code=400, detail="Message cannot be empty")
 
@@ -135,7 +145,7 @@ async def chat_stream_response(
         if conversation is None:
             conversation = Conversation(
                 title=conversation_title(content, len(uploaded_attachments)),
-                model=model or normalize_model(settings.default_model),
+                model=target_model,
             )
             db.add(conversation)
             db.flush()

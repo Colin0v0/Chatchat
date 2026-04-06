@@ -8,8 +8,8 @@ export default defineConfig({
     host: "0.0.0.0",
     port: 5200,
     proxy: {
-      "/api": "http://127.0.0.1:8050",
-      "/media": "http://127.0.0.1:8050",
+      "/api": "http://127.0.0.1:8000",
+      "/media": "http://127.0.0.1:8000",
     },
   },
   build: {
