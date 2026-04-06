@@ -22,7 +22,7 @@ def create_app() -> FastAPI:
     app.mount("/media", StaticFiles(directory=MEDIA_ROOT), name="media")
     local_gpu_lock = Lock()
     app.state.chat_services = build_chat_services(settings, local_gpu_lock=local_gpu_lock)
-    app.state.audio_services = build_audio_services(settings, local_gpu_lock=local_gpu_lock)
+    app.state.audio_services = build_audio_services(settings)
 
     app.add_middleware(
         CORSMiddleware,
@@ -40,6 +40,11 @@ def create_app() -> FastAPI:
             raise RuntimeError(f"Model catalog validation failed: {exc}") from exc
         Base.metadata.create_all(bind=engine)
         ensure_schema()
+        app.state.audio_services.transcriber.load()
+
+    @app.on_event("shutdown")
+    def on_shutdown() -> None:
+        app.state.audio_services.transcriber.unload()
 
     app.include_router(models_router)
     app.include_router(rag_router)

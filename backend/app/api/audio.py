@@ -22,21 +22,9 @@ async def transcribe_audio(
     if len(payload) > settings.audio_max_upload_size_bytes:
         raise HTTPException(status_code=400, detail="Audio file is too large.")
 
-    lock_acquired = False
-    if services.transcriber.requires_local_gpu:
-        lock_acquired = services.local_gpu_lock.acquire(blocking=False)
-        if not lock_acquired:
-            raise HTTPException(
-                status_code=409,
-                detail="Local GPU is busy. Stop the current local generation and retry.",
-            )
-
     try:
         return services.transcriber.transcribe(payload)
     except AudioModelLoadError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    finally:
-        if lock_acquired:
-            services.local_gpu_lock.release()

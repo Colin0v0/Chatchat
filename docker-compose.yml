@@ -6,19 +6,29 @@ services:
     env_file:
       - ./backend/.env
     environment:
+      # Ollama在WSL2本地运行，通过host.docker.internal访问
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       RAG_VAULT_PATH: ${RAG_VAULT_PATH:-/data/obsidian}
       RAG_INDEX_PATH: ${RAG_INDEX_PATH:-/app/storage/rag/index.json}
       RAG_EMBEDDING_MODEL: ${RAG_EMBEDDING_MODEL:-nomic-embed-text}
       RAG_TOP_K: ${RAG_TOP_K:-4}
       RAG_SECTION_MAX_CHARS: ${RAG_SECTION_MAX_CHARS:-1400}
+      # 模型路径（容器内）
+      IMAGE_VISION_MODEL: ${IMAGE_VISION_MODEL:-/models/Florence-2-base-ft}
+      AUDIO_TRANSCRIPTION_MODEL: ${AUDIO_TRANSCRIPTION_MODEL:-iic/SenseVoiceSmall}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
       - "8000:8000"
     volumes:
       - backend-storage:/app/storage
-      - ${OBSIDIAN_VAULT_HOST_PATH:-E:/360MoveData/Users/29220/Documents/COLIN_all_in_one_note}:/data/obsidian:ro
+      # Windows路径挂载到WSL2（/mnt/驱动器/路径）
+      - ${OBSIDIAN_VAULT_HOST_PATH:-/mnt/e/360MoveData/Users/29220/Documents/COLIN_all_in_one_note}:/data/obsidian:ro
+      # 模型目录挂载（只读）
+      - ${MODELS_HOST_PATH:-/mnt/f/AI/Models}:/models:ro
+      # HuggingFace缓存目录（使用Docker卷持久化）
+      - huggingface-cache:/root/.cache/huggingface
+      - modelscope-cache:/root/.cache/modelscope
     restart: unless-stopped
 
   frontend:
@@ -33,3 +43,5 @@ services:
 
 volumes:
   backend-storage:
+  huggingface-cache:
+  modelscope-cache:

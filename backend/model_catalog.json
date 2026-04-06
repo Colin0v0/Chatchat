@@ -6,12 +6,12 @@
     },
     "openai_local_router": {
       "provider": "openai_local",
-      "base_url": "http://127.0.0.1:18000/v1",
+      "base_url": "http://host.docker.internal:18000/v1",
       "api_key_env": "OPENAI_LOCAL_API_KEY"
     },
     "ollama_local": {
       "provider": "ollama",
-      "base_url": "http://127.0.0.1:11434"
+      "base_url": "http://host.docker.internal:11434"
     }
   },
   "models": [
