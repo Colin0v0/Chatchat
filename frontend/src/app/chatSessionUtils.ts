@@ -29,7 +29,12 @@ export type RunStreamOptions = {
   }) => Promise<void>;
 };
 
-export type StreamingStage = "analyzing_attachments" | "reading_notes" | "reading_files" | "searching";
+export type StreamingStage =
+  | "waiting_for_model"
+  | "analyzing_attachments"
+  | "reading_notes"
+  | "reading_files"
+  | "searching";
 
 export type StreamSessionStatus = "running" | "completed" | "stopped" | "error";
 
@@ -50,6 +55,9 @@ export type ConversationActivity = {
 
 export function stageFromStatusItems(items: string[]): StreamingStage | null {
   const normalizedItems = new Set(items);
+  if (normalizedItems.has("Waiting for model")) {
+    return "waiting_for_model";
+  }
   if (normalizedItems.has("Reading image")) {
     return "analyzing_attachments";
   }
@@ -76,6 +84,9 @@ export function stageForRetrievalMode(mode: RetrievalMode): StreamingStage | nul
 }
 
 export function labelForStage(stage: StreamingStage | null): string | null {
+  if (stage === "waiting_for_model") {
+    return "Waiting for model";
+  }
   if (stage === "analyzing_attachments") {
     return "Analyzing attachments";
   }

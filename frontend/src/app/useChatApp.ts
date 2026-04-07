@@ -158,7 +158,6 @@ export function useChatApp({
     mergeConversationSummariesWithSessions,
     openSessionConversation,
     renameSession,
-    runningSessions,
     runStream,
     stopStream,
     visibleStreaming,
@@ -172,15 +171,8 @@ export function useChatApp({
     setSelectedModel,
     setThinkingExpanded,
   });
-  const hasRunningOllamaSession = useMemo(
-    () => runningSessions.some((session) => session.conversation.model.startsWith("ollama:")),
-    [runningSessions],
-  );
-  const submitBlocked =
-    !isStreaming && selectedModel.startsWith("ollama:") && hasRunningOllamaSession;
-  const submitBlockedReason = submitBlocked
-    ? "Ollama 同时只允许一个回答运行中，请先停止当前本地生成，避免内存占满。"
-    : null;
+  const submitBlocked = false;
+  const submitBlockedReason = null;
 
   const loadConversation = useCallback(
     async (conversationId: number) => {
@@ -448,10 +440,6 @@ export function useChatApp({
     }
 
     const effectiveModel = selectedModel;
-    if (effectiveModel.startsWith("ollama:") && hasRunningOllamaSession) {
-      setError("Ollama 同时只允许一个回答运行中，请先停止当前本地生成，避免内存占满。");
-      return;
-    }
     const tempConversationId =
       activeConversation?.id != null ? activeConversation.id : -Date.now();
     const initialStage =
@@ -511,7 +499,6 @@ export function useChatApp({
     clearAttachments,
     draft,
     draftAttachments,
-    hasRunningOllamaSession,
     isRecording,
     isStreaming,
     isTranscribing,
@@ -554,10 +541,6 @@ export function useChatApp({
       }
 
       const effectiveModel = selectedModel;
-      if (effectiveModel.startsWith("ollama:") && hasRunningOllamaSession) {
-        setError("Ollama 同时只允许一个回答运行中，请先停止当前本地生成，避免内存占满。");
-        return;
-      }
       const retryUserDraftId = `retry-user-${messageId}-${Date.now()}`;
       const nextConversation = appendRetryDraft(
         activeConversation,
@@ -614,7 +597,6 @@ export function useChatApp({
     },
     [
       activeConversation,
-      hasRunningOllamaSession,
       isStreaming,
       refreshConversations,
       retrievalMode,
