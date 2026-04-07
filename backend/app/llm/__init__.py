@@ -7,6 +7,7 @@ from .capabilities import (
     normalize_model,
     present_model_name,
     supports_native_image_input,
+    supports_native_document_input,
 )
 from .ollama_client import list_ollama_models
 from .openai_client import list_openai_local_models, list_openai_models
@@ -28,4 +29,5 @@ __all__ = [
     "present_model_name",
     "stream_chat",
     "supports_native_image_input",
+    "supports_native_document_input",
 ]

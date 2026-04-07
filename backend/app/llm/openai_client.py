@@ -83,13 +83,17 @@ async def list_openai_local_models() -> list[DiscoveredModel]:
 
 
 def openai_message_payload(message: ChatMessagePayload) -> dict[str, object]:
-    if not message.images:
+    # 纯文本消息
+    if not message.images and not message.documents:
         return {
             "role": message.role,
             "content": message.content,
         }
 
+    # 多模态消息（图片+文档）
     content: list[dict[str, object]] = [{"type": "text", "text": message.content}]
+    
+    # 添加图片
     content.extend(
         {
             "type": "image_url",
@@ -97,6 +101,20 @@ def openai_message_payload(message: ChatMessagePayload) -> dict[str, object]:
         }
         for image in message.images
     )
+    
+    # 添加PDF文档（Claude 3.5+ API格式）
+    content.extend(
+        {
+            "type": "document",
+            "source": {
+                "type": "base64",
+                "media_type": doc.mime_type,
+                "data": doc.base64_data,
+            },
+        }
+        for doc in message.documents
+    )
+    
     return {
         "role": message.role,
         "content": content,

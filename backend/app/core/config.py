@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     default_model: str = "qwen2.5:7b"
     attachment_max_upload_count: int = 8
     attachment_max_upload_size_bytes: int = 20 * 1024 * 1024
-    image_ocr_min_confidence: float = 0.55
+    image_ocr_min_confidence: float = 0.45
     image_text_max_chars: int = 4800
     image_vision_model: str = "AI-ModelScope/Florence-2-base-ft"
     image_vision_prompt: str = "<MORE_DETAILED_CAPTION>"

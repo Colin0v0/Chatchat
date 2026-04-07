@@ -22,7 +22,9 @@
       "upstream_model": "deepseek-chat",
       "thinking_mode": "default_off",
       "context_window": 64000,
-      "supports_image_input": false
+      "supports_image_input": false,
+      "supports_document_input": false,
+      "enabled": true
     },
     {
       "id": "openai:deepseek-reasoner",
@@ -31,7 +33,9 @@
       "upstream_model": "deepseek-reasoner",
       "thinking_mode": "force_on",
       "context_window": 64000,
-      "supports_image_input": false
+      "supports_image_input": false,
+      "supports_document_input": false,
+      "enabled": true
     },
     {
       "id": "openai_local:claude-sonnet-4-6",
@@ -40,7 +44,9 @@
       "upstream_model": "claude-sonnet-4-6",
       "thinking_mode": "force_on",
       "context_window": 100000,
-      "supports_image_input": false
+      "supports_image_input": true,
+      "supports_document_input": true,
+      "enabled": true
     },
     {
       "id": "openai_local:claude-haiku-4-5",
@@ -49,7 +55,10 @@
       "upstream_model": "claude-haiku-4-5",
       "thinking_mode": "force_on",
       "context_window": 100000,
-      "supports_image_input": false
+      "supports_image_input": true,
+      "supports_document_input": true,
+      "enabled": true
+
     },
     {
       "id": "openai_local:claude-opus-4-6",
@@ -58,7 +67,9 @@
       "upstream_model": "claude-opus-4-6",
       "thinking_mode": "force_on",
       "context_window": 100000,
-      "supports_image_input": false
+      "supports_image_input": false,
+      "supports_document_input": false,
+      "enabled": true
     },
     {
       "id": "ollama:gemma4:e4b",
@@ -67,7 +78,9 @@
       "upstream_model": "gemma4:e4b",
       "thinking_mode": "default_on",
       "context_window": 32768,
-      "supports_image_input": true
+      "supports_image_input": true,
+      "supports_document_input": false,
+      "enabled": false
     },
     {
       "id": "ollama:huihui-qwen35-9b-opus:latest",
@@ -76,7 +89,9 @@
       "upstream_model": "huihui-qwen35-9b-opus:latest",
       "thinking_mode": "default_on",
       "context_window": 32768,
-      "supports_image_input": false
+      "supports_image_input": false,
+      "supports_document_input": false,
+      "enabled": false
     },
     {
       "id": "ollama:deepseek-r1:7b",
@@ -85,7 +100,9 @@
       "upstream_model": "deepseek-r1:7b",
       "thinking_mode": "default_on",
       "context_window": 32768,
-      "supports_image_input": false
+      "supports_image_input": false,
+      "supports_document_input": false,
+      "enabled": false
     },
     {
       "id": "ollama:qwen3:4b",
@@ -94,7 +111,9 @@
       "upstream_model": "qwen3:4b",
       "thinking_mode": "default_on",
       "context_window": 32768,
-      "supports_image_input": false
+      "supports_image_input": false,
+      "supports_document_input": false,
+      "enabled": false
     }
   ]
 }

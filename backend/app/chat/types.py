@@ -10,7 +10,16 @@ class ChatImagePayload:
 
 
 @dataclass(frozen=True)
+class ChatDocumentPayload:
+    """原生文档payload（用于Claude PDF支持）"""
+    mime_type: str
+    filename: str
+    base64_data: str
+
+
+@dataclass(frozen=True)
 class ChatMessagePayload:
     role: str
     content: str
     images: tuple[ChatImagePayload, ...] = field(default_factory=tuple)
+    documents: tuple[ChatDocumentPayload, ...] = field(default_factory=tuple)

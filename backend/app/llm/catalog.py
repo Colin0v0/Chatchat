@@ -29,6 +29,7 @@ class ModelRoute(TypedDict):
     context_window: int | None
     supports_image_input: bool
     supports_thinking: bool
+    supports_document_input: bool  # 新增：原生文档支持
 
 
 class ProviderPreset(TypedDict):
@@ -218,6 +219,12 @@ def _parse_routes(payload: dict[str, object]) -> list[ModelRoute]:
             raise ModelCatalogError(f"{row_path}.supports_image_input must be boolean")
         supports_image_input = supports_image_input_raw
 
+        # 新增：读取 supports_document_input 配置
+        supports_document_input_raw = row.get("supports_document_input", False)
+        if not isinstance(supports_document_input_raw, bool):
+            raise ModelCatalogError(f"{row_path}.supports_document_input must be boolean")
+        supports_document_input = supports_document_input_raw
+
         supports_thinking_raw = row.get("supports_thinking")
         if supports_thinking_raw is not None and not isinstance(supports_thinking_raw, bool):
             raise ModelCatalogError(f"{row_path}.supports_thinking must be boolean when provided")
@@ -243,6 +250,7 @@ def _parse_routes(payload: dict[str, object]) -> list[ModelRoute]:
                 context_window=context_window,
                 supports_image_input=supports_image_input,
                 supports_thinking=supports_thinking,
+                supports_document_input=supports_document_input,  # 新增
             )
         )
 
@@ -311,6 +319,7 @@ def list_catalog_discovered_models() -> list[DiscoveredModel]:
             "id": route["id"],
             "supports_image_input": route["supports_image_input"],
             "supports_thinking": route["supports_thinking"],
+            "supports_document_input": route["supports_document_input"],
         }
         if route.get("display_name"):
             item["display_name"] = route["display_name"]

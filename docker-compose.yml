@@ -6,8 +6,8 @@ services:
     env_file:
       - ./backend/.env
     environment:
-      # Ollama在WSL2本地运行，通过host.docker.internal访问
-      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      # Ollama在WSL2本地运行，通过host访问
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host:11434}
       RAG_VAULT_PATH: ${RAG_VAULT_PATH:-/data/obsidian}
       RAG_INDEX_PATH: ${RAG_INDEX_PATH:-/app/storage/rag/index.json}
       RAG_EMBEDDING_MODEL: ${RAG_EMBEDDING_MODEL:-nomic-embed-text}
@@ -17,7 +17,7 @@ services:
       IMAGE_VISION_MODEL: ${IMAGE_VISION_MODEL:-/models/Florence-2-base-ft}
       AUDIO_TRANSCRIPTION_MODEL: ${AUDIO_TRANSCRIPTION_MODEL:-iic/SenseVoiceSmall}
     extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - "host:host-gateway"
     ports:
       - "8000:8000"
     volumes:
