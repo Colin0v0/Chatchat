@@ -24,6 +24,7 @@ async def regenerate_chat(
     return await regenerate_chat_response(
         services=services,
         payload=payload,
+        request=request,
         db=db,
     )
 
@@ -42,6 +43,7 @@ async def chat_stream(
     services = get_chat_services(request)
     return await chat_stream_response(
         services=services,
+        request=request,
         db=db,
         conversation_id=conversation_id,
         message=message,

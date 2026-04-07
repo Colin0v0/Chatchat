@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -29,6 +29,7 @@ async def regenerate_chat_response(
     *,
     services: ChatServices,
     payload: RegenerateRequest,
+    request: Request,
     db: Session,
 ) -> StreamingResponse:
     conversation = db.get(
@@ -91,6 +92,7 @@ async def regenerate_chat_response(
     return StreamingResponse(
         response_event_stream(
             services=services,
+            request=request,
             conversation_id=conversation.id,
             message_id=regenerated_user_message.id,
             model=conversation.model,
@@ -106,6 +108,7 @@ async def regenerate_chat_response(
 async def chat_stream_response(
     *,
     services: ChatServices,
+    request: Request,
     db: Session,
     conversation_id: Optional[int],
     message: str,
@@ -180,6 +183,7 @@ async def chat_stream_response(
     return StreamingResponse(
         response_event_stream(
             services=services,
+            request=request,
             conversation_id=conversation.id,
             message_id=user_message.id,
             model=conversation.model,

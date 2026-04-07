@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from threading import Lock
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -20,8 +18,7 @@ def create_app() -> FastAPI:
     configure_logging()
     app = FastAPI(title=settings.app_name)
     app.mount("/media", StaticFiles(directory=MEDIA_ROOT), name="media")
-    local_gpu_lock = Lock()
-    app.state.chat_services = build_chat_services(settings, local_gpu_lock=local_gpu_lock)
+    app.state.chat_services = build_chat_services(settings)
     app.state.audio_services = build_audio_services(settings)
 
     app.add_middleware(

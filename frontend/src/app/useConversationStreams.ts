@@ -332,7 +332,7 @@ export function useConversationStreams({
 
       if (event.type === "status") {
         const nextStage = stageFromStatusItems(event.items);
-        if (nextStage) {
+        if (nextStage || event.items.length === 0) {
           transitionSessionStage(conversationId, nextStage);
         }
         return;
