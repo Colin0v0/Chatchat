@@ -115,33 +115,10 @@ export function useChatApp({
     () => findModelOption(models, selectedModel),
     [models, selectedModel],
   );
-  const nativeThinkingSupported =
-    selectedModelOption.supports_thinking_trace && !selectedModelOption.reasoning_model;
-  const nativeThinkingToggleAvailable =
-    nativeThinkingSupported && selectedModel.startsWith("ollama:deepseek-r1");
-  const manualThinkingToggleAvailable =
-    selectedModelOption.supports_thinking &&
-    !selectedModelOption.chat_model &&
-    !selectedModelOption.reasoning_model;
-  const nativeThinkingForced = nativeThinkingSupported && !nativeThinkingToggleAvailable;
-  const nativeThinkingEnabled = nativeThinkingByModel[selectedModel] ?? true;
-  const thinkingToggleAvailable =
-    nativeThinkingToggleAvailable ||
-    manualThinkingToggleAvailable ||
-    Boolean(selectedModelOption.chat_model || selectedModelOption.reasoning_model);
-  const thinkingAvailable = thinkingToggleAvailable;
-  const thinkingEnabled =
-    nativeThinkingForced
-      ? true
-      : nativeThinkingToggleAvailable || manualThinkingToggleAvailable
-      ? nativeThinkingEnabled
-      : selectedModelOption.supports_thinking &&
-        selectedModelOption.reasoning_model === selectedModel;
-  const thinkingRequestEnabled =
-    (selectedModel.startsWith("ollama:") && nativeThinkingSupported) ||
-    selectedModel.startsWith("openai_local:")
-      ? thinkingEnabled
-      : null;
+  const thinkingAvailable =
+    selectedModelOption.supports_thinking || selectedModelOption.supports_thinking_trace;
+  const thinkingEnabled = thinkingAvailable ? (nativeThinkingByModel[selectedModel] ?? true) : false;
+  const thinkingRequestEnabled = thinkingAvailable ? thinkingEnabled : null;
   const attachmentUploadAvailable = selectedModelOption.supports_attachment_upload;
 
   const clearTransientAttachmentUrls = useCallback(() => {
@@ -273,37 +250,15 @@ export function useChatApp({
   }, []);
 
   const handleToggleThinking = useCallback(() => {
-    if (!thinkingToggleAvailable) {
+    if (!thinkingAvailable) {
       return;
     }
 
-    if (nativeThinkingForced) {
-      return;
-    }
-
-    if (nativeThinkingToggleAvailable || manualThinkingToggleAvailable) {
-      setNativeThinkingByModel((current) => ({
-        ...current,
-        [selectedModel]: !thinkingEnabled,
-      }));
-      return;
-    }
-
-    if (thinkingEnabled) {
-      setSelectedModel(selectedModelOption.chat_model ?? selectedModel);
-      return;
-    }
-
-    setSelectedModel(selectedModelOption.reasoning_model ?? selectedModel);
-  }, [
-    selectedModel,
-    selectedModelOption,
-    thinkingEnabled,
-    nativeThinkingForced,
-    thinkingToggleAvailable,
-    nativeThinkingToggleAvailable,
-    manualThinkingToggleAvailable,
-  ]);
+    setNativeThinkingByModel((current) => ({
+      ...current,
+      [selectedModel]: !thinkingEnabled,
+    }));
+  }, [selectedModel, thinkingAvailable, thinkingEnabled]);
 
   const handleStartRecording = useCallback(async () => {
     if (isStreaming || isTranscribing) {

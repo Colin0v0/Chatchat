@@ -22,9 +22,11 @@ class AudioTranscriber:
         *,
         model_name: str,
         device: str,
+        enabled: bool,
     ):
         self._model_name = model_name
         self._device = device
+        self._enabled = enabled
         self._lock = Lock()
         self._model: Any | None = None
         self._postprocess: Callable[[str], str] | None = None
@@ -33,7 +35,13 @@ class AudioTranscriber:
     def requires_local_gpu(self) -> bool:
         return self._device.startswith("cuda")
 
+    @property
+    def is_enabled(self) -> bool:
+        return self._enabled
+
     def load(self) -> None:
+        if not self._enabled:
+            return
         with self._lock:
             if self._model is not None and self._postprocess is not None:
                 return
@@ -51,6 +59,10 @@ class AudioTranscriber:
         gc.collect()
 
     def transcribe(self, audio_bytes: bytes) -> AudioTranscriptionOut:
+        if not self._enabled:
+            raise AudioModelLoadError(
+                "Audio transcription is disabled in the current environment."
+            )
         self.load()
         wav_bytes = transcode_audio_to_wav(audio_bytes)
         text = self._transcribe_wav(wav_bytes)

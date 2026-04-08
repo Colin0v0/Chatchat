@@ -40,7 +40,8 @@ def create_app() -> FastAPI:
             raise RuntimeError(f"Model catalog validation failed: {exc}") from exc
         Base.metadata.create_all(bind=engine)
         ensure_schema()
-        app.state.audio_services.transcriber.load()
+        if settings.audio_transcription_enabled and settings.audio_transcription_eager_load:
+            app.state.audio_services.transcriber.load()
 
     @app.on_event("shutdown")
     def on_shutdown() -> None:

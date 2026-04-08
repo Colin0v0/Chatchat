@@ -7,12 +7,12 @@ export function createModelOption(id: string): ModelOption {
     return {
       id,
       label: "deepseek-chat",
-      supports_thinking: true,
+      supports_thinking: false,
       supports_thinking_trace: false,
       supports_image_input: false,
       supports_attachment_upload: true,
-      chat_model: INITIAL_CHAT_MODEL,
-      reasoning_model: INITIAL_REASONING_MODEL,
+      chat_model: null,
+      reasoning_model: null,
     };
   }
 
@@ -24,8 +24,8 @@ export function createModelOption(id: string): ModelOption {
       supports_thinking_trace: true,
       supports_image_input: false,
       supports_attachment_upload: true,
-      chat_model: INITIAL_CHAT_MODEL,
-      reasoning_model: INITIAL_REASONING_MODEL,
+      chat_model: null,
+      reasoning_model: null,
     };
   }
 
@@ -58,6 +58,5 @@ export function ensureSelectedModel(models: ModelOption[], modelId: string): Mod
 }
 
 export function resolveInitialSelectedModel(models: ModelOption[], preferredModel: string): string {
-  const option = findModelOption(models, preferredModel);
-  return option.reasoning_model ?? preferredModel;
+  return findModelOption(models, preferredModel).id;
 }

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from ..chat.types import ChatMessagePayload
 from ..llm import model_provider_and_name, stream_chat
 from ..llm.catalog import resolve_context_window
+from ..llm.thinking import ThinkTagStreamNormalizer
 from ..retrieval import RetrievalMode, RetrievalPlan
 from ..storage.database import SessionLocal
 from ..storage.models import Conversation
@@ -56,6 +57,8 @@ async def assistant_event_stream(
     thinking_enabled: bool | None = None,
 ):
     assistant_chunks: list[str] = []
+    show_reasoning = thinking_enabled is not False
+    thinking_normalizer = ThinkTagStreamNormalizer(emit_reasoning=show_reasoning)
     if sources:
         yield json.dumps({"type": "sources", "sources": sources}, ensure_ascii=False) + "\n"
 
@@ -64,16 +67,27 @@ async def assistant_event_stream(
         messages=message_history,
         thinking_enabled=thinking_enabled,
     ):
-        reasoning_delta = chunk.get("reasoning", {}).get("content", "")
+        reasoning_delta = chunk.get("reasoning", {}).get("content", "") if show_reasoning else ""
+        delta = chunk.get("message", {}).get("content", "")
+        normalized_reasoning, normalized_answer = thinking_normalizer.feed(delta)
+
+        if normalized_reasoning:
+            reasoning_delta = f"{reasoning_delta}{normalized_reasoning}"
         if reasoning_delta:
             yield json.dumps({"type": "reasoning", "content": reasoning_delta}, ensure_ascii=False) + "\n"
 
-        delta = chunk.get("message", {}).get("content", "")
-        if delta:
-            assistant_chunks.append(delta)
-            yield json.dumps({"type": "token", "content": delta}, ensure_ascii=False) + "\n"
+        if normalized_answer:
+            assistant_chunks.append(normalized_answer)
+            yield json.dumps({"type": "token", "content": normalized_answer}, ensure_ascii=False) + "\n"
 
         if chunk.get("done"):
+            tail_reasoning, tail_answer = thinking_normalizer.flush()
+            if show_reasoning and tail_reasoning:
+                yield json.dumps({"type": "reasoning", "content": tail_reasoning}, ensure_ascii=False) + "\n"
+            if tail_answer:
+                assistant_chunks.append(tail_answer)
+                yield json.dumps({"type": "token", "content": tail_answer}, ensure_ascii=False) + "\n"
+
             full_response = "".join(assistant_chunks).strip()
             if full_response:
                 assistant_message = save_assistant_message(

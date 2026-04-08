@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -6,7 +7,36 @@ BASE_DIR = Path(__file__).resolve().parents[2]
 ENV_FILE = BASE_DIR / ".env"
 
 
+def _resolve_env_files() -> tuple[str, ...]:
+    env_files: list[str] = []
+    explicit_file = os.getenv("CHATCHAT_ENV_FILE", "").strip()
+    env_name = os.getenv("CHATCHAT_ENV", "").strip()
+
+    if ENV_FILE.exists():
+        env_files.append(str(ENV_FILE))
+
+    if env_name:
+        named_env_file = BASE_DIR / f".env.{env_name}"
+        if not named_env_file.exists():
+            raise RuntimeError(f"CHATCHAT_ENV points to a missing env file: {named_env_file}")
+        env_files.append(str(named_env_file))
+
+    if explicit_file:
+        for raw_path in explicit_file.split(os.pathsep):
+            trimmed_path = raw_path.strip()
+            if not trimmed_path:
+                continue
+            candidate = Path(trimmed_path)
+            resolved = candidate if candidate.is_absolute() else BASE_DIR / candidate
+            if not resolved.exists():
+                raise RuntimeError(f"CHATCHAT_ENV_FILE points to a missing env file: {resolved}")
+            env_files.append(str(resolved))
+
+    return tuple(dict.fromkeys(env_files))
+
+
 class Settings(BaseSettings):
+    app_env: str = "default"
     app_name: str = "Chatchat API"
     database_url: str = "sqlite:///./storage/app.db"
     media_root: str = "./storage/media"
@@ -39,6 +69,8 @@ class Settings(BaseSettings):
     file_text_max_chars: int = 6000
     file_table_row_limit: int = 40
     file_table_column_limit: int = 24
+    audio_transcription_enabled: bool = True
+    audio_transcription_eager_load: bool = False
     audio_transcription_model: str = "iic/SenseVoiceSmall"
     audio_transcription_device: str = "cpu"
     audio_max_upload_size_bytes: int = 25 * 1024 * 1024
@@ -75,10 +107,9 @@ class Settings(BaseSettings):
     conversation_title_max_length: int = 40
 
     model_config = SettingsConfigDict(
-        env_file=str(ENV_FILE),
         env_file_encoding="utf-8",
         extra="ignore",
     )
 
 
-settings = Settings()
+settings = Settings(_env_file=_resolve_env_files())
