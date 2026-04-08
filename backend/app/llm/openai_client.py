@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 from collections.abc import AsyncIterator
 
 import httpx
@@ -121,132 +120,88 @@ def openai_message_payload(message: ChatMessagePayload) -> dict[str, object]:
     }
 
 
-def _strip_think_blocks(text: str) -> str:
-    return re.sub(r"<think>.*?</think>", "", text, flags=re.IGNORECASE | re.DOTALL).strip()
+def _flush_sse_data_lines(data_lines: list[str]) -> str | None:
+    if not data_lines:
+        return None
+    payload = "\n".join(data_lines).strip()
+    data_lines.clear()
+    return payload or None
 
 
-def _extract_think_blocks(text: str) -> tuple[str, str]:
-    pattern = re.compile(r"<think>(.*?)</think>", flags=re.IGNORECASE | re.DOTALL)
-    reasoning_parts = [match.group(1).strip() for match in pattern.finditer(text) if match.group(1).strip()]
-    answer = pattern.sub("", text).strip()
-    return "\n\n".join(reasoning_parts), answer
+async def _iter_openai_stream_payloads(lines: AsyncIterator[str]) -> AsyncIterator[str]:
+    data_lines: list[str] = []
+    in_sse_event = False
 
-
-class _ThinkTagStripper:
-    def __init__(self) -> None:
-        self._in_think = False
-        self._carry = ""
-        self._open_tag = "<think>"
-        self._close_tag = "</think>"
-
-    def _suffix_len_matching_prefix(self, text: str, prefix: str) -> int:
-        max_len = min(len(text), len(prefix) - 1)
-        for size in range(max_len, 0, -1):
-            if text.endswith(prefix[:size]):
-                return size
-        return 0
-
-    def feed(self, chunk: str) -> str:
-        data = self._carry + chunk
-        self._carry = ""
-        out: list[str] = []
-        i = 0
-
-        while i < len(data):
-            if self._in_think:
-                close_at = data.find(self._close_tag, i)
-                if close_at == -1:
-                    tail = data[i:]
-                    keep = self._suffix_len_matching_prefix(tail, self._close_tag)
-                    self._carry = tail[-keep:] if keep else ""
-                    return "".join(out)
-                i = close_at + len(self._close_tag)
-                self._in_think = False
+    async for raw_line in lines:
+        line = raw_line.rstrip("\r")
+        if not line:
+            if not in_sse_event:
                 continue
+            payload = _flush_sse_data_lines(data_lines)
+            in_sse_event = False
+            if payload:
+                yield payload
+            continue
 
-            open_at = data.find(self._open_tag, i)
-            if open_at == -1:
-                remain = data[i:]
-                keep = self._suffix_len_matching_prefix(remain, self._open_tag)
-                if keep:
-                    out.append(remain[:-keep])
-                    self._carry = remain[-keep:]
-                else:
-                    out.append(remain)
-                return "".join(out)
+        if line.startswith(":"):
+            in_sse_event = True
+            continue
 
-            out.append(data[i:open_at])
-            i = open_at + len(self._open_tag)
-            self._in_think = True
+        field, separator, value = line.partition(":")
+        if separator and field in {"data", "event", "id", "retry"}:
+            in_sse_event = True
+            if field == "data":
+                data_lines.append(value[1:] if value.startswith(" ") else value)
+            continue
 
-        return "".join(out)
+        if in_sse_event:
+            continue
+
+        payload = line.strip()
+        if payload:
+            yield payload
+
+    if in_sse_event:
+        payload = _flush_sse_data_lines(data_lines)
+        if payload:
+            yield payload
 
 
-class _ThinkTagSplitter:
-    def __init__(self) -> None:
-        self._in_think = False
-        self._carry = ""
-        self._open_tag = "<think>"
-        self._close_tag = "</think>"
+def _decode_openai_stream_payload(payload: str) -> dict[str, object]:
+    normalized = payload.strip()
+    if not normalized:
+        return {}
+    if normalized == "[DONE]":
+        return {"done": True}
+    if normalized[0] not in "{[":
+        return {}
 
-    def _suffix_len_matching_prefix(self, text: str, prefix: str) -> int:
-        max_len = min(len(text), len(prefix) - 1)
-        for size in range(max_len, 0, -1):
-            if text.endswith(prefix[:size]):
-                return size
-        return 0
+    try:
+        chunk = json.loads(normalized)
+    except json.JSONDecodeError as exc:
+        snippet = normalized[:160]
+        raise RuntimeError(f"Model service returned malformed streaming event: {snippet}") from exc
 
-    def feed(self, chunk: str) -> tuple[str, str]:
-        data = self._carry + chunk
-        self._carry = ""
-        reasoning: list[str] = []
-        answer: list[str] = []
-        i = 0
+    choices = chunk.get("choices") or []
+    if not choices:
+        return {}
 
-        while i < len(data):
-            if self._in_think:
-                close_at = data.find(self._close_tag, i)
-                if close_at == -1:
-                    tail = data[i:]
-                    keep = self._suffix_len_matching_prefix(tail, self._close_tag)
-                    if keep:
-                        reasoning.append(tail[:-keep])
-                        self._carry = tail[-keep:]
-                    else:
-                        reasoning.append(tail)
-                    return "".join(reasoning), "".join(answer)
-                reasoning.append(data[i:close_at])
-                i = close_at + len(self._close_tag)
-                self._in_think = False
-                continue
+    choice = choices[0]
+    delta = choice.get("delta", {}).get("content", "")
+    reasoning_delta = choice.get("delta", {}).get("reasoning_content", "")
+    if not delta:
+        delta = choice.get("message", {}).get("content", "")
+    if not delta:
+        delta = choice.get("text", "")
 
-            open_at = data.find(self._open_tag, i)
-            if open_at == -1:
-                tail = data[i:]
-                keep = self._suffix_len_matching_prefix(tail, self._open_tag)
-                if keep:
-                    answer.append(tail[:-keep])
-                    self._carry = tail[-keep:]
-                else:
-                    answer.append(tail)
-                return "".join(reasoning), "".join(answer)
-
-            answer.append(data[i:open_at])
-            i = open_at + len(self._open_tag)
-            self._in_think = True
-
-        return "".join(reasoning), "".join(answer)
-
-    def flush(self) -> tuple[str, str]:
-        if not self._carry:
-            return "", ""
-        if self._in_think:
-            tail = self._carry
-            self._carry = ""
-            return tail, ""
-        tail = self._carry
-        self._carry = ""
-        return "", tail
+    event: dict[str, object] = {
+        "done": choice.get("finish_reason") is not None,
+    }
+    if delta:
+        event["message"] = {"content": delta}
+    if reasoning_delta:
+        event["reasoning"] = {"content": reasoning_delta}
+    return event
 
 
 async def stream_openai_chat(
@@ -259,6 +214,7 @@ async def stream_openai_chat(
     api_key_override: str | None = None,
 ) -> AsyncIterator[dict]:
     use_stream = not (provider == "openai_local" and not settings.openai_local_stream)
+    request_timeout = settings.request_timeout_seconds
     payload = {
         "model": model,
         "messages": [openai_message_payload(message) for message in messages],
@@ -267,17 +223,12 @@ async def stream_openai_chat(
     if provider == "openai_local" and thinking_enabled is not None:
         payload["thinking"] = {"type": "enabled" if thinking_enabled else "disabled"}
 
-    split_thinking = provider == "openai_local" and thinking_enabled is not False
-    strip_thinking = provider == "openai_local" and thinking_enabled is False
-    think_stripper = _ThinkTagStripper() if strip_thinking else None
-    think_splitter = _ThinkTagSplitter() if split_thinking else None
-
     async def _yield_non_stream_fallback() -> AsyncIterator[dict]:
         fallback_payload = dict(payload)
         fallback_payload["stream"] = False
         async with httpx.AsyncClient(
             base_url=normalize_base_url(openai_base_url(provider, base_url_override)),
-            timeout=timeout,
+            timeout=httpx.Timeout(request_timeout, connect=10.0),
             headers=openai_headers(provider, api_key_override),
         ) as fallback_client:
             fallback_response = await fallback_client.post("/chat/completions", json=fallback_payload)
@@ -286,85 +237,61 @@ async def stream_openai_chat(
             choices = payload_data.get("choices") or []
             if not choices:
                 return
-            content = choices[0].get("message", {}).get("content", "")
-            reasoning_text = ""
-            if think_splitter and content:
-                reasoning_text, content = _extract_think_blocks(content)
-            if strip_thinking and content:
-                content = _strip_think_blocks(content)
+            message_payload = choices[0].get("message", {})
+            content = message_payload.get("content", "")
+            reasoning_text = message_payload.get("reasoning_content", "")
             if reasoning_text:
                 yield {"reasoning": {"content": reasoning_text}}
             if content:
                 yield {"message": {"content": content}}
             yield {"done": True}
 
-    timeout = httpx.Timeout(settings.request_timeout_seconds, connect=10.0)
     if not use_stream:
         async for event in _yield_non_stream_fallback():
             yield event
         return
 
+    stream_timeout = httpx.Timeout(
+        connect=10.0,
+        read=None,
+        write=request_timeout,
+        pool=request_timeout,
+    )
     async with httpx.AsyncClient(
         base_url=normalize_base_url(openai_base_url(provider, base_url_override)),
-        timeout=timeout,
+        timeout=stream_timeout,
         headers=openai_headers(provider, api_key_override),
     ) as client:
         emitted_any = False
         try:
             async with client.stream("POST", "/chat/completions", json=payload) as response:
                 response.raise_for_status()
-                async for raw_line in response.aiter_lines():
-                    line = raw_line.strip()
-                    if not line:
+                async for payload_text in _iter_openai_stream_payloads(response.aiter_lines()):
+                    chunk = _decode_openai_stream_payload(payload_text)
+                    if not chunk:
                         continue
-                    if line.startswith("data:"):
-                        line = line[5:].strip()
-                    if not line:
-                        continue
-                    if line == "[DONE]":
+                    if chunk.get("done") and "message" not in chunk and "reasoning" not in chunk:
                         yield {"done": True}
                         return
 
-                    chunk = json.loads(line)
-                    choices = chunk.get("choices") or []
-                    if not choices:
-                        continue
-
-                    choice = choices[0]
-                    delta = choice.get("delta", {}).get("content", "")
-                    reasoning_delta = choice.get("delta", {}).get("reasoning_content", "")
-                    if not delta:
-                        delta = choice.get("message", {}).get("content", "")
-                    if not delta:
-                        delta = choice.get("text", "")
-                    if think_stripper and delta:
-                        delta = think_stripper.feed(delta)
-                    if think_splitter and delta:
-                        split_reasoning, split_answer = think_splitter.feed(delta)
-                        if split_reasoning:
-                            reasoning_delta = f"{reasoning_delta}{split_reasoning}"
-                        delta = split_answer
-                    finish_reason = choice.get("finish_reason")
+                    delta = ""
+                    if "message" in chunk:
+                        delta = chunk["message"].get("content", "")
+                    reasoning_delta = ""
+                    if "reasoning" in chunk:
+                        reasoning_delta = chunk["reasoning"].get("content", "")
 
                     event: dict[str, object] = {}
                     if delta:
                         event["message"] = {"content": delta}
                     if reasoning_delta:
                         event["reasoning"] = {"content": reasoning_delta}
-                    if finish_reason is not None:
+                    if chunk.get("done"):
                         event["done"] = True
 
                     if event:
                         emitted_any = True
                         yield event
-                if think_splitter:
-                    tail_reasoning, tail_answer = think_splitter.flush()
-                    if tail_reasoning:
-                        emitted_any = True
-                        yield {"reasoning": {"content": tail_reasoning}}
-                    if tail_answer:
-                        emitted_any = True
-                        yield {"message": {"content": tail_answer}}
                 if emitted_any:
                     yield {"done": True}
         except httpx.TransportError:

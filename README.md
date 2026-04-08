@@ -79,6 +79,61 @@ docker compose up --build
 - Backend API: [http://127.0.0.1:8000/api/health](http://127.0.0.1:8000/api/health)
 - Host Ollama API: [http://127.0.0.1:11434](http://127.0.0.1:11434)
 
+## Multi-Env Setup
+
+Backend config now supports layered env files:
+
+- default: `backend/.env`
+- named env: set `CHATCHAT_ENV=<name>` to also load `backend/.env.<name>`
+- explicit file: set `CHATCHAT_ENV_FILE=<path>` to load an additional env file
+
+Examples:
+
+```powershell
+$env:CHATCHAT_ENV = "dev.windows"
+python app.py --reload
+```
+
+```bash
+CHATCHAT_ENV=deploy.wsl python app.py --host 0.0.0.0 --port 8000
+```
+
+Reference templates:
+
+- [backend/.env.dev.windows.example](backend/.env.dev.windows.example)
+- [backend/.env.deploy.wsl.example](backend/.env.deploy.wsl.example)
+
+Copy them to real env files before use, for example:
+
+- `backend/.env.dev.windows`
+- `backend/.env.deploy.wsl`
+
+### SSH Tunnel For Remote Model Router
+
+If your OpenAI-compatible model service is reachable only through SSH, open a local tunnel first:
+
+```bash
+ssh -N -L 18000:127.0.0.1:8000 user@remote-host
+```
+
+Then point:
+
+```env
+OPENAI_LOCAL_BASE_URL=http://127.0.0.1:18000/v1
+OPENAI_LOCAL_API_KEY=sk-local
+```
+
+If the tunnel runs on Windows but the backend runs inside WSL2 or Docker, use the address reachable from that runtime instead of blindly reusing Windows paths.
+
+### Audio Dependency
+
+Audio transcription is now optional. If `funasr` is not installed in the current environment, disable it:
+
+```env
+AUDIO_TRANSCRIPTION_ENABLED=false
+AUDIO_TRANSCRIPTION_EAGER_LOAD=false
+```
+
 ## Common Commands
 
 Start in background:

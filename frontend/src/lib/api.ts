@@ -78,31 +78,6 @@ function toModelOption(model: string | ModelOption): ModelOption {
   };
 }
 
-function normalizeModelOptions(models: Array<string | ModelOption>): ModelOption[] {
-  const options = models.map(toModelOption);
-  const optionIds = new Set(options.map((item) => item.id));
-  const deepseekChat = "openai:deepseek-chat";
-  const deepseekReasoner = "openai:deepseek-reasoner";
-
-  if (!optionIds.has(deepseekChat) || !optionIds.has(deepseekReasoner)) {
-    return options;
-  }
-
-  return options.map((item) => {
-    if (item.id !== deepseekChat && item.id !== deepseekReasoner) {
-      return item;
-    }
-
-    return {
-      ...item,
-      supports_thinking: true,
-      supports_thinking_trace: item.id === deepseekReasoner,
-      chat_model: deepseekChat,
-      reasoning_model: deepseekReasoner,
-    };
-  });
-}
-
 export function fetchConversations() {
   return apiFetch<ConversationSummary[]>("/api/conversations");
 }
@@ -119,7 +94,7 @@ export async function fetchModels() {
 
   return {
     ...payload,
-    models: normalizeModelOptions(payload.models),
+    models: payload.models.map(toModelOption),
   } satisfies ModelsPayload;
 }
 
@@ -179,6 +154,56 @@ export async function deleteMemory(memoryId: number) {
 interface StreamRequestOptions {
   onEvent: (event: ChatStreamEvent) => void;
   signal?: AbortSignal;
+}
+
+function parseNdjsonEvent(raw: string, errorMessage: string): ChatStreamEvent | null {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(trimmed) as ChatStreamEvent;
+  } catch {
+    throw new Error(errorMessage);
+  }
+}
+
+async function consumeNdjsonStream(response: Response, onEvent: (event: ChatStreamEvent) => void) {
+  if (!response.body) {
+    throw new Error("Streaming is not supported by this browser.");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+
+    for (const line of lines) {
+      const event = parseNdjsonEvent(line, "Streaming response parse failed.");
+      if (event) {
+        onEvent(event);
+      }
+    }
+  }
+
+  buffer += decoder.decode();
+  const tailEvent = parseNdjsonEvent(
+    buffer,
+    "Streaming response was interrupted before completion.",
+  );
+  if (tailEvent) {
+    onEvent(tailEvent);
+  }
 }
 
 function audioExtensionForMimeType(mimeType: string): string {
@@ -245,36 +270,7 @@ export async function streamChat(payload: ChatStreamRequest, options: StreamRequ
     throw new Error(await readErrorMessage(response));
   }
 
-  if (!response.body) {
-    throw new Error("Streaming is not supported by this browser.");
-  }
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) {
-      break;
-    }
-
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed) {
-        continue;
-      }
-      options.onEvent(JSON.parse(trimmed) as ChatStreamEvent);
-    }
-  }
-
-  if (buffer.trim()) {
-    options.onEvent(JSON.parse(buffer) as ChatStreamEvent);
-  }
+  await consumeNdjsonStream(response, options.onEvent);
 }
 
 export async function regenerateChat(payload: RegenerateChatRequest, options: StreamRequestOptions) {
@@ -291,36 +287,7 @@ export async function regenerateChat(payload: RegenerateChatRequest, options: St
     throw new Error(await readErrorMessage(response));
   }
 
-  if (!response.body) {
-    throw new Error("Streaming is not supported by this browser.");
-  }
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) {
-      break;
-    }
-
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed) {
-        continue;
-      }
-      options.onEvent(JSON.parse(trimmed) as ChatStreamEvent);
-    }
-  }
-
-  if (buffer.trim()) {
-    options.onEvent(JSON.parse(buffer) as ChatStreamEvent);
-  }
+  await consumeNdjsonStream(response, options.onEvent);
 }
 
 export function updateMessageFeedback(messageId: number, value: FeedbackValue | null) {

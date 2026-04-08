@@ -37,15 +37,8 @@ export function ModelSelect({ model, models, onChange, compact = false }: ModelS
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const currentModel = models.find((item) => item.id === model) ?? createFallbackOption(model);
-  const displayModelId =
-    currentModel.supports_thinking && currentModel.reasoning_model === currentModel.id
-      ? currentModel.chat_model ?? currentModel.id
-      : currentModel.id;
-  const displayModel =
-    models.find((item) => item.id === displayModelId) ?? createFallbackOption(displayModelId);
-  const visibleModels = models.filter(
-    (item) => !(item.supports_thinking && item.reasoning_model === item.id),
-  );
+  const displayModel = currentModel;
+  const visibleModels = models;
 
   useEffect(() => {
     function handlePointerDown(event: MouseEvent) {
@@ -89,7 +82,7 @@ export function ModelSelect({ model, models, onChange, compact = false }: ModelS
       {open ? (
         <div className={menuClassName}>
           {visibleModels.map((item, index) => {
-            const active = item.id === displayModelId;
+            const active = item.id === displayModel.id;
             const previousProvider = index > 0 ? providerOf(visibleModels[index - 1].id) : null;
             const currentProvider = providerOf(item.id);
             const showProviderDivider = previousProvider !== null && previousProvider !== currentProvider;
@@ -100,7 +93,7 @@ export function ModelSelect({ model, models, onChange, compact = false }: ModelS
                 <button
                   className={itemClassName(active)}
                   onClick={() => {
-                    onChange(item.chat_model ?? item.id);
+                    onChange(item.id);
                     setOpen(false);
                   }}
                   type="button"

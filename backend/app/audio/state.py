@@ -18,6 +18,7 @@ def build_audio_services(settings: Settings) -> AudioServices:
         transcriber=AudioTranscriber(
             model_name=settings.audio_transcription_model,
             device=settings.audio_transcription_device,
+            enabled=settings.audio_transcription_enabled,
         ),
     )
 
