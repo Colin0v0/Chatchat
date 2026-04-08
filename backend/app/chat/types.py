@@ -18,8 +18,14 @@ class ChatDocumentPayload:
 
 
 @dataclass(frozen=True)
+class ChatFileReferencePayload:
+    file_id: str
+
+
+@dataclass(frozen=True)
 class ChatMessagePayload:
     role: str
     content: str
     images: tuple[ChatImagePayload, ...] = field(default_factory=tuple)
     documents: tuple[ChatDocumentPayload, ...] = field(default_factory=tuple)
+    files: tuple[ChatFileReferencePayload, ...] = field(default_factory=tuple)

@@ -46,11 +46,10 @@ class Settings(BaseSettings):
     openai_base_url: str = "https://api.openai.com/v1"
     openai_api_key: str = ""
     openai_model_allowlist: str = ""
-    openai_vision_model_allowlist: str = ""
     openai_local_base_url: str = "http://127.0.0.1:18000/v1"
+    openai_local_upstream_service_base_url: str = ""
     openai_local_api_key: str = ""
     openai_local_model_allowlist: str = ""
-    openai_local_vision_model_allowlist: str = ""
     openai_local_stream: bool = True
     model_catalog_path: str = "./model_catalog.json"
     model_catalog_strict: bool = True

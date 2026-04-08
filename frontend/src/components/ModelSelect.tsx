@@ -17,7 +17,6 @@ function createFallbackOption(id: string): ModelOption {
     label: toModelLabel(id),
     supports_thinking: false,
     supports_thinking_trace: false,
-    supports_image_input: false,
     supports_attachment_upload: false,
     chat_model: null,
     reasoning_model: null,

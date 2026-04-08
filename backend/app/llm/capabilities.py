@@ -9,8 +9,8 @@ Provider = Literal["ollama", "openai", "openai_local"]
 
 class DiscoveredModel(TypedDict):
     id: str
-    supports_image_input: bool
     supports_thinking: bool
+    native_multimodal: bool
 
 
 class DiscoveredModelWithDisplayName(DiscoveredModel, total=False):
@@ -22,7 +22,6 @@ class ModelOption(TypedDict):
     label: str
     supports_thinking: bool
     supports_thinking_trace: bool
-    supports_image_input: bool
     supports_attachment_upload: bool
     chat_model: str | None
     reasoning_model: str | None
@@ -55,12 +54,6 @@ def parse_openai_allowlist(provider: Provider = "openai") -> list[str]:
     if provider == "openai_local":
         return parse_csv_allowlist(settings.openai_local_model_allowlist)
     return parse_csv_allowlist(settings.openai_model_allowlist)
-
-
-def parse_openai_vision_allowlist(provider: Provider = "openai") -> set[str]:
-    if provider == "openai_local":
-        return set(parse_csv_allowlist(settings.openai_local_vision_model_allowlist))
-    return set(parse_csv_allowlist(settings.openai_vision_model_allowlist))
 
 
 def is_embedding_model_name(model_name: str) -> bool:
@@ -107,10 +100,3 @@ def present_model_name(model: str) -> str:
     if provider in ("ollama", "openai"):
         return model_name
     return model
-
-
-def supports_native_image_input(model: str) -> bool:
-    provider, model_name = model_provider_and_name(model)
-    if provider in ("openai", "openai_local"):
-        return model_name in parse_openai_vision_allowlist(provider)
-    return "vision" in OLLAMA_CAPABILITY_CACHE.get(model_name, set())

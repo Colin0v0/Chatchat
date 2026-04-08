@@ -49,6 +49,7 @@ class FileContextRetrievalTests(unittest.IsolatedAsyncioTestCase):
             db=_StubDb(),
             query="灰度发布要怎么安排",
             messages=[message],
+            include_images=False,
         )
 
         self.assertEqual(len(payload.entries), 1)

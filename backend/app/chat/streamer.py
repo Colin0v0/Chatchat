@@ -11,8 +11,7 @@ from sqlalchemy.orm import Session
 
 from ..chat.types import ChatMessagePayload
 from ..llm import stream_chat
-from ..llm import supports_native_image_input
-from ..llm.catalog import resolve_context_window
+from ..llm.catalog import resolve_context_window, uses_native_multimodal
 from ..llm.thinking import ThinkTagStreamNormalizer
 from ..retrieval import RetrievalMode, RetrievalPlan
 from ..storage.database import SessionLocal
@@ -214,7 +213,7 @@ async def response_event_stream(
             message_limit=services.history_message_limit,
             token_budget=strategy.history_token_budget,
         )
-        include_image_context = not supports_native_image_input(model)
+        include_image_context = not uses_native_multimodal(model)
         message_history_service = MessageHistoryService(stream_db, services.attachment_context_service)
         needs_retrieval_grounding = retrieval_mode != "none" and message_history_service.needs_retrieval_grounding(
             messages=history_window.recent_messages,
