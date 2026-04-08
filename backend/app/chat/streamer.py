@@ -71,6 +71,7 @@ async def assistant_event_stream(
     thinking_enabled: bool | None = None,
 ):
     assistant_chunks: list[str] = []
+    reasoning_chunks: list[str] = []
     show_reasoning = thinking_enabled is not False
     thinking_normalizer = ThinkTagStreamNormalizer(emit_reasoning=show_reasoning)
     if sources:
@@ -88,6 +89,7 @@ async def assistant_event_stream(
         if normalized_reasoning:
             reasoning_delta = f"{reasoning_delta}{normalized_reasoning}"
         if reasoning_delta:
+            reasoning_chunks.append(reasoning_delta)
             yield json.dumps({"type": "reasoning", "content": reasoning_delta}, ensure_ascii=False) + "\n"
 
         if normalized_answer:
@@ -104,6 +106,7 @@ async def assistant_event_stream(
         if chunk.get("done"):
             tail_reasoning, tail_answer = thinking_normalizer.flush()
             if show_reasoning and tail_reasoning:
+                reasoning_chunks.append(tail_reasoning)
                 yield json.dumps({"type": "reasoning", "content": tail_reasoning}, ensure_ascii=False) + "\n"
             if tail_answer:
                 clean_tail_answer = strip_loose_think_tags(tail_answer)
@@ -112,11 +115,13 @@ async def assistant_event_stream(
                     yield json.dumps({"type": "token", "content": clean_tail_answer}, ensure_ascii=False) + "\n"
 
             full_response = "".join(assistant_chunks).strip()
+            full_reasoning = "".join(reasoning_chunks).strip()
             if full_response:
                 assistant_message = save_assistant_message(
                     db=db,
                     conversation=conversation,
                     content=full_response,
+                    reasoning=full_reasoning or None,
                     sources=sources,
                     context_payload=context_payload,
                 )

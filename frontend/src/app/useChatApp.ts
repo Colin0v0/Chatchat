@@ -90,8 +90,6 @@ export function useChatApp({
   const [selectedModel, setSelectedModel] = useState("openai:deepseek-reasoner");
   const [collapsedMessageIds, setCollapsedMessageIds] = useState<Set<number | string>>(new Set());
   const [retrievalMode, setRetrievalMode] = useState<RetrievalMode>("none");
-  const [thinkingExpanded, setThinkingExpanded] = useState(false);
-  const [nativeThinkingByModel, setNativeThinkingByModel] = useState<Record<string, boolean>>({});
   const [landingHeroAnimated, setLandingHeroAnimated] = useState(false);
   const [landingTitle] = useState(() => pickLandingTitle());
   const [error, setError] = useState<string | null>(null);
@@ -115,10 +113,6 @@ export function useChatApp({
     () => findModelOption(models, selectedModel),
     [models, selectedModel],
   );
-  const thinkingAvailable =
-    selectedModelOption.supports_thinking || selectedModelOption.supports_thinking_trace;
-  const thinkingEnabled = thinkingAvailable ? (nativeThinkingByModel[selectedModel] ?? true) : false;
-  const thinkingRequestEnabled = thinkingAvailable ? thinkingEnabled : null;
   const attachmentUploadAvailable = selectedModelOption.supports_attachment_upload;
 
   const clearTransientAttachmentUrls = useCallback(() => {
@@ -146,7 +140,6 @@ export function useChatApp({
     setConversations,
     setError,
     setSelectedModel,
-    setThinkingExpanded,
   });
   const submitBlocked = false;
   const submitBlockedReason = null;
@@ -173,11 +166,7 @@ export function useChatApp({
     }
 
     const keyword = deferredQuery.toLowerCase();
-    return conversations.filter(
-      (item) =>
-        item.title.toLowerCase().includes(keyword) ||
-        item.last_message_preview.toLowerCase().includes(keyword),
-    );
+    return conversations.filter((item) => item.title.toLowerCase().includes(keyword));
   }, [conversations, deferredQuery]);
 
   const availableModels = useMemo(
@@ -241,17 +230,6 @@ export function useChatApp({
     setSelectedModel(model);
   }, []);
 
-  const handleToggleThinking = useCallback(() => {
-    if (!thinkingAvailable) {
-      return;
-    }
-
-    setNativeThinkingByModel((current) => ({
-      ...current,
-      [selectedModel]: !thinkingEnabled,
-    }));
-  }, [selectedModel, thinkingAvailable, thinkingEnabled]);
-
   const handleStartRecording = useCallback(async () => {
     if (isStreaming || isTranscribing) {
       return;
@@ -313,7 +291,6 @@ export function useChatApp({
       setCollapsedMessageIds(new Set());
       setDraft("");
       setError(null);
-      setThinkingExpanded(false);
       if (!isDesktop) {
         closeMobileSidebar();
       }
@@ -327,7 +304,6 @@ export function useChatApp({
         setActiveConversationId(conversationId);
         setError(null);
         setCollapsedMessageIds(new Set());
-        setThinkingExpanded(false);
         openSessionConversation(conversationId);
 
         if (!isDesktop) {
@@ -418,7 +394,6 @@ export function useChatApp({
 
     setDraft("");
     clearAttachments();
-    setThinkingExpanded(false);
     setActiveConversationId(tempConversationId);
     setActiveConversation(nextConversation);
 
@@ -440,7 +415,6 @@ export function useChatApp({
             files: pendingFiles,
             model: effectiveModel,
             retrieval_mode: retrievalMode,
-            thinking_enabled: thinkingRequestEnabled,
           },
           { onEvent, signal },
         ),
@@ -462,7 +436,6 @@ export function useChatApp({
     runStream,
     selectedModel,
     setError,
-    thinkingRequestEnabled,
   ]);
 
   const handleStop = useCallback(async () => {
@@ -505,7 +478,6 @@ export function useChatApp({
       );
 
       setCollapsedMessageIds((current) => new Set([...current, sourceUser.id, messageId]));
-      setThinkingExpanded(false);
       setActiveConversation(nextConversation);
 
       const result = await runStream({
@@ -525,7 +497,6 @@ export function useChatApp({
                 assistant_message_id: messageId,
                 model: effectiveModel,
                 retrieval_mode: retrievalMode,
-                thinking_enabled: thinkingRequestEnabled,
               },
               { onEvent, signal },
             );
@@ -539,7 +510,6 @@ export function useChatApp({
               files: restoredFiles,
               model: effectiveModel,
               retrieval_mode: retrievalMode,
-              thinking_enabled: thinkingRequestEnabled,
             },
             { onEvent, signal },
           );
@@ -558,7 +528,6 @@ export function useChatApp({
       runStream,
       selectedModel,
       setError,
-      thinkingRequestEnabled,
     ],
   );
 
@@ -590,10 +559,6 @@ export function useChatApp({
 
   const handleSelectWeb = useCallback(() => {
     setRetrievalMode((current) => toggleRetrievalMode(current, "web"));
-  }, []);
-
-  const handleToggleThinkingTrace = useCallback(() => {
-    setThinkingExpanded((current) => !current);
   }, []);
 
   const handleLandingAnimationComplete = useCallback(() => {
@@ -628,17 +593,11 @@ export function useChatApp({
           onStop: handleStop,
           onToggleRecording: handleToggleRecording,
           onToggleRag: handleSelectRag,
-          onToggleThinking: handleToggleThinking,
-          onToggleThinkingTrace: handleToggleThinkingTrace,
           onToggleWeb: handleSelectWeb,
           retrievalMode,
           submitBlocked,
           submitBlockedReason,
           streamingStatusLabel: visibleStreaming ? labelForStage(activeSession?.stage ?? null) : null,
-          thinkingAvailable,
-          thinkingEnabled,
-          thinkingTrace: visibleStreaming ? activeSession?.reasoning ?? "" : "",
-          thinkingTraceExpanded: thinkingExpanded,
         }
       : null,
     headerProps: {
@@ -670,14 +629,11 @@ export function useChatApp({
       onStop: handleStop,
       onToggleRecording: handleToggleRecording,
       onToggleRag: handleSelectRag,
-      onToggleThinking: handleToggleThinking,
       onToggleWeb: handleSelectWeb,
       retrievalMode,
       submitBlocked,
       submitBlockedReason,
       shouldAnimate: !landingHeroAnimated,
-      thinkingAvailable,
-      thinkingEnabled,
       title: landingTitle,
     },
     settingsProps: {

@@ -12,6 +12,7 @@ import type { ChatStreamEvent, ConversationDetail, ConversationSummary } from ".
 import { ASSISTANT_DRAFT_ID } from "./constants";
 import {
   appendAssistantDraftContent,
+  appendAssistantDraftReasoning,
   ConversationActivity,
   ConversationUpdater,
   isAbortError,
@@ -61,7 +62,6 @@ type UseConversationStreamsOptions = {
   setConversations: Dispatch<SetStateAction<ConversationSummary[]>>;
   setError: Dispatch<SetStateAction<string | null>>;
   setSelectedModel: Dispatch<SetStateAction<string>>;
-  setThinkingExpanded: Dispatch<SetStateAction<boolean>>;
 };
 
 type StopStreamOptions = {
@@ -80,7 +80,6 @@ export function useConversationStreams({
   setConversations,
   setError,
   setSelectedModel,
-  setThinkingExpanded,
 }: UseConversationStreamsOptions) {
   const [streamSessions, setStreamSessions] = useState<Record<string, StreamSession>>({});
   const activeConversationIdRef = useRef<number | null>(activeConversationId);
@@ -310,6 +309,9 @@ export function useConversationStreams({
       }
 
       if (event.type === "reasoning") {
+        updateSessionConversation(conversationId, (current) =>
+          appendAssistantDraftReasoning(current, event.content),
+        );
         updateStreamSession(conversationId, (session) => ({
           ...session,
           reasoning: session.reasoning + event.content,
@@ -392,7 +394,6 @@ export function useConversationStreams({
         [streamSessionKey(streamConversationId)]: initialSession,
       }));
       setError(null);
-      setThinkingExpanded(false);
       upsertConversationSummary(conversation);
 
       const controller = new AbortController();
@@ -512,7 +513,6 @@ export function useConversationStreams({
       setError,
       setSelectedModel,
       setStreamSessionsState,
-      setThinkingExpanded,
       settleStreamSession,
       updateSessionConversation,
       upsertConversationSummary,
@@ -529,7 +529,6 @@ export function useConversationStreams({
       }
 
       restoreDraft(session.restoreInput.content);
-      setThinkingExpanded(false);
       updateSessionConversation(conversationId, markAssistantDraftStopped);
       settleStreamSession(conversationId, "stopped");
       controller.abort();
@@ -549,7 +548,6 @@ export function useConversationStreams({
     },
     [
       setError,
-      setThinkingExpanded,
       settleStreamSession,
       updateSessionConversation,
       upsertConversationSummary,

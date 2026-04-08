@@ -19,11 +19,7 @@ interface ConversationViewProps {
   retrievalMode: RetrievalMode;
   submitBlocked: boolean;
   submitBlockedReason: string | null;
-  thinkingEnabled: boolean;
-  thinkingAvailable: boolean;
   streamingStatusLabel: string | null;
-  thinkingTrace: string;
-  thinkingTraceExpanded: boolean;
   onChangeDraft: (value: string) => void;
   onModelChange: (value: string) => void;
   onRemoveDraftAttachment: (attachmentId: string) => void;
@@ -36,8 +32,6 @@ interface ConversationViewProps {
   onToggleRecording: () => void;
   onToggleRag: () => void;
   onToggleWeb: () => void;
-  onToggleThinking: () => void;
-  onToggleThinkingTrace: () => void;
 }
 
 export function ConversationView({
@@ -54,11 +48,7 @@ export function ConversationView({
   retrievalMode,
   submitBlocked,
   submitBlockedReason,
-  thinkingEnabled,
-  thinkingAvailable,
   streamingStatusLabel,
-  thinkingTrace,
-  thinkingTraceExpanded,
   onChangeDraft,
   onModelChange,
   onRemoveDraftAttachment,
@@ -71,8 +61,6 @@ export function ConversationView({
   onToggleRecording,
   onToggleRag,
   onToggleWeb,
-  onToggleThinking,
-  onToggleThinkingTrace,
 }: ConversationViewProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const stickToBottomRef = useRef(true);
@@ -125,8 +113,6 @@ export function ConversationView({
     collapsedMessageIds,
     isStreaming,
     streamingStatusLabel,
-    thinkingTrace,
-    thinkingTraceExpanded,
   ]);
 
   return (
@@ -140,10 +126,7 @@ export function ConversationView({
             items={conversation.messages}
             onRetry={onRetry}
             onReuseUserMessage={onReuseUserMessage}
-            onToggleThinkingTrace={onToggleThinkingTrace}
             streamingStatusLabel={streamingStatusLabel}
-            thinkingTrace={thinkingTrace}
-            thinkingTraceExpanded={thinkingTraceExpanded}
           />
         </div>
       </div>
@@ -165,13 +148,10 @@ export function ConversationView({
           onSubmit={onSend}
           onToggleRecording={onToggleRecording}
           onToggleRag={onToggleRag}
-          onToggleThinking={onToggleThinking}
           onToggleWeb={onToggleWeb}
           retrievalMode={retrievalMode}
           submitBlocked={submitBlocked}
           submitBlockedReason={submitBlockedReason}
-          thinkingAvailable={thinkingAvailable}
-          thinkingEnabled={thinkingEnabled}
           value={draft}
         />
       </div>

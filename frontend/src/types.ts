@@ -56,6 +56,7 @@ export interface ChatMessage {
   id: number | string;
   role: Role;
   content: string;
+  reasoning?: string;
   attachments?: MessageAttachment[];
   sources?: MessageSource[];
   context?: MessageContext | null;

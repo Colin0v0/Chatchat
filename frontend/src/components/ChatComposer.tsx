@@ -1,4 +1,4 @@
-import { ArrowUp, BookOpen, Globe, LoaderCircle, Mic, Plus, Sparkles, Square } from "lucide-react";
+import { ArrowUp, BookOpen, Globe, LoaderCircle, Mic, Plus, Square } from "lucide-react";
 import { useRef, useState, type ClipboardEvent, type ChangeEvent, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
 
 import type { ComposerAttachmentDraft } from "../app/useComposerAttachments";
@@ -49,12 +49,9 @@ interface ChatComposerProps {
   retrievalMode: RetrievalMode;
   submitBlocked: boolean;
   submitBlockedReason: string | null;
-  thinkingEnabled: boolean;
-  thinkingAvailable: boolean;
   attachmentUploadAvailable: boolean;
   onToggleRag: () => void;
   onToggleWeb: () => void;
-  onToggleThinking: () => void;
   onToggleRecording: () => void;
   centered?: boolean;
 }
@@ -153,12 +150,9 @@ export function ChatComposer({
   retrievalMode,
   submitBlocked,
   submitBlockedReason,
-  thinkingEnabled,
-  thinkingAvailable,
   attachmentUploadAvailable,
   onToggleRag,
   onToggleWeb,
-  onToggleThinking,
   onToggleRecording,
   centered = false,
 }: ChatComposerProps) {
@@ -296,13 +290,6 @@ export function ChatComposer({
             </button>
             <ToggleChip active={ragEnabled} icon={<BookOpen className="size-4" />} label="RAG" onClick={onToggleRag} />
             <ToggleChip active={webEnabled} icon={<Globe className="size-4" />} label="Search" onClick={onToggleWeb} />
-            <ToggleChip
-              active={thinkingEnabled}
-              disabled={!thinkingAvailable}
-              icon={<Sparkles className="size-4" />}
-              label="Thinking"
-              onClick={onToggleThinking}
-            />
             <ModelSelect model={model} models={models} onChange={onModelChange} />
           </div>
 
@@ -342,11 +329,8 @@ export function ChatComposer({
                 onAddAttachment={() => inputRef.current?.click()}
                 onModelChange={onModelChange}
                 onToggleRag={onToggleRag}
-                onToggleThinking={onToggleThinking}
                 onToggleWeb={onToggleWeb}
                 retrievalMode={retrievalMode}
-                thinkingAvailable={thinkingAvailable}
-                thinkingEnabled={thinkingEnabled}
               />
             </div>
 

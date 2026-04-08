@@ -221,6 +221,16 @@ export function appendAssistantDraftContent(
   }));
 }
 
+export function appendAssistantDraftReasoning(
+  conversation: ConversationDetail,
+  reasoning: string,
+): ConversationDetail {
+  return updateAssistantDraft(conversation, (message) => ({
+    ...message,
+    reasoning: `${message.reasoning ?? ""}${reasoning}`,
+  }));
+}
+
 export function setAssistantDraftSources(
   conversation: ConversationDetail,
   sources: ChatMessage["sources"],
