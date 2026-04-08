@@ -76,7 +76,6 @@ export interface ModelOption {
   label: string;
   supports_thinking: boolean;
   supports_thinking_trace: boolean;
-  supports_image_input: boolean;
   supports_attachment_upload: boolean;
   chat_model: string | null;
   reasoning_model: string | null;

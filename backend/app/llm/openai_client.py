@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 from collections.abc import AsyncIterator
+from pathlib import Path
 
 import httpx
 
@@ -16,7 +17,6 @@ from .capabilities import (
     namespaced_model,
     normalize_base_url,
     parse_openai_allowlist,
-    parse_openai_vision_allowlist,
 )
 
 
@@ -31,6 +31,17 @@ def openai_base_url(provider: Provider = "openai", base_url_override: str | None
     return settings.openai_base_url
 
 
+def openai_upstream_service_base_url(
+    provider: Provider = "openai",
+    base_url_override: str | None = None,
+) -> str:
+    if base_url_override:
+        return base_url_override
+    if provider == "openai_local":
+        return settings.openai_local_upstream_service_base_url or settings.openai_local_base_url
+    return openai_base_url(provider)
+
+
 def openai_headers(provider: Provider = "openai", api_key_override: str | None = None) -> dict[str, str]:
     headers: dict[str, str] = {}
     api_key = api_key_override or (
@@ -43,7 +54,6 @@ def openai_headers(provider: Provider = "openai", api_key_override: str | None =
 
 async def _list_openai_models_for_provider(provider: Provider) -> list[DiscoveredModel]:
     allowlist = parse_openai_allowlist(provider)
-    vision_models = parse_openai_vision_allowlist(provider)
     try:
         async with httpx.AsyncClient(
             base_url=normalize_base_url(openai_base_url(provider)),
@@ -56,8 +66,8 @@ async def _list_openai_models_for_provider(provider: Provider) -> list[Discovere
         return [
             DiscoveredModel(
                 id=namespaced_model(provider, model),
-                supports_image_input=model in vision_models,
                 supports_thinking=provider == "openai_local",
+                native_multimodal=False,
             )
             for model in filter_chat_model_names(allowlist)
         ]
@@ -71,8 +81,8 @@ async def _list_openai_models_for_provider(provider: Provider) -> list[Discovere
     return [
         DiscoveredModel(
             id=namespaced_model(provider, model),
-            supports_image_input=model in vision_models,
             supports_thinking=provider == "openai_local",
+            native_multimodal=False,
         )
         for model in models
     ]
@@ -88,7 +98,7 @@ async def list_openai_local_models() -> list[DiscoveredModel]:
 
 def openai_message_payload(message: ChatMessagePayload) -> dict[str, object]:
     # 纯文本消息
-    if not message.images and not message.documents:
+    if not message.images and not message.documents and not message.files:
         return {
             "role": message.role,
             "content": message.content,
@@ -118,11 +128,51 @@ def openai_message_payload(message: ChatMessagePayload) -> dict[str, object]:
         }
         for doc in message.documents
     )
+
+    content.extend(
+        {
+            "type": "input_file",
+            "file_id": file_ref.file_id,
+        }
+        for file_ref in message.files
+    )
     
     return {
         "role": message.role,
         "content": content,
     }
+
+
+async def upload_openai_file(
+    *,
+    filename: str,
+    mime_type: str,
+    file_path: Path,
+    provider: Provider = "openai",
+    base_url_override: str | None = None,
+    api_key_override: str | None = None,
+) -> str:
+    content = file_path.read_bytes()
+    if not content:
+        raise RuntimeError(f"Cannot upload empty file to upstream service: {file_path.name}")
+
+    async with httpx.AsyncClient(
+        base_url=normalize_base_url(openai_upstream_service_base_url(provider, base_url_override)),
+        timeout=httpx.Timeout(settings.request_timeout_seconds, connect=10.0),
+        headers=openai_headers(provider, api_key_override),
+    ) as client:
+        response = await client.post(
+            "/files",
+            data={"purpose": "user_data"},
+            files={"file": (filename, content, mime_type)},
+        )
+        response.raise_for_status()
+
+    payload = _parse_openai_json_response(response, context="files.upload")
+    file_id = str(payload.get("id", "")).strip()
+    if not file_id:
+        raise RuntimeError("Upstream file upload succeeded but did not return a file id.")
+    return file_id
 
 
 def _flush_sse_data_lines(data_lines: list[str]) -> str | None:

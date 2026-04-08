@@ -4,10 +4,10 @@ This project uses a single model catalog: `backend/model_catalog.json`.
 
 ## Design
 
-- `providers`: shared connection settings (provider/base_url/api_key/stream)
-- `models`: per-model settings (id/display_name/upstream_model/thinking_mode/context_window/enabled)
+- `providers`: shared connection settings (provider/base_url/api_key)
+- `models`: per-model settings (id/display_name/upstream_model/thinking_mode/context_window/native_multimodal/enabled)
 
-This avoids repeated `base_url`, `api_key_env`, and `stream` blocks for each model.
+This avoids repeated `base_url` and `api_key_env` blocks for each model.
 
 ## Add a new model
 
@@ -22,7 +22,7 @@ This avoids repeated `base_url`, `api_key_env`, and `stream` blocks for each mod
   "upstream_model": "my-new-model",
   "thinking_mode": "default_on",
   "context_window": 65536,
-  "supports_image_input": false,
+  "native_multimodal": false,
   "enabled": true
 }
 ```
@@ -32,6 +32,11 @@ This avoids repeated `base_url`, `api_key_env`, and `stream` blocks for each mod
 Important:
 `id` is the stable primary key used for routing and persisted conversations.
 Use `display_name` when you only want to change UI text.
+
+`native_multimodal` means whether attachments should be uploaded to the upstream model service directly:
+
+- `true`: upload files and let the upstream multimodal model handle them
+- `false`: keep using local attachment parsing / OCR before sending text to the model
 
 ## Disable a model
 

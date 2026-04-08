@@ -69,8 +69,8 @@ async def list_ollama_models() -> list[DiscoveredModel]:
         discovered.append(
             DiscoveredModel(
                 id=namespaced_model("ollama", model_name),
-                supports_image_input="vision" in capabilities,
                 supports_thinking="thinking" in capabilities,
+                native_multimodal=False,
             )
         )
     return discovered

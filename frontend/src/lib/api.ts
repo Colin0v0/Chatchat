@@ -71,7 +71,6 @@ function toModelOption(model: string | ModelOption): ModelOption {
     label: toModelLabel(model),
     supports_thinking: false,
     supports_thinking_trace: false,
-    supports_image_input: false,
     supports_attachment_upload: true,
     chat_model: null,
     reasoning_model: null,

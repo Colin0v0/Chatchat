@@ -24,17 +24,18 @@ class ModelRoute(TypedDict):
     provider: Provider
     upstream_model: str
     base_url: str | None
+    upstream_service_base_url: str | None
     api_key: str | None
     thinking_mode: ThinkingMode | None
     context_window: int | None
-    supports_image_input: bool
+    native_multimodal: bool
     supports_thinking: bool
-    supports_document_input: bool  # 新增：原生文档支持
 
 
 class ProviderPreset(TypedDict):
     provider: Provider | None
     base_url: str | None
+    upstream_service_base_url: str | None
     api_key: str | None
 
 
@@ -108,6 +109,11 @@ def _parse_provider_presets(payload: dict[str, object]) -> dict[str, ProviderPre
             raise ModelCatalogError(f"providers.{name}.base_url must be string when provided")
         base_url = _resolve_env_value(base_url_raw)
 
+        upstream_service_base_url_raw = item.get("upstream_service_base_url")
+        if upstream_service_base_url_raw is not None and not isinstance(upstream_service_base_url_raw, str):
+            raise ModelCatalogError(f"providers.{name}.upstream_service_base_url must be string when provided")
+        upstream_service_base_url = _resolve_env_value(upstream_service_base_url_raw)
+
         api_key_raw = item.get("api_key")
         if api_key_raw is not None and not isinstance(api_key_raw, str):
             raise ModelCatalogError(f"providers.{name}.api_key must be string when provided")
@@ -122,6 +128,7 @@ def _parse_provider_presets(payload: dict[str, object]) -> dict[str, ProviderPre
         presets[name.strip()] = ProviderPreset(
             provider=provider,
             base_url=base_url,
+            upstream_service_base_url=upstream_service_base_url,
             api_key=api_key,
         )
 
@@ -194,6 +201,13 @@ def _parse_routes(payload: dict[str, object]) -> list[ModelRoute]:
         if not base_url and preset is not None and preset.get("base_url"):
             base_url = cast(str, preset["base_url"])
 
+        upstream_service_base_url_raw = row.get("upstream_service_base_url")
+        if upstream_service_base_url_raw is not None and not isinstance(upstream_service_base_url_raw, str):
+            raise ModelCatalogError(f"{row_path}.upstream_service_base_url must be string when provided")
+        upstream_service_base_url = _resolve_env_value(upstream_service_base_url_raw)
+        if not upstream_service_base_url and preset is not None and preset.get("upstream_service_base_url"):
+            upstream_service_base_url = cast(str, preset["upstream_service_base_url"])
+
         api_key_raw = row.get("api_key")
         if api_key_raw is not None and not isinstance(api_key_raw, str):
             raise ModelCatalogError(f"{row_path}.api_key must be string when provided")
@@ -224,16 +238,10 @@ def _parse_routes(payload: dict[str, object]) -> list[ModelRoute]:
                 raise ModelCatalogError(f"{row_path}.context_window must be a positive integer")
             context_window = context_window_raw
 
-        supports_image_input_raw = row.get("supports_image_input", False)
-        if not isinstance(supports_image_input_raw, bool):
-            raise ModelCatalogError(f"{row_path}.supports_image_input must be boolean")
-        supports_image_input = supports_image_input_raw
-
-        # 新增：读取 supports_document_input 配置
-        supports_document_input_raw = row.get("supports_document_input", False)
-        if not isinstance(supports_document_input_raw, bool):
-            raise ModelCatalogError(f"{row_path}.supports_document_input must be boolean")
-        supports_document_input = supports_document_input_raw
+        native_multimodal_raw = row.get("native_multimodal", False)
+        if not isinstance(native_multimodal_raw, bool):
+            raise ModelCatalogError(f"{row_path}.native_multimodal must be boolean")
+        native_multimodal = native_multimodal_raw
 
         supports_thinking_raw = row.get("supports_thinking")
         if supports_thinking_raw is not None and not isinstance(supports_thinking_raw, bool):
@@ -255,12 +263,12 @@ def _parse_routes(payload: dict[str, object]) -> list[ModelRoute]:
                 provider=provider,
                 upstream_model=upstream_model,
                 base_url=base_url or None,
+                upstream_service_base_url=upstream_service_base_url or None,
                 api_key=resolved_api_key,
                 thinking_mode=thinking_mode,
                 context_window=context_window,
-                supports_image_input=supports_image_input,
+                native_multimodal=native_multimodal,
                 supports_thinking=supports_thinking,
-                supports_document_input=supports_document_input,  # 新增
             )
         )
 
@@ -327,9 +335,8 @@ def list_catalog_discovered_models() -> list[DiscoveredModel]:
     for route in routes:
         item: DiscoveredModel = {
             "id": route["id"],
-            "supports_image_input": route["supports_image_input"],
             "supports_thinking": route["supports_thinking"],
-            "supports_document_input": route["supports_document_input"],
+            "native_multimodal": route["native_multimodal"],
         }
         if route.get("display_name"):
             item["display_name"] = route["display_name"]
@@ -367,3 +374,10 @@ def resolve_context_window(model: str) -> int | None:
     if route is None:
         return None
     return route.get("context_window")
+
+
+def uses_native_multimodal(model: str) -> bool:
+    route = resolve_model_route(model)
+    if route is None:
+        return False
+    return bool(route.get("native_multimodal"))
