@@ -1,4 +1,4 @@
-import { BookOpen, Check, Globe, Paperclip, Plus, Sparkles } from "lucide-react";
+import { BookOpen, Check, Globe, Paperclip, Plus } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { ModelSelect } from "../ModelSelect";
@@ -13,11 +13,8 @@ interface ComposerMobileToolbarProps {
   onAddAttachment: () => void;
   onModelChange: (value: string) => void;
   retrievalMode: RetrievalMode;
-  thinkingAvailable: boolean;
-  thinkingEnabled: boolean;
   onToggleRag: () => void;
   onToggleWeb: () => void;
-  onToggleThinking: () => void;
 }
 
 interface MobileMenuActionProps {
@@ -69,11 +66,8 @@ export function ComposerMobileToolbar({
   onAddAttachment,
   onModelChange,
   retrievalMode,
-  thinkingAvailable,
-  thinkingEnabled,
   onToggleRag,
   onToggleWeb,
-  onToggleThinking,
 }: ComposerMobileToolbarProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -133,16 +127,6 @@ export function ComposerMobileToolbar({
                 label="Search"
                 onClick={() => {
                   onToggleWeb();
-                  setMenuOpen(false);
-                }}
-              />
-              <MobileMenuAction
-                active={thinkingEnabled}
-                disabled={!thinkingAvailable}
-                icon={<Sparkles className="size-4" />}
-                label="Thinking"
-                onClick={() => {
-                  onToggleThinking();
                   setMenuOpen(false);
                 }}
               />

@@ -92,6 +92,7 @@ class MessageOut(BaseModel):
     id: int
     role: str
     content: str
+    reasoning: Optional[str] = None
     attachments: list[MessageAttachmentOut] = Field(default_factory=list)
     sources: list[MessageSource] = Field(default_factory=list)
     context: Optional[MessageContextOut] = None

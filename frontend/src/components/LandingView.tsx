@@ -21,8 +21,6 @@ interface LandingViewProps {
   retrievalMode: RetrievalMode;
   submitBlocked: boolean;
   submitBlockedReason: string | null;
-  thinkingEnabled: boolean;
-  thinkingAvailable: boolean;
   shouldAnimate: boolean;
   title: string;
   onAnimationComplete: () => void;
@@ -35,7 +33,6 @@ interface LandingViewProps {
   onToggleRecording: () => void;
   onToggleRag: () => void;
   onToggleWeb: () => void;
-  onToggleThinking: () => void;
 }
 
 function getTypewriterDelay(title: string, index: number) {
@@ -57,8 +54,6 @@ export function LandingView({
   retrievalMode,
   submitBlocked,
   submitBlockedReason,
-  thinkingEnabled,
-  thinkingAvailable,
   shouldAnimate,
   title,
   onAnimationComplete,
@@ -71,7 +66,6 @@ export function LandingView({
   onToggleRecording,
   onToggleRag,
   onToggleWeb,
-  onToggleThinking,
 }: LandingViewProps) {
   const [visibleCount, setVisibleCount] = useState(() => (shouldAnimate ? 0 : title.length));
 
@@ -134,13 +128,10 @@ export function LandingView({
             onSubmit={onSend}
             onToggleRecording={onToggleRecording}
             onToggleRag={onToggleRag}
-            onToggleThinking={onToggleThinking}
             onToggleWeb={onToggleWeb}
             retrievalMode={retrievalMode}
             submitBlocked={submitBlocked}
             submitBlockedReason={submitBlockedReason}
-            thinkingAvailable={thinkingAvailable}
-            thinkingEnabled={thinkingEnabled}
             value={draft}
           />
         </div>

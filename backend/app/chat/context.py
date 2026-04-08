@@ -21,6 +21,7 @@ def save_assistant_message(
     db: Session,
     conversation: Conversation,
     content: str,
+    reasoning: str | None = None,
     sources: list[dict[str, str | float | None]],
     context_payload: dict[str, object] | None = None,
 ) -> Message:
@@ -41,6 +42,7 @@ def save_assistant_message(
         conversation_id=conversation.id,
         role="assistant",
         content=content,
+        reasoning_content=(reasoning or "").strip() or None,
         sources_json=json.dumps(sources, ensure_ascii=False),
         context_json=json.dumps(context_payload, ensure_ascii=False) if context_payload else None,
     )

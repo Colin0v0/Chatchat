@@ -16,9 +16,6 @@ interface MessageListProps {
   onReuseUserMessage?: (content: string) => void;
   collapsedMessageIds?: ReadonlySet<number | string>;
   streamingStatusLabel?: string | null;
-  thinkingTrace?: string;
-  thinkingTraceExpanded?: boolean;
-  onToggleThinkingTrace?: () => void;
 }
 
 function StreamingLabel({ label }: { label: string }) {
@@ -38,23 +35,15 @@ function StreamingLabel({ label }: { label: string }) {
 
 function StreamingStatusSlot({
   label,
-  thinkingTrace,
-  thinkingTraceExpanded,
-  onToggleThinkingTrace,
+  reasoning,
+  streaming,
 }: {
   label: string | null;
-  thinkingTrace: string;
-  thinkingTraceExpanded: boolean;
-  onToggleThinkingTrace?: () => void;
+  reasoning: string;
+  streaming: boolean;
 }) {
-  if (thinkingTrace.trim()) {
-    return (
-      <ThinkingPanel
-        expanded={thinkingTraceExpanded}
-        onToggle={() => onToggleThinkingTrace?.()}
-        trace={thinkingTrace}
-      />
-    );
+  if (reasoning.trim()) {
+    return <ThinkingPanel streaming={streaming} trace={reasoning} />;
   }
 
   if (!label) {
@@ -215,9 +204,6 @@ export function MessageList({
   onReuseUserMessage,
   collapsedMessageIds,
   streamingStatusLabel = null,
-  thinkingTrace = "",
-  thinkingTraceExpanded = false,
-  onToggleThinkingTrace,
 }: MessageListProps) {
   const activeStreamingAssistantId = isStreaming
     ? [...items].reverse().find((item) => item.role === "assistant")?.id
@@ -235,11 +221,9 @@ export function MessageList({
         const isEmptyAssistant = isAssistant && !item.content.trim();
         const hasStoppedNote = item.localStatus === "stopped";
         const isActiveStreamingAssistant = item.id === activeStreamingAssistantId;
-        const hasThinkingTrace = isActiveStreamingAssistant && thinkingTrace.trim().length > 0;
-        const showStreamingStatus =
-          isActiveStreamingAssistant &&
-          isEmptyAssistant &&
-          (hasThinkingTrace || Boolean(streamingStatusLabel));
+        const reasoning = item.reasoning ?? "";
+        const showThinkingPanel = reasoning.trim().length > 0;
+        const showStreamingStatus = isActiveStreamingAssistant && isEmptyAssistant && Boolean(streamingStatusLabel);
         const showSources = !isEmptyAssistant && item.id !== activeStreamingAssistantId;
         const attachments = item.attachments ?? [];
 
@@ -259,19 +243,24 @@ export function MessageList({
           );
         }
 
-        if (isEmptyAssistant && !showStreamingStatus && !hasStoppedNote) {
+        if (isEmptyAssistant && !showThinkingPanel && !showStreamingStatus && !hasStoppedNote) {
           return null;
         }
 
         return (
           <article className="mb-5 flex justify-start last:mb-0" key={item.id}>
             <div className="w-full max-w-[760px]">
-              {showStreamingStatus ? (
+              {showThinkingPanel ? (
+                <StreamingStatusSlot
+                  label={null}
+                  reasoning={reasoning}
+                  streaming={isActiveStreamingAssistant}
+                />
+              ) : showStreamingStatus ? (
                 <StreamingStatusSlot
                   label={streamingStatusLabel}
-                  onToggleThinkingTrace={onToggleThinkingTrace}
-                  thinkingTrace={isActiveStreamingAssistant ? thinkingTrace : ""}
-                  thinkingTraceExpanded={thinkingTraceExpanded}
+                  reasoning=""
+                  streaming={false}
                 />
               ) : null}
 

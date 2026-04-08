@@ -1,16 +1,24 @@
 import { ChevronRight } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 interface ThinkingPanelProps {
-  expanded: boolean;
   trace: string;
-  onToggle: () => void;
+  streaming?: boolean;
 }
 
-export function ThinkingPanel({ expanded, trace, onToggle }: ThinkingPanelProps) {
+export function ThinkingPanel({ trace, streaming = false }: ThinkingPanelProps) {
+  const [expanded, setExpanded] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const stickToBottomRef = useRef(true);
   const lastExpandedRef = useRef(false);
+  const lastStreamingRef = useRef(streaming);
+
+  useEffect(() => {
+    if (lastStreamingRef.current && !streaming) {
+      setExpanded(false);
+    }
+    lastStreamingRef.current = streaming;
+  }, [streaming]);
 
   useEffect(() => {
     const scrollContainer = scrollRef.current;
@@ -54,20 +62,30 @@ export function ThinkingPanel({ expanded, trace, onToggle }: ThinkingPanelProps)
   }, [expanded, trace]);
 
   return (
-    <div className="mb-3">
+    <div className="mb-3 w-full min-w-0">
       <button
         aria-expanded={expanded}
-        className="inline-flex min-h-[34px] items-center gap-2.5 py-[2px] text-app-muted/80 transition hover:text-app-muted"
-        onClick={onToggle}
+        className="inline-flex min-h-[34px] max-w-full items-center gap-2.5 py-[2px] text-app-muted/80 transition hover:text-app-muted"
+        onClick={() => setExpanded((current) => !current)}
         type="button"
       >
-        <span className="app-streaming-label text-[15px] italic tracking-[0.01em]">Thinking</span>
-        <span aria-hidden="true" className="inline-flex items-center gap-1.25 self-center">
-          <span className="size-[4px] rounded-full bg-current animate-[thinking-dot_1.8s_ease-in-out_0.15s_infinite]" />
-          <span className="size-[4px] rounded-full bg-current animate-[thinking-dot_1.8s_ease-in-out_0.3s_infinite]" />
-          <span className="size-[4px] rounded-full bg-current animate-[thinking-dot_1.8s_ease-in-out_0.45s_infinite]" />
+        <span
+          className={
+            streaming
+              ? "app-streaming-label text-[15px] italic tracking-[0.01em]"
+              : "text-[15px] italic tracking-[0.01em] text-app-muted/80"
+          }
+        >
+          Thinking
         </span>
-        <ChevronRight className={`size-4 transition-transform duration-200 ${expanded ? "rotate-90" : ""}`} />
+        {streaming ? (
+          <span aria-hidden="true" className="inline-flex items-center gap-1.25 self-center">
+            <span className="size-[4px] rounded-full bg-current animate-[thinking-dot_1.8s_ease-in-out_0.15s_infinite]" />
+            <span className="size-[4px] rounded-full bg-current animate-[thinking-dot_1.8s_ease-in-out_0.3s_infinite]" />
+            <span className="size-[4px] rounded-full bg-current animate-[thinking-dot_1.8s_ease-in-out_0.45s_infinite]" />
+          </span>
+        ) : null}
+        <ChevronRight className={`size-4 shrink-0 transition-transform duration-200 ${expanded ? "rotate-90" : ""}`} />
       </button>
 
       <div
@@ -80,7 +98,7 @@ export function ThinkingPanel({ expanded, trace, onToggle }: ThinkingPanelProps)
             className="app-scrollbar max-h-[180px] overflow-y-auto border-l border-app-border pl-4 text-[14px] leading-7 text-app-muted/78"
             ref={scrollRef}
           >
-            <div className="whitespace-pre-wrap break-words">{trace || "..."}</div>
+            <div className="whitespace-pre-wrap break-words">{trace}</div>
           </div>
         </div>
       </div>
