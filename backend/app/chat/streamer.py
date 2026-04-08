@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 
 import httpx
 from fastapi import Request
@@ -19,6 +20,9 @@ from .history import MessageHistoryService
 from .prompt_builder import build_prompt_composition
 from .strategy import choose_context_strategy
 from .state import ChatServices
+
+
+logger = logging.getLogger("chatchat.chat")
 
 
 async def refusal_stream(
@@ -40,6 +44,7 @@ async def refusal_stream(
             "type": "done",
             "assistant_message_id": assistant_message.id,
             "conversation_title": conversation.title,
+            "content": refusal_message,
         },
         ensure_ascii=False,
     ) + "\n"
@@ -79,7 +84,11 @@ async def assistant_event_stream(
 
         if normalized_answer:
             assistant_chunks.append(normalized_answer)
-            yield json.dumps({"type": "token", "content": normalized_answer}, ensure_ascii=False) + "\n"
+            try:
+                yield json.dumps({"type": "token", "content": normalized_answer}, ensure_ascii=False) + "\n"
+            except Exception as exc:
+                logger.exception("failed to yield token | error=%s", exc)
+                raise
 
         if chunk.get("done"):
             tail_reasoning, tail_answer = thinking_normalizer.flush()
@@ -109,6 +118,7 @@ async def assistant_event_stream(
                         "type": "done",
                         "assistant_message_id": assistant_message.id,
                         "conversation_title": conversation.title,
+                        "content": full_response,
                     },
                     ensure_ascii=False,
                 ) + "\n"
@@ -279,6 +289,12 @@ async def response_event_stream(
             yield part
     except httpx.HTTPError as exc:
         stream_db.rollback()
+        logger.exception(
+            "chat stream http error | conversation_id=%s | message_id=%s | model=%s",
+            conversation_id,
+            message_id,
+            model,
+        )
         details = str(exc).strip() or exc.__class__.__name__
         message = (
             "Model service connection failed. Check service URL, API key, and model name. "
@@ -287,6 +303,12 @@ async def response_event_stream(
         yield json.dumps({"type": "error", "message": message}, ensure_ascii=False) + "\n"
     except Exception as exc:  # pragma: no cover
         stream_db.rollback()
+        logger.exception(
+            "chat stream unexpected error | conversation_id=%s | message_id=%s | model=%s",
+            conversation_id,
+            message_id,
+            model,
+        )
         yield json.dumps({"type": "error", "message": str(exc)}, ensure_ascii=False) + "\n"
     finally:
         if reservation is not None:

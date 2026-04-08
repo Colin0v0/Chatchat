@@ -72,6 +72,16 @@ def _resolve_api_key(*, api_key: str | None, api_key_env: str | None) -> str | N
     return value or None
 
 
+def _resolve_env_value(value: str | None) -> str | None:
+    if not value:
+        return None
+    trimmed = value.strip()
+    if trimmed.startswith("${") and trimmed.endswith("}"):
+        env_name = trimmed[2:-1].strip()
+        return os.getenv(env_name, "").strip() or None
+    return trimmed
+
+
 def _parse_provider_presets(payload: dict[str, object]) -> dict[str, ProviderPreset]:
     raw = payload.get("providers", {})
     if raw is None:
@@ -96,7 +106,7 @@ def _parse_provider_presets(payload: dict[str, object]) -> dict[str, ProviderPre
         base_url_raw = item.get("base_url")
         if base_url_raw is not None and not isinstance(base_url_raw, str):
             raise ModelCatalogError(f"providers.{name}.base_url must be string when provided")
-        base_url = base_url_raw.strip() if isinstance(base_url_raw, str) else ""
+        base_url = _resolve_env_value(base_url_raw)
 
         api_key_raw = item.get("api_key")
         if api_key_raw is not None and not isinstance(api_key_raw, str):
@@ -111,7 +121,7 @@ def _parse_provider_presets(payload: dict[str, object]) -> dict[str, ProviderPre
 
         presets[name.strip()] = ProviderPreset(
             provider=provider,
-            base_url=base_url or None,
+            base_url=base_url,
             api_key=api_key,
         )
 
@@ -180,7 +190,7 @@ def _parse_routes(payload: dict[str, object]) -> list[ModelRoute]:
         base_url_raw = row.get("base_url")
         if base_url_raw is not None and not isinstance(base_url_raw, str):
             raise ModelCatalogError(f"{row_path}.base_url must be string when provided")
-        base_url = base_url_raw.strip() if isinstance(base_url_raw, str) else ""
+        base_url = _resolve_env_value(base_url_raw)
         if not base_url and preset is not None and preset.get("base_url"):
             base_url = cast(str, preset["base_url"])
 

@@ -1,6 +1,13 @@
 import unittest
 
-from app.llm.openai_client import _decode_openai_stream_payload, _iter_openai_stream_payloads
+import httpx
+
+from app.llm.openai_client import (
+    _decode_openai_stream_payload,
+    _iter_openai_stream_payloads,
+    _looks_like_startup_log,
+    _parse_openai_json_response,
+)
 
 
 async def _aiter(lines: list[str]):
@@ -49,6 +56,28 @@ class OpenAIClientStreamParsingTests(unittest.IsolatedAsyncioTestCase):
                 "reasoning": {"content": "trace"},
             },
         )
+
+    def test_decode_openai_stream_payload_raises_for_malformed_json_chunk(self):
+        payload = '{"choices":[{"delta":{"content":"answer"}}'
+
+        with self.assertRaises(RuntimeError):
+            _decode_openai_stream_payload(payload)
+
+    def test_parse_openai_json_response_rejects_non_json_payload(self):
+        response = httpx.Response(
+            200,
+            text="Waiting for application startup.\\nINFO: Application startup complete.",
+        )
+
+        with self.assertRaises(RuntimeError) as ctx:
+            _parse_openai_json_response(response, context="chat.completions fallback")
+
+        self.assertIn("non-JSON response", str(ctx.exception))
+        self.assertIn("chat.completions fallback", str(ctx.exception))
+
+    def test_looks_like_startup_log_matches_uvicorn_warmup_lines(self):
+        payload = "Waiting for application startup.\\nINFO: Application startup complete."
+        self.assertTrue(_looks_like_startup_log(payload))
 
 
 if __name__ == "__main__":

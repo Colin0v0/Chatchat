@@ -156,7 +156,7 @@ interface StreamRequestOptions {
   signal?: AbortSignal;
 }
 
-function parseNdjsonEvent(raw: string, errorMessage: string): ChatStreamEvent | null {
+function parseNdjsonEvent(raw: string): ChatStreamEvent | null {
   const trimmed = raw.trim();
   if (!trimmed) {
     return null;
@@ -164,8 +164,9 @@ function parseNdjsonEvent(raw: string, errorMessage: string): ChatStreamEvent | 
 
   try {
     return JSON.parse(trimmed) as ChatStreamEvent;
-  } catch {
-    throw new Error(errorMessage);
+  } catch (err) {
+    console.warn("[ndjson parse error]", trimmed.substring(0, 100), err);
+    return null;
   }
 }
 
@@ -189,7 +190,7 @@ async function consumeNdjsonStream(response: Response, onEvent: (event: ChatStre
     buffer = lines.pop() ?? "";
 
     for (const line of lines) {
-      const event = parseNdjsonEvent(line, "Streaming response parse failed.");
+      const event = parseNdjsonEvent(line);
       if (event) {
         onEvent(event);
       }
@@ -197,10 +198,7 @@ async function consumeNdjsonStream(response: Response, onEvent: (event: ChatStre
   }
 
   buffer += decoder.decode();
-  const tailEvent = parseNdjsonEvent(
-    buffer,
-    "Streaming response was interrupted before completion.",
-  );
+  const tailEvent = parseNdjsonEvent(buffer);
   if (tailEvent) {
     onEvent(tailEvent);
   }

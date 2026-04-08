@@ -246,6 +246,23 @@ export function setAssistantDraftId(
   };
 }
 
+export function setAssistantDraftFinalContent(
+  conversation: ConversationDetail,
+  content: string,
+): ConversationDetail {
+  return {
+    ...conversation,
+    messages: conversation.messages.map((item) =>
+      item.id === ASSISTANT_DRAFT_ID
+        ? {
+            ...item,
+            content,
+          }
+        : item,
+    ),
+  };
+}
+
 export function replaceConversationMessageId(
   conversation: ConversationDetail,
   fromId: number | string,

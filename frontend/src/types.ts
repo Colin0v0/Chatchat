@@ -188,6 +188,7 @@ export type ChatStreamEvent =
       type: "done";
       assistant_message_id?: number;
       conversation_title?: string;
+      content?: string;
     }
   | {
       type: "error";

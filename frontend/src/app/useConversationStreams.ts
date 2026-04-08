@@ -22,6 +22,7 @@ import {
   RunStreamOptions,
   setAssistantDraftId,
   setAssistantDraftContext,
+  setAssistantDraftFinalContent,
   setAssistantDraftSources,
   sortConversations,
   stageFromStatusItems,
@@ -433,8 +434,13 @@ export function useConversationStreams({
               if (event.assistant_message_id != null) {
                 const session = streamSessionsRef.current[streamSessionKey(streamConversationId)];
                 if (session) {
+                  const finalContent =
+                    typeof event.content === "string" ? event.content : null;
+                  const reconciledConversation = finalContent
+                    ? setAssistantDraftFinalContent(session.conversation, finalContent)
+                    : session.conversation;
                   const nextConversation = setAssistantDraftId(
-                    session.conversation,
+                    reconciledConversation,
                     event.assistant_message_id,
                   );
                   const titledConversation = {
@@ -447,9 +453,14 @@ export function useConversationStreams({
               } else {
                 const session = streamSessionsRef.current[streamSessionKey(streamConversationId)];
                 if (session) {
+                  const finalContent =
+                    typeof event.content === "string" ? event.content : null;
+                  const reconciledConversation = finalContent
+                    ? setAssistantDraftFinalContent(session.conversation, finalContent)
+                    : session.conversation;
                   const titledConversation = {
-                    ...session.conversation,
-                    title: event.conversation_title ?? session.conversation.title,
+                    ...reconciledConversation,
+                    title: event.conversation_title ?? reconciledConversation.title,
                   };
                   updateSessionConversation(streamConversationId, () => titledConversation);
                   upsertConversationSummary(titledConversation);

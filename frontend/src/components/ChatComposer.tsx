@@ -1,5 +1,5 @@
 import { ArrowUp, BookOpen, Globe, LoaderCircle, Mic, Plus, Sparkles, Square } from "lucide-react";
-import { useRef, useState, type ChangeEvent, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
+import { useRef, useState, type ClipboardEvent, type ChangeEvent, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
 
 import type { ComposerAttachmentDraft } from "../app/useComposerAttachments";
 import type { ModelOption, RetrievalMode } from "../types";
@@ -179,6 +179,29 @@ export function ChatComposer({
     }
   };
 
+  const handlePaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
+    if (!attachmentUploadAvailable || isStreaming || !event.clipboardData) {
+      return;
+    }
+
+    const { items } = event.clipboardData;
+    const files: File[] = [];
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.kind === "file") {
+        const file = item.getAsFile();
+        if (file) {
+          files.push(file);
+        }
+      }
+    }
+
+    if (files.length > 0) {
+      onSelectAttachments(files);
+    }
+  };
+
   const handleSelectAttachments = (event: ChangeEvent<HTMLInputElement>) => {
     if (event.target.files && event.target.files.length > 0) {
       onSelectAttachments(event.target.files);
@@ -245,6 +268,7 @@ export function ChatComposer({
           className="min-h-24 w-full resize-none bg-transparent px-4 py-4 text-[16px] leading-7 text-app-text placeholder:text-[#9a9387]"
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
           placeholder="Ask anything"
           rows={centered ? 3 : 2}
           title={submitBlockedReason ?? undefined}

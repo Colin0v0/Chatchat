@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 
 from ..chat.types import ChatMessagePayload
 from ..llm import complete_chat
 from .types import MEMORY_KINDS, MEMORY_SCOPES, MemoryCandidate
 
 logger = logging.getLogger("chatchat.memory")
+
+_THINK_BLOCK_RE = re.compile(r"<think>.*?</think>", re.IGNORECASE | re.DOTALL)
+_INVALID_JSON_ESCAPE_RE = re.compile(r'\\(?!["\\/bfnrtu])')
 
 
 class MemoryExtractor:
@@ -39,7 +43,12 @@ class MemoryExtractor:
         )
         payload = self._parse_payload(raw)
         if payload is None:
-            logger.warning("memory extraction returned invalid payload")
+            text_preview = raw[:200] if raw else "(empty response)"
+            logger.info(
+                "memory extraction returned invalid payload (non-fatal, skipped) | model=%s | preview=%s",
+                model,
+                text_preview,
+            )
             return []
         return self._normalize_candidates(payload)
 
@@ -57,6 +66,9 @@ class MemoryExtractor:
             "Return strict JSON with this shape: "
             '{"items":[{"scope":"global|conversation","kind":"profile|preference|goal|project|fact|constraint","title":"...","detail":"...","tags":["..."],"confidence":0.0}]}\n'
             "Keep items atomic. Prefer facts that will matter in future turns.\n"
+            "Do not output any <think> tags or analysis sections.\n"
+            "Do not use markdown fences.\n"
+            "Do not include LaTeX, backslashes, or formulas in title/detail; rewrite them as plain Chinese text.\n"
             "Do not include one-off requests, greetings, temporary wording, or things already obvious from the current question alone.\n"
             "Default to scope=conversation.\n"
             "Use scope=global only for durable user identity, long-term preferences, or stable facts that should remain useful across unrelated future chats.\n"
@@ -78,17 +90,48 @@ class MemoryExtractor:
 
     def _parse_payload(self, raw: str) -> dict[str, object] | None:
         text = raw.strip()
+        if not text:
+            return None
+
+        # Some thinking models still emit hidden thought blocks even when disabled.
+        text = _THINK_BLOCK_RE.sub("", text).strip()
+
         if text.startswith("```"):
             lines = text.splitlines()
             if len(lines) >= 3:
                 text = "\n".join(lines[1:-1]).strip()
 
-        try:
-            payload = json.loads(text)
-        except json.JSONDecodeError:
+        if not text:
             return None
 
-        return payload if isinstance(payload, dict) else None
+        # If the model adds pre/post text, keep only the JSON-looking segment.
+        object_start = text.find("{")
+        object_end = text.rfind("}")
+        if object_start != -1 and object_end > object_start:
+            text = text[object_start : object_end + 1]
+
+        # LLM outputs often include single backslashes (e.g. \cdot) that break strict JSON.
+        candidate = _INVALID_JSON_ESCAPE_RE.sub(r"\\\\", text)
+
+        try:
+            payload = json.loads(candidate)
+        except json.JSONDecodeError as exc:
+            preview = candidate[:180] if candidate else "(empty)"
+            logger.info(
+                "memory extraction json parse error | error=%s | preview=%s",
+                str(exc),
+                preview,
+            )
+            return None
+
+        if not isinstance(payload, dict):
+            logger.debug(
+                "memory extraction payload is not dict | type=%s",
+                type(payload).__name__,
+            )
+            return None
+
+        return payload
 
     def _normalize_candidates(self, payload: dict[str, object]) -> list[MemoryCandidate]:
         items = payload.get("items")
