@@ -48,6 +48,7 @@ class RetrievalService:
         plan: RetrievalPlan,
         conversation_messages: list["Message"],
         include_file_context: bool,
+        include_image_context: bool,
     ) -> PromptContextPayload:
         debug = self._base_debug(plan=plan)
         configuration_refusal = self._resolve_configuration_refusal(query=query, plan=plan)
@@ -73,6 +74,7 @@ class RetrievalService:
                     db=db,
                     query=query,
                     messages=conversation_messages,
+                    include_images=include_image_context,
                 )
             )
 

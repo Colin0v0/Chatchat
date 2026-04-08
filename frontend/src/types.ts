@@ -61,7 +61,7 @@ export interface ChatMessage {
   context?: MessageContext | null;
   feedback?: FeedbackValue | null;
   created_at?: string | null;
-  localStatus?: "stopped";
+  localStatus?: "stopped" | "error";
 }
 
 export interface ConversationDetail {

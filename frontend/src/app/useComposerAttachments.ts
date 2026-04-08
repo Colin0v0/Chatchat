@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { createClientId } from "./chatSessionUtils";
+
 export interface ComposerAttachmentDraft {
   id: string;
   file: File;
@@ -50,7 +52,7 @@ function isSupportedAttachment(file: File) {
 function toDraft(file: File): ComposerAttachmentDraft {
   const kind = file.type.startsWith("image/") ? "image" : "file";
   return {
-    id: crypto.randomUUID(),
+    id: createClientId(),
     file,
     kind,
     previewUrl: kind === "image" ? URL.createObjectURL(file) : null,

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 
 import httpx
 from fastapi import Request
@@ -10,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from ..chat.types import ChatMessagePayload
 from ..llm import stream_chat
+from ..llm import supports_native_image_input
 from ..llm.catalog import resolve_context_window
 from ..llm.thinking import ThinkTagStreamNormalizer
 from ..retrieval import RetrievalMode, RetrievalPlan
@@ -23,6 +25,13 @@ from .state import ChatServices
 
 
 logger = logging.getLogger("chatchat.chat")
+THINK_TAG_ONLY_PATTERN = re.compile(r"</?think>", re.IGNORECASE)
+
+
+def strip_loose_think_tags(content: str) -> str:
+    if not content:
+        return content
+    return THINK_TAG_ONLY_PATTERN.sub("", content)
 
 
 async def refusal_stream(
@@ -83,9 +92,12 @@ async def assistant_event_stream(
             yield json.dumps({"type": "reasoning", "content": reasoning_delta}, ensure_ascii=False) + "\n"
 
         if normalized_answer:
-            assistant_chunks.append(normalized_answer)
+            clean_answer = strip_loose_think_tags(normalized_answer)
+            if not clean_answer:
+                continue
+            assistant_chunks.append(clean_answer)
             try:
-                yield json.dumps({"type": "token", "content": normalized_answer}, ensure_ascii=False) + "\n"
+                yield json.dumps({"type": "token", "content": clean_answer}, ensure_ascii=False) + "\n"
             except Exception as exc:
                 logger.exception("failed to yield token | error=%s", exc)
                 raise
@@ -95,8 +107,10 @@ async def assistant_event_stream(
             if show_reasoning and tail_reasoning:
                 yield json.dumps({"type": "reasoning", "content": tail_reasoning}, ensure_ascii=False) + "\n"
             if tail_answer:
-                assistant_chunks.append(tail_answer)
-                yield json.dumps({"type": "token", "content": tail_answer}, ensure_ascii=False) + "\n"
+                clean_tail_answer = strip_loose_think_tags(tail_answer)
+                if clean_tail_answer:
+                    assistant_chunks.append(clean_tail_answer)
+                    yield json.dumps({"type": "token", "content": clean_tail_answer}, ensure_ascii=False) + "\n"
 
             full_response = "".join(assistant_chunks).strip()
             if full_response:
@@ -200,15 +214,17 @@ async def response_event_stream(
             message_limit=services.history_message_limit,
             token_budget=strategy.history_token_budget,
         )
+        include_image_context = not supports_native_image_input(model)
         message_history_service = MessageHistoryService(stream_db, services.attachment_context_service)
         needs_retrieval_grounding = retrieval_mode != "none" and message_history_service.needs_retrieval_grounding(
             messages=history_window.recent_messages,
         )
         if message_history_service.needs_image_text(model=model, messages=history_window.recent_messages) or needs_retrieval_grounding:
-            yield json.dumps({"type": "status", "items": ["Reading image"]}, ensure_ascii=False) + "\n"
+            yield json.dumps({"type": "status", "items": ["Reading attachments"]}, ensure_ascii=False) + "\n"
 
         prepared_history = await message_history_service.prepare(model=model, messages=history_window.recent_messages)
         prepared_retrieval_history = await message_history_service.prepare_retrieval_history(
+            model=model,
             messages=history_window.recent_messages,
         )
         if prepared_history.used_image_text or prepared_retrieval_history.used_image_text:
@@ -234,6 +250,7 @@ async def response_event_stream(
             plan=retrieval_plan,
             conversation_messages=all_history_messages,
             include_file_context=strategy.file_retrieval_enabled,
+            include_image_context=include_image_context,
         )
 
         if status_items:

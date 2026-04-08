@@ -1,0 +1,10 @@
+
+> chatchat-frontend@0.1.0 build E:\VScodeproject\Chatchat\frontend
+> tsc -b && vite build
+
+src/app/chatSessionUtils.ts(290,7): error TS2322: Type 'ChatMessage | { id: string; role: "assistant"; content: string; localStatus: "error"; }' is not assignable to type 'ChatMessage'.
+  Type '{ id: string; role: "assistant"; content: string; localStatus: "error"; }' is not assignable to type 'ChatMessage'.
+    Types of property 'localStatus' are incompatible.
+      Type '"error"' is not assignable to type '"stopped"'.
+src/app/chatSessionUtils.ts(295,9): error TS2322: Type '"error"' is not assignable to type '"stopped"'.
+鈥塃LIFECYCLE鈥?Command failed with exit code 1.

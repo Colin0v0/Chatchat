@@ -200,8 +200,15 @@ function updateAssistantDraft(
   };
 }
 
+export function createClientId(prefix?: string): string {
+  const cryptoObject = globalThis.crypto;
+  const randomPart =
+    cryptoObject?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  return prefix ? `${prefix}-${randomPart}` : randomPart;
+}
+
 function createLocalAssistantMessageId(kind: "error" | "stopped") {
-  return `${kind}-${crypto.randomUUID()}`;
+  return createClientId(kind);
 }
 
 export function appendAssistantDraftContent(
@@ -236,8 +243,11 @@ export function setAssistantDraftContext(
 
 export function setAssistantDraftId(
   conversation: ConversationDetail,
-  assistantMessageId: number,
+  assistantMessageId?: number | string,
 ): ConversationDetail {
+  if (assistantMessageId === undefined || assistantMessageId === null) {
+    return conversation;
+  }
   return {
     ...conversation,
     messages: conversation.messages.map((item) =>
@@ -289,6 +299,7 @@ export function replaceAssistantDraftWithError(
         id: createLocalAssistantMessageId("error"),
         role: "assistant",
         content: message,
+        localStatus: "error",
       },
     ],
   };
@@ -350,7 +361,7 @@ export async function restoreAttachmentFiles(attachments: MessageAttachment[]) {
 
 export function createTransientAttachments(files: File[]): MessageAttachment[] {
   return files.map((file) => ({
-    id: crypto.randomUUID(),
+    id: createClientId(),
     kind: file.type.startsWith("image/") ? "image" : "file",
     original_name: file.name,
     mime_type: file.type,

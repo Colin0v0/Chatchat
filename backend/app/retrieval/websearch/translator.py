@@ -32,10 +32,6 @@ MUSIC_LOOKUP_HINTS = ('谁唱', '是谁的歌', '歌', '演唱', '作词', '作�
 
 
 async def translate_query_for_search(query: str, settings: Settings) -> str:
-    provider, _ = model_provider_and_name(settings.web_search_translation_model)
-    if provider != 'ollama':
-        raise RuntimeError('WEB_SEARCH_TRANSLATION_MODEL must use an Ollama model.')
-
     translated = _normalize_translation(
         await complete_chat(
             model=settings.web_search_translation_model,

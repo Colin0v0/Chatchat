@@ -5,6 +5,7 @@ services:
     container_name: chatchat-backend
     env_file:
       - ./backend/.env
+      - ./backend/.env.deploy.wsl
     environment:
       # Ollama在WSL2本地运行，通过host访问
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host:11434}

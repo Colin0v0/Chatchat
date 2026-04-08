@@ -34,12 +34,13 @@ class ConversationFileContextService:
         db: Session,
         query: str,
         messages: list[Message],
+        include_images: bool,
     ) -> ContextPayload:
         normalized_query = query.strip()
         if not normalized_query:
             return ContextPayload()
 
-        chunks = await self._build_chunks(db=db, messages=messages)
+        chunks = await self._build_chunks(db=db, messages=messages, include_images=include_images)
         if not chunks:
             return ContextPayload()
 
@@ -84,7 +85,7 @@ class ConversationFileContextService:
         ]
         return ContextPayload(entries=entries, sources=sources, debug={"file_hits": len(ranked)})
 
-    async def _build_chunks(self, *, db: Session, messages: list[Message]) -> list[FileChunk]:
+    async def _build_chunks(self, *, db: Session, messages: list[Message], include_images: bool) -> list[FileChunk]:
         chunks: list[FileChunk] = []
         for message in messages:
             if message.role != "user" or not message.attachments:
@@ -92,7 +93,10 @@ class ConversationFileContextService:
 
             attachment_context = (message.attachment_context or "").strip()
             if not attachment_context:
-                result = await self._attachment_context_service.extract_markdown(message.attachments)
+                result = await self._attachment_context_service.extract_markdown(
+                    message.attachments,
+                    include_images=include_images,
+                )
                 attachment_context = result.markdown.strip()
                 if not attachment_context:
                     continue

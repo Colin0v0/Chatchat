@@ -22,12 +22,17 @@ class AttachmentContextService:
         self._image_service = image_service
         self._file_parser = file_parser
 
-    async def extract_markdown(self, attachments: list[MessageAttachment]) -> AttachmentContextResult:
+    async def extract_markdown(
+        self,
+        attachments: list[MessageAttachment],
+        *,
+        include_images: bool = True,
+    ) -> AttachmentContextResult:
         image_attachments = [attachment for attachment in attachments if attachment.kind == "image"]
         file_attachments = [attachment for attachment in attachments if attachment.kind == "file"]
 
         blocks: list[str] = []
-        if image_attachments:
+        if include_images and image_attachments:
             image_result = await self._image_service.extract_markdown(image_attachments)
             blocks.append("\n\n".join([IMAGE_SECTION_TITLE, image_result.markdown]).strip())
 

@@ -65,17 +65,17 @@ class MessageHistoryService:
 
         return PreparedMessageHistory(messages=prepared_messages, used_image_text=used_image_text)
 
-    async def prepare_retrieval_history(self, *, messages: list[Message]) -> PreparedRetrievalHistory:
+    async def prepare_retrieval_history(self, *, model: str, messages: list[Message]) -> PreparedRetrievalHistory:
         prepared_messages: list[dict[str, str]] = []
         used_image_text = False
         for message in messages:
-            content, used_text = await self._textual_message_content(message)
+            content, used_text = await self._textual_message_content(model=model, message=message)
             prepared_messages.append({"role": message.role, "content": content})
             used_image_text = used_image_text or used_text
         return PreparedRetrievalHistory(messages=prepared_messages, used_image_text=used_image_text)
 
     async def _chat_message_payload(self, *, model: str, message: Message) -> tuple[ChatMessagePayload, bool, bool]:
-        content, used_text = await self._textual_message_content(message)
+        content, used_text = await self._textual_message_content(model=model, message=message)
         has_images = any(attachment.kind == "image" for attachment in message.attachments)
         if supports_native_image_input(model):
             return (
@@ -89,22 +89,26 @@ class MessageHistoryService:
             )
         return ChatMessagePayload(role=message.role, content=content), used_text, has_images
 
-    async def _textual_message_content(self, message: Message) -> tuple[str, bool]:
+    async def _textual_message_content(self, *, model: str, message: Message) -> tuple[str, bool]:
         if message.role != "user" or not message.attachments:
             return message.content, False
 
-        attachment_context, used_text = await self._ensure_attachment_context(message)
+        attachment_context, used_text = await self._ensure_attachment_context(model=model, message=message)
         content_blocks = [self._resolved_user_prompt(message)]
         if attachment_context:
             content_blocks.append(f"{ATTACHMENT_CONTEXT_LABEL}:\n{attachment_context}")
         return "\n\n".join(content_blocks), used_text
 
-    async def _ensure_attachment_context(self, message: Message) -> tuple[str, bool]:
+    async def _ensure_attachment_context(self, *, model: str, message: Message) -> tuple[str, bool]:
         cached_context = (message.attachment_context or "").strip()
         if cached_context:
             return cached_context, False
 
-        result = await self._attachment_context_service.extract_markdown(message.attachments)
+        include_images = not supports_native_image_input(model)
+        result = await self._attachment_context_service.extract_markdown(
+            message.attachments,
+            include_images=include_images,
+        )
         message.attachment_context = result.markdown.strip()
         if result.has_images and not (message.image_context or "").strip():
             message.image_context = message.attachment_context

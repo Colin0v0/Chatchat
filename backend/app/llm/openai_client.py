@@ -249,6 +249,7 @@ async def stream_openai_chat(
     base_url_override: str | None = None,
     api_key_override: str | None = None,
 ) -> AsyncIterator[dict]:
+    logger.info("stream_openai_chat called | model=%s | provider=%s | thinking_enabled=%s", model, provider, thinking_enabled)
     use_stream = not (provider == "openai_local" and not settings.openai_local_stream)
     request_timeout = settings.request_timeout_seconds
     payload = {
@@ -257,6 +258,7 @@ async def stream_openai_chat(
         "stream": use_stream,
     }
     if provider == "openai_local" and thinking_enabled is not None:
+        logger.info("setting thinking in payload | type=%s", "enabled" if thinking_enabled else "disabled")
         payload["thinking"] = {"type": "enabled" if thinking_enabled else "disabled"}
 
     async def _yield_non_stream_fallback() -> AsyncIterator[dict]:

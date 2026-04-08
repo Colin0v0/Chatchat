@@ -36,6 +36,7 @@ import {
 
 const THINK_BLOCK_PATTERN = /<think>[\s\S]*?<\/think>/gi;
 const EMPTY_THINK_TAGS_PATTERN = /^(?:\s*<think>\s*<\/think>\s*)+$/i;
+const LOOSE_THINK_TAG_PATTERN = /<\/?think>/gi;
 
 function sanitizeTokenContent(content: string): string {
   const trimmed = content.trim();
@@ -45,7 +46,7 @@ function sanitizeTokenContent(content: string): string {
   if (EMPTY_THINK_TAGS_PATTERN.test(trimmed)) {
     return "";
   }
-  return content.replace(THINK_BLOCK_PATTERN, "");
+  return content.replace(THINK_BLOCK_PATTERN, "").replace(LOOSE_THINK_TAG_PATTERN, "");
 }
 
 const MIN_STAGE_DISPLAY_MS: Partial<Record<StreamingStage, number>> = {

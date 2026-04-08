@@ -104,7 +104,7 @@ class Settings(BaseSettings):
     web_search_top_k: int = 4
     web_search_min_score: float = 0.35
     web_search_content_max_chars: int = 1600
-    web_search_translation_model: str = "ollama:translategemma"
+    web_search_translation_model: str = "openai_local:claude-haiku-4-5"
     conversation_title_max_length: int = 40
 
     model_config = SettingsConfigDict(

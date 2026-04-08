@@ -1,0 +1,10 @@
+Traceback (most recent call last):
+  File "E:\VScodeproject\Chatchat\test_thinking_events.py", line 58, in <module>
+    print(f"[{elapsed:.2f}s] \U0001f4dd 第一个 token")
+UnicodeEncodeError: 'gbk' codec can't encode character '\U0001f4dd' in position 8: illegal multibyte sequence
+======================================================================
+检查思考事件 - 17:24:11
+问题: 二项式(2x - y)^8的展开式中第 3 项的二项式系数为
+======================================================================
+
+异常: 'gbk' codec can't encode character '\U0001f4dd' in position 8: illegal multibyte sequence

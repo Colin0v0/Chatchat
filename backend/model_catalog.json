@@ -11,7 +11,7 @@
     },
     "ollama_local": {
       "provider": "ollama",
-      "base_url": "http://host.docker.internal:11434"
+      "base_url": "${OLLAMA_BASE_URL}"
     }
   },
   "models": [
