@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from threading import Lock
 
 from fastapi import Request
 
@@ -14,6 +13,7 @@ from ..retrieval.rag import RagService
 from ..retrieval.file_context import ConversationFileContextService
 from ..retrieval import RetrievalService
 from ..retrieval.websearch import WebSearchService
+from .model_queue import ModelExecutionCoordinator
 
 
 @dataclass(frozen=True)
@@ -26,10 +26,10 @@ class ChatServices:
     history_message_limit: int
     history_token_budget: int
     summary_token_budget: int
-    local_gpu_lock: Lock
+    model_execution_coordinator: ModelExecutionCoordinator
 
 
-def build_chat_services(settings: Settings, *, local_gpu_lock: Lock) -> ChatServices:
+def build_chat_services(settings: Settings) -> ChatServices:
     rag_service = RagService(settings)
     web_search_service = WebSearchService(settings)
     image_text_service = ImageTextService(
@@ -67,7 +67,9 @@ def build_chat_services(settings: Settings, *, local_gpu_lock: Lock) -> ChatServ
         history_message_limit=max(1, settings.chat_history_message_limit),
         history_token_budget=max(256, settings.chat_history_token_budget),
         summary_token_budget=max(128, settings.chat_summary_token_budget),
-        local_gpu_lock=local_gpu_lock,
+        model_execution_coordinator=ModelExecutionCoordinator(
+            max_concurrency_per_model=settings.model_max_concurrency_per_model,
+        ),
     )
 
 

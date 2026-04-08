@@ -1,13 +1,14 @@
 from __future__ import annotations
 
+import asyncio
 import json
-from threading import Lock
 
 import httpx
+from fastapi import Request
 from sqlalchemy.orm import Session
 
 from ..chat.types import ChatMessagePayload
-from ..llm import model_provider_and_name, stream_chat
+from ..llm import stream_chat
 from ..llm.catalog import resolve_context_window
 from ..llm.thinking import ThinkTagStreamNormalizer
 from ..retrieval import RetrievalMode, RetrievalPlan
@@ -126,16 +127,24 @@ def retrieval_status_items(*, plan: RetrievalPlan, include_file_context: bool) -
     return []
 
 
-def try_acquire_local_gpu_lock(*, model: str, lock: Lock) -> bool:
-    provider, _ = model_provider_and_name(model)
-    if provider != "ollama":
-        return False
-    return lock.acquire(blocking=False)
+async def wait_for_model_turn(*, request: Request, reservation) -> None:
+    try:
+        while True:
+            try:
+                await asyncio.wait_for(reservation.wait(), timeout=0.25)
+                break
+            except TimeoutError:
+                if await request.is_disconnected():
+                    raise asyncio.CancelledError
+    except BaseException:
+        await reservation.release()
+        raise
 
 
 async def response_event_stream(
     *,
     services: ChatServices,
+    request: Request,
     conversation_id: int,
     message_id: int,
     model: str,
@@ -144,21 +153,6 @@ async def response_event_stream(
     retrieval_mode: RetrievalMode,
     thinking_enabled: bool | None = None,
 ):
-    provider, _ = model_provider_and_name(model)
-    local_gpu_lock_acquired = try_acquire_local_gpu_lock(
-        model=model,
-        lock=services.local_gpu_lock,
-    )
-    if provider == "ollama" and not local_gpu_lock_acquired:
-        yield json.dumps(
-            {
-                "type": "error",
-                "message": "Local GPU is busy. Stop the current local generation and retry.",
-            },
-            ensure_ascii=False,
-        ) + "\n"
-        return
-
     yield json.dumps(
         {
             "type": "meta",
@@ -168,6 +162,7 @@ async def response_event_stream(
         }
     ) + "\n"
 
+    reservation = None
     stream_db = SessionLocal()
     try:
         conversation = stream_db.get(Conversation, conversation_id)
@@ -258,6 +253,18 @@ async def response_event_stream(
                 ensure_ascii=False,
             ) + "\n"
 
+        reservation = await services.model_execution_coordinator.reserve(model)
+        if reservation.queued:
+            yield json.dumps({"type": "status", "items": ["Waiting for model"]}, ensure_ascii=False) + "\n"
+
+        await wait_for_model_turn(
+            request=request,
+            reservation=reservation,
+        )
+
+        if reservation.queued:
+            yield json.dumps({"type": "status", "items": []}, ensure_ascii=False) + "\n"
+
         async for part in assistant_event_stream(
             services=services,
             db=stream_db,
@@ -282,6 +289,6 @@ async def response_event_stream(
         stream_db.rollback()
         yield json.dumps({"type": "error", "message": str(exc)}, ensure_ascii=False) + "\n"
     finally:
-        if local_gpu_lock_acquired:
-            services.local_gpu_lock.release()
+        if reservation is not None:
+            await reservation.release()
         stream_db.close()

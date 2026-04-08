@@ -76,6 +76,7 @@ class Settings(BaseSettings):
     audio_max_upload_size_bytes: int = 25 * 1024 * 1024
     local_model_idle_timeout_seconds: float = 60.0
     request_timeout_seconds: float = 180.0
+    model_max_concurrency_per_model: int = 3
     chat_history_message_limit: int = 14
     chat_history_token_budget: int = 3600
     chat_summary_token_budget: int = 1200
