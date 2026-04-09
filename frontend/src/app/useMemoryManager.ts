@@ -1,11 +1,26 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { createMemory, deleteMemory, fetchMemories, updateMemory } from "../lib/api";
-import type { MemoryCollection, MemoryItem, MemoryKind, MemoryScope, MemoryUpsertPayload } from "../types";
+import {
+  createMemory,
+  deleteMemory,
+  dismissMemory,
+  fetchMemories,
+  promoteMemory,
+  updateMemory,
+} from "../lib/api";
+import type {
+  MemoryCollection,
+  MemoryItem,
+  MemoryKind,
+  MemoryScope,
+  MemoryUpsertPayload,
+} from "../types";
+
+type EditableScope = Exclude<MemoryScope, "working">;
 
 type MemoryEditorState = {
   id: number | null;
-  scope: MemoryScope;
+  scope: EditableScope;
   kind: MemoryKind;
   title: string;
   detail: string;
@@ -16,15 +31,31 @@ type MemoryEditorState = {
   conversation_id: number | null;
 };
 
+function createEmptyCollection(): MemoryCollection {
+  return {
+    documents: [],
+    active_items: {
+      global_items: [],
+      conversation_items: [],
+      working_items: [],
+    },
+    candidate_items: {
+      global_items: [],
+      conversation_items: [],
+      working_items: [],
+    },
+  };
+}
+
 function createEditor(
   conversationId: number | null,
-  scope: MemoryScope,
+  scope: EditableScope,
   memory?: MemoryItem,
 ): MemoryEditorState {
   if (memory) {
     return {
       id: memory.id,
-      scope: memory.scope,
+      scope: memory.scope === "global" ? "global" : "conversation",
       kind: memory.kind,
       title: memory.title,
       detail: memory.detail,
@@ -79,10 +110,7 @@ export function useMemoryManager({
   activeConversationId: number | null;
   open: boolean;
 }) {
-  const [collection, setCollection] = useState<MemoryCollection>({
-    global_items: [],
-    conversation_items: [],
-  });
+  const [collection, setCollection] = useState<MemoryCollection>(createEmptyCollection);
   const [editor, setEditor] = useState<MemoryEditorState | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -95,7 +123,7 @@ export function useMemoryManager({
       const nextCollection = await fetchMemories(activeConversationId);
       setCollection(nextCollection);
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Failed to load memories.");
+      setError(loadError instanceof Error ? loadError.message : "Failed to load memory workspace.");
     } finally {
       setIsLoading(false);
     }
@@ -109,23 +137,21 @@ export function useMemoryManager({
   }, [loadMemories, open]);
 
   useEffect(() => {
-    if (!editor) {
+    if (!editor || editor.scope !== "conversation") {
       return;
     }
-    if (editor.scope === "conversation") {
-      setEditor((current) =>
-        current
-          ? {
-              ...current,
-              conversation_id: activeConversationId,
-            }
-          : current,
-      );
-    }
+    setEditor((current) =>
+      current
+        ? {
+            ...current,
+            conversation_id: activeConversationId,
+          }
+        : current,
+    );
   }, [activeConversationId, editor]);
 
   const startCreate = useCallback(
-    (scope: MemoryScope) => {
+    (scope: EditableScope) => {
       setEditor(createEditor(activeConversationId, scope));
     },
     [activeConversationId],
@@ -133,7 +159,10 @@ export function useMemoryManager({
 
   const startEdit = useCallback(
     (memory: MemoryItem) => {
-      setEditor(createEditor(activeConversationId, memory.scope, memory));
+      if (memory.scope === "working") {
+        return;
+      }
+      setEditor(createEditor(activeConversationId, memory.scope === "global" ? "global" : "conversation", memory));
     },
     [activeConversationId],
   );
@@ -193,10 +222,48 @@ export function useMemoryManager({
     [editor?.id, loadMemories],
   );
 
-  const canCreateConversationMemory = activeConversationId != null;
-  const hasMemories = collection.global_items.length > 0 || collection.conversation_items.length > 0;
+  const promoteCandidate = useCallback(
+    async (memoryId: number, scope: EditableScope) => {
+      setIsSaving(true);
+      setError(null);
+      try {
+        await promoteMemory(memoryId, { scope });
+        await loadMemories();
+      } catch (promoteError) {
+        setError(promoteError instanceof Error ? promoteError.message : "Failed to promote candidate.");
+      } finally {
+        setIsSaving(false);
+      }
+    },
+    [loadMemories],
+  );
 
-  const props = useMemo(
+  const dismissCandidate = useCallback(
+    async (memoryId: number) => {
+      setIsSaving(true);
+      setError(null);
+      try {
+        await dismissMemory(memoryId);
+        await loadMemories();
+      } catch (dismissError) {
+        setError(dismissError instanceof Error ? dismissError.message : "Failed to dismiss candidate.");
+      } finally {
+        setIsSaving(false);
+      }
+    },
+    [loadMemories],
+  );
+
+  const canCreateConversationMemory = activeConversationId != null;
+  const hasMemories =
+    collection.documents.length > 0 ||
+    collection.active_items.global_items.length > 0 ||
+    collection.active_items.conversation_items.length > 0 ||
+    collection.active_items.working_items.length > 0 ||
+    collection.candidate_items.global_items.length > 0 ||
+    collection.candidate_items.conversation_items.length > 0;
+
+  return useMemo(
     () => ({
       canCreateConversationMemory,
       collection,
@@ -211,7 +278,9 @@ export function useMemoryManager({
       onCreateConversationMemory: () => startCreate("conversation"),
       onCreateGlobalMemory: () => startCreate("global"),
       onDeleteMemory: (memoryId: number) => void removeMemory(memoryId),
+      onDismissCandidate: (memoryId: number) => void dismissCandidate(memoryId),
       onEditMemory: (memory: MemoryItem) => startEdit(memory),
+      onPromoteCandidate: (memoryId: number, scope: EditableScope) => void promoteCandidate(memoryId, scope),
       onRefresh: () => void loadMemories(),
       onSaveEditing: () => void saveEditing(),
     }),
@@ -219,18 +288,18 @@ export function useMemoryManager({
       canCreateConversationMemory,
       cancelEditing,
       collection,
+      dismissCandidate,
       editor,
       error,
       hasMemories,
       isLoading,
       isSaving,
       loadMemories,
+      promoteCandidate,
       removeMemory,
       saveEditing,
       startCreate,
       startEdit,
     ],
   );
-
-  return props;
 }

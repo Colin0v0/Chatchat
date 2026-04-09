@@ -2,9 +2,10 @@
 
 import re
 
+from .classifier import extract_latin_subject
 from ...chat.types import ChatMessagePayload
 from ...core.config import Settings
-from ...llm import complete_chat, model_provider_and_name
+from ...llm import complete_chat
 
 TRANSLATION_SYSTEM_PROMPT = '''You are a professional Chinese (zh-Hans) to English (en) translator.
 Accurately translate the user's Chinese search query into natural English.
@@ -31,6 +32,12 @@ GENERIC_MUSIC_TOKENS = {'song', 'songs', 'time', 'who', 'by', 'singer', 'artist'
 MUSIC_LOOKUP_HINTS = ('谁唱', '是谁的歌', '歌', '演唱', '作词', '作曲')
 
 
+class WebSearchTranslationError(RuntimeError):
+    def __init__(self, *, reason: str, message: str) -> None:
+        super().__init__(message)
+        self.reason = reason
+
+
 async def translate_query_for_search(query: str, settings: Settings) -> str:
     translated = _normalize_translation(
         await complete_chat(
@@ -41,7 +48,14 @@ async def translate_query_for_search(query: str, settings: Settings) -> str:
             ],
         )
     )
-    _ensure_translation_quality(query=query, translated=translated, model=settings.web_search_translation_model)
+    try:
+        _ensure_translation_quality(query=query, translated=translated, model=settings.web_search_translation_model)
+    except WebSearchTranslationError as exc:
+        if exc.reason == 'underspecified':
+            if extract_latin_subject(query):
+                return translated
+            return query.strip()
+        raise
     return translated
 
 
@@ -59,24 +73,42 @@ def _normalize_translation(text: str) -> str:
 
 def _ensure_translation_quality(*, query: str, translated: str, model: str) -> None:
     if not translated:
-        raise RuntimeError(f'Web translation failed: {model} returned an empty search query.')
+        raise WebSearchTranslationError(
+            reason='empty',
+            message=f'Web translation failed: {model} returned an empty search query.',
+        )
 
     lowered = translated.lower()
     if any(phrase in lowered for phrase in INVALID_PHRASES):
-        raise RuntimeError(f'Web translation failed: {model} produced an invalid search query.')
+        raise WebSearchTranslationError(
+            reason='invalid',
+            message=f'Web translation failed: {model} produced an invalid search query.',
+        )
 
     if CJK_PATTERN.search(translated):
-        raise RuntimeError(f'Web translation failed: {model} did not translate the query into English.')
+        raise WebSearchTranslationError(
+            reason='not_english',
+            message=f'Web translation failed: {model} did not translate the query into English.',
+        )
 
     if len(translated.split()) < 2:
-        raise RuntimeError(f'Web translation failed: {model} produced an underspecified search query.')
+        raise WebSearchTranslationError(
+            reason='underspecified',
+            message=f'Web translation failed: {model} produced an underspecified search query.',
+        )
 
     if _looks_like_music_lookup(query) and not any(keyword in lowered for keyword in ('song', 'singer', 'artist', 'album', 'track', 'performed', 'written')):
-        raise RuntimeError(f'Web translation failed: {model} did not preserve enough music-query context.')
+        raise WebSearchTranslationError(
+            reason='music_context_missing',
+            message=f'Web translation failed: {model} did not preserve enough music-query context.',
+        )
 
     tokens = [token.lower() for token in translated.split()]
     if _looks_like_music_lookup(query) and tokens and all(token in GENERIC_MUSIC_TOKENS for token in tokens):
-        raise RuntimeError(f'Web translation failed: {model} produced a generic music search query without song identity.')
+        raise WebSearchTranslationError(
+            reason='generic_music_query',
+            message=f'Web translation failed: {model} produced a generic music search query without song identity.',
+        )
 
 
 def _looks_like_music_lookup(query: str) -> bool:

@@ -11,8 +11,8 @@ from sqlalchemy.orm import Session
 
 from ..chat.types import ChatMessagePayload
 from ..llm import stream_chat
-from ..llm.catalog import resolve_context_window, uses_native_multimodal
-from ..llm.thinking import ThinkTagStreamNormalizer
+from ..llm.catalog import resolve_context_window, resolve_effective_thinking, resolve_model_route, uses_native_multimodal
+from ..llm.thinking import ThinkTagStreamNormalizer, inject_thinking_system_prompt
 from ..retrieval import RetrievalMode, RetrievalPlan
 from ..storage.database import SessionLocal
 from ..storage.models import Conversation
@@ -72,15 +72,27 @@ async def assistant_event_stream(
 ):
     assistant_chunks: list[str] = []
     reasoning_chunks: list[str] = []
-    show_reasoning = thinking_enabled is not False
+    route = resolve_model_route(model)
+    effective_thinking = resolve_effective_thinking(
+        model,
+        thinking_enabled,
+        thinking_mode=route["thinking_mode"] if route else None,
+    )
+    show_reasoning = effective_thinking is not False
     thinking_normalizer = ThinkTagStreamNormalizer(emit_reasoning=show_reasoning)
     if sources:
         yield json.dumps({"type": "sources", "sources": sources}, ensure_ascii=False) + "\n"
 
-    async for chunk in stream_chat(
+    prepared_message_history = inject_thinking_system_prompt(
         model=model,
         messages=message_history,
-        thinking_enabled=thinking_enabled,
+        thinking_enabled=effective_thinking,
+    )
+
+    async for chunk in stream_chat(
+        model=model,
+        messages=prepared_message_history,
+        thinking_enabled=effective_thinking,
     ):
         reasoning_delta = chunk.get("reasoning", {}).get("content", "") if show_reasoning else ""
         delta = chunk.get("message", {}).get("content", "")

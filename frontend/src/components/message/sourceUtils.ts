@@ -1,6 +1,4 @@
-﻿import type { MessageSource } from "../../types";
-
-const HIDDEN_BADGES = new Set(["standard", "unknown"]);
+import type { MessageSource } from "../../types";
 
 export interface SourceGroup {
   key: "note" | "file" | "web";
@@ -36,7 +34,7 @@ export function toSourceHref(source: MessageSource): string {
 
 export function getSourceLabel(source: MessageSource): string {
   if (source.type === "web") {
-    return source.title?.trim() || source.domain?.trim() || source.url?.trim() || source.path;
+    return "Web source";
   }
   if (source.type === "file") {
     return source.title?.trim() || source.path;
@@ -46,8 +44,7 @@ export function getSourceLabel(source: MessageSource): string {
 
 export function getSourceMeta(source: MessageSource): string | null {
   if (source.type === "web") {
-    const parts = [source.domain, source.published_at].map((item) => item?.trim()).filter(Boolean);
-    return parts.length > 0 ? parts.join(" - ") : null;
+    return source.url?.trim() || source.path.trim() || null;
   }
 
   if (source.type === "file") {
@@ -57,28 +54,19 @@ export function getSourceMeta(source: MessageSource): string | null {
   return source.heading ? source.heading : null;
 }
 
-export function getSourceBadges(source: MessageSource): string[] {
-  return [source.trust, source.freshness]
-    .map((item) => item?.trim())
-    .filter(
-      (item): item is string =>
-        typeof item === "string" && item.length > 0 && !HIDDEN_BADGES.has(item.toLowerCase()),
-    );
-}
-
 export function groupSources(sources: MessageSource[]): SourceGroup[] {
   const notes = sources.filter((source) => source.type === "note" || source.type == null);
   const files = sources.filter((source) => source.type === "file");
   const web = sources.filter((source) => source.type === "web");
   const groups: SourceGroup[] = [];
   if (notes.length > 0) {
-    groups.push({ key: "note", label: "RAG Sources", items: notes });
+    groups.push({ key: "note", label: "RAG source", items: notes });
   }
   if (files.length > 0) {
-    groups.push({ key: "file", label: "File Sources", items: files });
+    groups.push({ key: "file", label: "File source", items: files });
   }
   if (web.length > 0) {
-    groups.push({ key: "web", label: "Web Sources", items: web });
+    groups.push({ key: "web", label: "Web source", items: web });
   }
   return groups;
 }

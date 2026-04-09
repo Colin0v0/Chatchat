@@ -38,6 +38,7 @@ import {
 const THINK_BLOCK_PATTERN = /<think>[\s\S]*?<\/think>/gi;
 const EMPTY_THINK_TAGS_PATTERN = /^(?:\s*<think>\s*<\/think>\s*)+$/i;
 const LOOSE_THINK_TAG_PATTERN = /<\/?think>/gi;
+const THINK_CLOSE_TAG_PATTERN = /<\/think>/i;
 
 function sanitizeTokenContent(content: string): string {
   const trimmed = content.trim();
@@ -50,9 +51,43 @@ function sanitizeTokenContent(content: string): string {
   return content.replace(THINK_BLOCK_PATTERN, "").replace(LOOSE_THINK_TAG_PATTERN, "");
 }
 
+function shouldCloseReasoningStream(session: StreamSession, rawContent: string, cleanContent: string): boolean {
+  if (!session.reasoningStreaming) {
+    return false;
+  }
+
+  if (THINK_CLOSE_TAG_PATTERN.test(rawContent)) {
+    return true;
+  }
+
+  return session.reasoning.trim().length > 0 && cleanContent.trim().length > 0;
+}
+
 const MIN_STAGE_DISPLAY_MS: Partial<Record<StreamingStage, number>> = {
   analyzing_attachments: 720,
 };
+
+function finalizeAssistantDraft(
+  session: StreamSession,
+  event: Extract<ChatStreamEvent, { type: "done" }>,
+): ConversationDetail {
+  const finalContent = typeof event.content === "string" ? event.content : null;
+  const conversationWithContent = finalContent
+    ? setAssistantDraftFinalContent(session.conversation, finalContent)
+    : session.conversation;
+  const conversationWithContext = session.pendingContext
+    ? setAssistantDraftContext(conversationWithContent, session.pendingContext)
+    : conversationWithContent;
+  const conversationWithMessageId = setAssistantDraftId(
+    conversationWithContext,
+    event.assistant_message_id,
+  );
+
+  return {
+    ...conversationWithMessageId,
+    title: event.conversation_title ?? conversationWithMessageId.title,
+  };
+}
 
 type UseConversationStreamsOptions = {
   activeConversation: ConversationDetail | null;
@@ -298,6 +333,14 @@ export function useConversationStreams({
     (conversationId: number, event: ChatStreamEvent) => {
       if (event.type === "token") {
         const cleanContent = sanitizeTokenContent(event.content);
+        updateStreamSession(conversationId, (session) =>
+          shouldCloseReasoningStream(session, event.content, cleanContent)
+            ? {
+                ...session,
+                reasoningStreaming: false,
+              }
+            : session,
+        );
         if (!cleanContent) {
           return;
         }
@@ -315,6 +358,7 @@ export function useConversationStreams({
         updateStreamSession(conversationId, (session) => ({
           ...session,
           reasoning: session.reasoning + event.content,
+          reasoningStreaming: true,
         }));
         commitSessionStage(conversationId, null);
         return;
@@ -328,9 +372,10 @@ export function useConversationStreams({
       }
 
       if (event.type === "context") {
-        updateSessionConversation(conversationId, (current) =>
-          setAssistantDraftContext(current, event.context),
-        );
+        updateStreamSession(conversationId, (session) => ({
+          ...session,
+          pendingContext: event.context,
+        }));
         return;
       }
 
@@ -381,7 +426,9 @@ export function useConversationStreams({
       let streamConversationId = conversation.id;
       const initialSession: StreamSession = {
         conversation,
+        pendingContext: null,
         reasoning: "",
+        reasoningStreaming: false,
         restoreInput,
         stage: initialStage,
         stageStartedAt: initialStage ? Date.now() : 0,
@@ -433,40 +480,11 @@ export function useConversationStreams({
             }
 
             if (event.type === "done") {
-              if (event.assistant_message_id != null) {
-                const session = streamSessionsRef.current[streamSessionKey(streamConversationId)];
-                if (session) {
-                  const finalContent =
-                    typeof event.content === "string" ? event.content : null;
-                  const reconciledConversation = finalContent
-                    ? setAssistantDraftFinalContent(session.conversation, finalContent)
-                    : session.conversation;
-                  const nextConversation = setAssistantDraftId(
-                    reconciledConversation,
-                    event.assistant_message_id,
-                  );
-                  const titledConversation = {
-                    ...nextConversation,
-                    title: event.conversation_title ?? nextConversation.title,
-                  };
-                  updateSessionConversation(streamConversationId, () => titledConversation);
-                  upsertConversationSummary(titledConversation);
-                }
-              } else {
-                const session = streamSessionsRef.current[streamSessionKey(streamConversationId)];
-                if (session) {
-                  const finalContent =
-                    typeof event.content === "string" ? event.content : null;
-                  const reconciledConversation = finalContent
-                    ? setAssistantDraftFinalContent(session.conversation, finalContent)
-                    : session.conversation;
-                  const titledConversation = {
-                    ...reconciledConversation,
-                    title: event.conversation_title ?? reconciledConversation.title,
-                  };
-                  updateSessionConversation(streamConversationId, () => titledConversation);
-                  upsertConversationSummary(titledConversation);
-                }
+              const session = streamSessionsRef.current[streamSessionKey(streamConversationId)];
+              if (session) {
+                const completedConversation = finalizeAssistantDraft(session, event);
+                updateSessionConversation(streamConversationId, () => completedConversation);
+                upsertConversationSummary(completedConversation);
               }
 
               settleStreamSession(streamConversationId, "completed");

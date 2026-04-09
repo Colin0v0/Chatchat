@@ -10,6 +10,7 @@ import { ThinkingPanel } from "./thinking/ThinkingPanel";
 
 interface MessageListProps {
   items: ChatMessage[];
+  isReasoningStreaming?: boolean;
   isStreaming?: boolean;
   onFeedback?: (messageId: number, value: FeedbackValue | null) => void;
   onRetry?: (messageId: number | string) => void;
@@ -60,7 +61,7 @@ function renderMessageContent(content: string) {
   }
 
   return blocks.map((block, index) => (
-    <p className={index === 0 ? "" : "mt-3"} key={`${block}-${index}`}>
+    <p className={`${index === 0 ? "" : "mt-3"} break-words [overflow-wrap:anywhere]`} key={`${block}-${index}`}>
       {block}
     </p>
   ));
@@ -198,6 +199,7 @@ function UserActions({
 
 export function MessageList({
   items,
+  isReasoningStreaming = false,
   isStreaming = false,
   onFeedback,
   onRetry,
@@ -223,6 +225,7 @@ export function MessageList({
         const isActiveStreamingAssistant = item.id === activeStreamingAssistantId;
         const reasoning = item.reasoning ?? "";
         const showThinkingPanel = reasoning.trim().length > 0;
+        const thinkingStreaming = isActiveStreamingAssistant && isReasoningStreaming;
         const showStreamingStatus = isActiveStreamingAssistant && isEmptyAssistant && Boolean(streamingStatusLabel);
         const showSources = !isEmptyAssistant && item.id !== activeStreamingAssistantId;
         const attachments = item.attachments ?? [];
@@ -233,7 +236,7 @@ export function MessageList({
               <div className="group max-w-[420px]">
                 <MessageAttachmentStrip align="end" attachments={attachments} />
                 {item.content.trim() ? (
-                  <div className="rounded-[20px] bg-app-panel-soft px-4 py-2.5 text-left text-[15px] leading-7 text-app-accent-strong">
+                  <div className="min-w-0 rounded-[20px] bg-app-panel-soft px-4 py-2.5 text-left text-[15px] leading-7 text-app-accent-strong">
                     {renderMessageContent(item.content)}
                   </div>
                 ) : null}
@@ -254,7 +257,7 @@ export function MessageList({
                 <StreamingStatusSlot
                   label={null}
                   reasoning={reasoning}
-                  streaming={isActiveStreamingAssistant}
+                  streaming={thinkingStreaming}
                 />
               ) : showStreamingStatus ? (
                 <StreamingStatusSlot

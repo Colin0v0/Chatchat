@@ -12,6 +12,20 @@ from ..storage.models import Message
 from .types import ContextEntry, ContextPayload, SourceItem
 
 TERM_PATTERN = re.compile(r"[A-Za-z0-9_]+|[\u4e00-\u9fff]{2,}")
+ATTACHMENT_REFERENCE_MARKERS = (
+    "这张图",
+    "那张图",
+    "上面的图",
+    "刚才的图",
+    "这个文件",
+    "那个文件",
+    "上面的文件",
+    "刚才的文件",
+    "这个pdf",
+    "那个pdf",
+    "这个文档",
+    "那个文档",
+)
 
 
 @dataclass(frozen=True)
@@ -40,7 +54,13 @@ class ConversationFileContextService:
         if not normalized_query:
             return ContextPayload()
 
-        chunks = await self._build_chunks(db=db, messages=messages, include_images=include_images)
+        active_message_ids = self._active_attachment_message_ids(messages=messages, query=normalized_query)
+        chunks = await self._build_chunks(
+            db=db,
+            messages=messages,
+            include_images=include_images,
+            active_message_ids=active_message_ids,
+        )
         if not chunks:
             return ContextPayload()
 
@@ -85,9 +105,18 @@ class ConversationFileContextService:
         ]
         return ContextPayload(entries=entries, sources=sources, debug={"file_hits": len(ranked)})
 
-    async def _build_chunks(self, *, db: Session, messages: list[Message], include_images: bool) -> list[FileChunk]:
+    async def _build_chunks(
+        self,
+        *,
+        db: Session,
+        messages: list[Message],
+        include_images: bool,
+        active_message_ids: set[int],
+    ) -> list[FileChunk]:
         chunks: list[FileChunk] = []
         for message in messages:
+            if id(message) not in active_message_ids:
+                continue
             if message.role != "user" or not message.attachments:
                 continue
 
@@ -112,6 +141,31 @@ class ConversationFileContextService:
                 base_label += ", …"
             chunks.extend(self._split_context(message=message, label=base_label, content=attachment_context))
         return chunks
+
+    def _active_attachment_message_ids(self, *, messages: list[Message], query: str) -> set[int]:
+        attachment_messages = [
+            message
+            for message in messages
+            if message.role == "user" and message.attachments
+        ]
+        if not attachment_messages:
+            return set()
+
+        latest_user = next((message for message in reversed(messages) if message.role == "user"), None)
+        if latest_user is None:
+            return set()
+
+        active_ids: set[int] = set()
+        if latest_user.attachments:
+            active_ids.add(id(latest_user))
+        folded_query = query.lower()
+        if any(marker.lower() in folded_query for marker in ATTACHMENT_REFERENCE_MARKERS):
+            for message in reversed(attachment_messages):
+                if id(message) == id(latest_user):
+                    continue
+                active_ids.add(id(message))
+                break
+        return active_ids
 
     def _split_context(self, *, message: Message, label: str, content: str) -> list[FileChunk]:
         paragraphs = [paragraph.strip() for paragraph in content.split("\n\n") if paragraph.strip()]

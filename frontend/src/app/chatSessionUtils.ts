@@ -40,7 +40,9 @@ export type StreamSessionStatus = "running" | "completed" | "stopped" | "error";
 
 export type StreamSession = {
   conversation: ConversationDetail;
+  pendingContext?: MessageContext | null;
   reasoning: string;
+  reasoningStreaming: boolean;
   restoreInput: RestoreInput;
   stage: StreamingStage | null;
   stageStartedAt: number;

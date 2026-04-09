@@ -577,6 +577,7 @@ export function useChatApp({
           draftAttachments,
           attachmentUploadAvailable,
           isRecording,
+          isReasoningStreaming: activeSession?.reasoningStreaming ?? false,
           isStreaming: visibleStreaming,
           isTranscribing,
           model: selectedModel,

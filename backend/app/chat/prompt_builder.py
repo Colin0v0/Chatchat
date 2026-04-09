@@ -58,6 +58,8 @@ def build_prompt_composition(
 ) -> PromptComposition:
     sections: list[PromptSection] = []
     prefix_messages: list[ChatMessagePayload] = []
+    recent_turn_count = count_turns(history_window.recent_messages)
+    older_turn_count = count_turns(history_window.older_messages)
 
     summary_text = summarize_older_history(
         messages=history_window.older_messages,
@@ -70,47 +72,27 @@ def build_prompt_composition(
                 content=f"{SUMMARY_SYSTEM_PROMPT}\n\nConversation recap:\n{summary_text}",
             )
         )
-        sections.append(
-            PromptSection(
-                kind="summary",
-                title="Earlier Summary",
-                body=summary_text,
-                item_count=count_turns(history_window.older_messages),
-            )
-        )
 
-    recent_history_body = render_recent_history(history_window.recent_messages)
-    if recent_history_body:
-        sections.append(
-            PromptSection(
-                kind="history",
-                title="Recent Turns",
-                body=recent_history_body,
-                item_count=len(history_window.recent_messages),
-            )
-        )
-
-    if memory_prompt.message is not None:
-        prefix_messages.append(memory_prompt.message)
-        sections.append(
-            PromptSection(
-                kind="memory",
-                title="Memory Brief",
-                body=memory_prompt.message.content,
-                item_count=int(memory_prompt.debug.get("memory_used", 0) or 0),
-            )
-        )
+    if memory_prompt.messages:
+        prefix_messages.extend(memory_prompt.messages)
 
     retrieval_sources = retrieval_payload.sources
     if retrieval_payload.context_message is not None:
         prefix_messages.append(retrieval_payload.context_message)
-        retrieval_body = render_retrieval_sources(retrieval_sources)
+
+    inspection_summary = build_context_inspection_summary(
+        history_window=history_window,
+        older_summary=summary_text,
+        memory_prompt=memory_prompt,
+        retrieval_payload=retrieval_payload,
+    )
+    if inspection_summary:
         sections.append(
             PromptSection(
-                kind="retrieval",
-                title="Retrieved Context",
-                body=retrieval_body,
-                item_count=len(retrieval_sources),
+                kind="summary",
+                title="上下文摘要",
+                body=inspection_summary,
+                item_count=recent_turn_count,
             )
         )
 
@@ -118,9 +100,12 @@ def build_prompt_composition(
         "query": query,
         "strategy": strategy.name,
         "retrieval_mode": retrieval_plan.mode,
-        "older_message_count": len(history_window.older_messages),
-        "recent_message_count": len(history_window.recent_messages),
-        "memory_count": int(memory_prompt.debug.get("memory_used", 0) or 0),
+        "older_message_count": older_turn_count,
+        "recent_message_count": recent_turn_count,
+        "memory_count": int(
+            (memory_prompt.debug.get("memory_documents", 0) or 0)
+            + (memory_prompt.debug.get("memory_hits", 0) or 0)
+        ),
         "source_count": len(retrieval_sources),
         "sections": [section.to_payload() for section in sections],
     }
@@ -221,10 +206,6 @@ def summarize_message_content(message: Message | None) -> str:
         suffix = "" if len(message.attachments) <= 3 else ", …"
         parts.append(f"attachments: {names}{suffix}")
 
-    attachment_context = compact_text(message.attachment_context or "", token_limit=56)
-    if attachment_context and attachment_context not in parts:
-        parts.append(f"attachment brief: {attachment_context}")
-
     return " | ".join(parts)
 
 
@@ -245,6 +226,57 @@ def render_recent_history(messages: list[Message]) -> str:
         if summary:
             lines.append(f"{role}: {summary}")
     return "\n".join(lines)
+
+
+def build_context_inspection_summary(
+    *,
+    history_window: HistoryWindow,
+    older_summary: str,
+    memory_prompt: MemoryPromptPayload,
+    retrieval_payload: PromptContextPayload,
+) -> str:
+    recent_turn_count = count_turns(history_window.recent_messages)
+    older_turn_count = count_turns(history_window.older_messages)
+    recent_user_points = recent_user_focus_points(history_window.recent_messages)
+    has_attachments = any(message.role == "user" and message.attachments for message in history_window.recent_messages)
+    memory_count = int(
+        (memory_prompt.debug.get("memory_documents", 0) or 0)
+        + (memory_prompt.debug.get("memory_hits", 0) or 0)
+    )
+    source_count = len(retrieval_payload.sources)
+
+    sentences: list[str] = []
+    if recent_turn_count > 0:
+        sentences.append(f"本次回答截取了最近{recent_turn_count}轮对话。")
+    if older_turn_count > 0:
+        sentences.append(f"更早的{older_turn_count}轮内容已压缩后参考，不再逐条展开。")
+    if recent_user_points:
+        sentences.append(f"最近主要围绕这些内容继续交流：{recent_user_points}。")
+    if has_attachments:
+        sentences.append("最近对话里包含附件或图片，回答时一并参考了相关内容。")
+    if memory_count > 0:
+        sentences.append(f"另外参考了{memory_count}条记忆信息。")
+    if source_count > 0:
+        sentences.append(f"另外参考了{source_count}条外部资料。")
+    if not sentences and older_summary:
+        sentences.append(f"上下文摘要：{compact_text(older_summary, token_limit=96)}")
+    return " ".join(sentences).strip()
+
+
+def recent_user_focus_points(messages: list[Message]) -> str:
+    points: list[str] = []
+    for message in messages:
+        if message.role != "user":
+            continue
+        summary = summarize_message_content(message)
+        if not summary:
+            continue
+        normalized = compact_text(summary, token_limit=28)
+        if normalized and normalized not in points:
+            points.append(normalized)
+    if not points:
+        return ""
+    return "；".join(points[-3:])
 
 
 def render_retrieval_sources(sources: list[dict[str, object]]) -> str:

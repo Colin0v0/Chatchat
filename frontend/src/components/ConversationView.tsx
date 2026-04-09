@@ -12,6 +12,7 @@ interface ConversationViewProps {
   draftAttachments: ComposerAttachmentDraft[];
   attachmentUploadAvailable: boolean;
   isRecording: boolean;
+  isReasoningStreaming: boolean;
   isStreaming: boolean;
   isTranscribing: boolean;
   model: string;
@@ -41,6 +42,7 @@ export function ConversationView({
   draftAttachments,
   attachmentUploadAvailable,
   isRecording,
+  isReasoningStreaming,
   isStreaming,
   isTranscribing,
   model,
@@ -121,6 +123,7 @@ export function ConversationView({
         <div className="px-4 md:px-6">
           <MessageList
             collapsedMessageIds={collapsedMessageIds}
+            isReasoningStreaming={isReasoningStreaming}
             onFeedback={onFeedback}
             isStreaming={isStreaming}
             items={conversation.messages}

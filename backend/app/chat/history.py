@@ -20,6 +20,23 @@ IMAGE_ANALYSIS_SYSTEM_PROMPT = (
     "If the evidence is weak, say that the identification may be inaccurate or uncertain. "
     "Do not invent hidden facts that are not supported by the image or by clearly visible evidence."
 )
+ATTACHMENT_REFERENCE_MARKERS = (
+    "这张图",
+    "那张图",
+    "上面的图",
+    "刚才的图",
+    "这个图片",
+    "那个图片",
+    "这个文件",
+    "那个文件",
+    "上面的文件",
+    "刚才的文件",
+    "这个pdf",
+    "那个pdf",
+    "这个文档",
+    "那个文档",
+)
+ATTACHMENT_REFERENCE_MARKERS_FOLDED = tuple(value.lower() for value in ATTACHMENT_REFERENCE_MARKERS)
 
 
 @dataclass(frozen=True)
@@ -42,18 +59,31 @@ class MessageHistoryService:
     def needs_image_text(self, *, model: str, messages: list[Message]) -> bool:
         if uses_native_multimodal(model):
             return False
-        return any(message.attachments and not (message.attachment_context or "").strip() for message in messages)
+        active_ids = self._active_attachment_message_ids(messages)
+        return any(
+            id(message) in active_ids and message.attachments and not (message.attachment_context or "").strip()
+            for message in messages
+        )
 
     def needs_retrieval_grounding(self, *, messages: list[Message]) -> bool:
-        return any(message.attachments and not (message.attachment_context or "").strip() for message in messages)
+        active_ids = self._active_attachment_message_ids(messages)
+        return any(
+            id(message) in active_ids and message.attachments and not (message.attachment_context or "").strip()
+            for message in messages
+        )
 
     async def prepare(self, *, model: str, messages: list[Message]) -> PreparedMessageHistory:
         prepared_messages: list[ChatMessagePayload] = []
         used_image_text = False
         contains_image_brief = False
+        active_attachment_ids = self._active_attachment_message_ids(messages)
 
         for message in messages:
-            prepared_message, used_text, has_image_brief = await self._chat_message_payload(model=model, message=message)
+            prepared_message, used_text, has_image_brief = await self._chat_message_payload(
+                model=model,
+                message=message,
+                include_attachment_context=id(message) in active_attachment_ids,
+            )
             prepared_messages.append(prepared_message)
             used_image_text = used_image_text or used_text
             contains_image_brief = contains_image_brief or has_image_brief
@@ -69,14 +99,25 @@ class MessageHistoryService:
     async def prepare_retrieval_history(self, *, model: str, messages: list[Message]) -> PreparedRetrievalHistory:
         prepared_messages: list[dict[str, str]] = []
         used_image_text = False
+        active_attachment_ids = self._active_attachment_message_ids(messages)
         for message in messages:
-            content, used_text = await self._textual_message_content(model=model, message=message)
+            content, used_text = await self._textual_message_content(
+                model=model,
+                message=message,
+                include_attachment_context=id(message) in active_attachment_ids,
+            )
             prepared_messages.append({"role": message.role, "content": content})
             used_image_text = used_image_text or used_text
         return PreparedRetrievalHistory(messages=prepared_messages, used_image_text=used_image_text)
 
-    async def _chat_message_payload(self, *, model: str, message: Message) -> tuple[ChatMessagePayload, bool, bool]:
-        if message.role == "user" and message.attachments and uses_native_multimodal(model):
+    async def _chat_message_payload(
+        self,
+        *,
+        model: str,
+        message: Message,
+        include_attachment_context: bool,
+    ) -> tuple[ChatMessagePayload, bool, bool]:
+        if message.role == "user" and message.attachments and uses_native_multimodal(model) and include_attachment_context:
             return (
                 ChatMessagePayload(
                     role=message.role,
@@ -87,15 +128,28 @@ class MessageHistoryService:
                 False,
             )
 
-        content, used_text = await self._textual_message_content(model=model, message=message)
-        has_images = any(attachment.kind == "image" for attachment in message.attachments)
+        content, used_text = await self._textual_message_content(
+            model=model,
+            message=message,
+            include_attachment_context=include_attachment_context,
+        )
+        has_images = include_attachment_context and any(attachment.kind == "image" for attachment in message.attachments)
         return ChatMessagePayload(role=message.role, content=content), used_text, has_images
 
-    async def _textual_message_content(self, *, model: str, message: Message) -> tuple[str, bool]:
+    async def _textual_message_content(
+        self,
+        *,
+        model: str,
+        message: Message,
+        include_attachment_context: bool,
+    ) -> tuple[str, bool]:
         if message.role != "user" or not message.attachments:
             return message.content, False
 
         if uses_native_multimodal(model):
+            return self._resolved_user_prompt(message), False
+
+        if not include_attachment_context:
             return self._resolved_user_prompt(message), False
 
         attachment_context, used_text = await self._ensure_attachment_context(model=model, message=message)
@@ -140,3 +194,29 @@ class MessageHistoryService:
             )
             references.append(ChatFileReferencePayload(file_id=file_id))
         return references
+
+    def _active_attachment_message_ids(self, messages: list[Message]) -> set[int]:
+        attachment_messages = [
+            message
+            for message in messages
+            if message.role == "user" and message.attachments
+        ]
+        if not attachment_messages:
+            return set()
+
+        latest_user = next((message for message in reversed(messages) if message.role == "user"), None)
+        if latest_user is None:
+            return set()
+
+        active_ids: set[int] = set()
+        if latest_user.attachments:
+            active_ids.add(id(latest_user))
+
+        latest_text = (latest_user.content or "").strip()
+        if latest_text and any(marker in latest_text.lower() for marker in ATTACHMENT_REFERENCE_MARKERS_FOLDED):
+            for message in reversed(attachment_messages):
+                if id(message) == id(latest_user):
+                    continue
+                active_ids.add(id(message))
+                break
+        return active_ids

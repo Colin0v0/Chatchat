@@ -8,8 +8,10 @@ from pydantic import BaseModel, ConfigDict, Field
 
 RetrievalMode = Literal["none", "rag", "web"]
 FeedbackValue = Literal["up", "down"]
-MemoryScope = Literal["global", "conversation"]
+MemoryScope = Literal["working", "global", "conversation"]
 MemoryKind = Literal["profile", "preference", "goal", "project", "fact", "constraint"]
+MemoryStatus = Literal["candidate", "active", "archived"]
+MemoryDocumentType = Literal["user_profile", "workspace_profile", "conversation_brief"]
 
 
 class ConversationSummary(BaseModel):
@@ -163,11 +165,19 @@ class MemoryItemOut(BaseModel):
     detail: str = ""
     tags: list[str] = Field(default_factory=list)
     confidence: float
+    status: MemoryStatus
+    source_type: str
+    modality: str
+    write_policy: str
     pinned: bool
     active: bool
     conversation_id: Optional[int] = None
     source_user_message_id: Optional[int] = None
     source_assistant_message_id: Optional[int] = None
+    source_attachment_id: Optional[int] = None
+    expires_at: Optional[datetime] = None
+    last_confirmed_at: Optional[datetime] = None
+    promoted_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     last_used_at: Optional[datetime] = None
@@ -175,13 +185,33 @@ class MemoryItemOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class MemoryCollectionOut(BaseModel):
+class MemoryDocumentOut(BaseModel):
+    id: int
+    doc_type: MemoryDocumentType
+    title: str
+    content: str
+    source_memory_ids: list[int] = Field(default_factory=list)
+    auto_managed: bool
+    conversation_id: Optional[int] = None
+    updated_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class MemoryLayerCollectionOut(BaseModel):
     global_items: list[MemoryItemOut] = Field(default_factory=list)
     conversation_items: list[MemoryItemOut] = Field(default_factory=list)
+    working_items: list[MemoryItemOut] = Field(default_factory=list)
+
+
+class MemoryCollectionOut(BaseModel):
+    documents: list[MemoryDocumentOut] = Field(default_factory=list)
+    active_items: MemoryLayerCollectionOut = Field(default_factory=MemoryLayerCollectionOut)
+    candidate_items: MemoryLayerCollectionOut = Field(default_factory=MemoryLayerCollectionOut)
 
 
 class MemoryCreate(BaseModel):
-    scope: MemoryScope = "global"
+    scope: Literal["global", "conversation"] = "global"
     kind: MemoryKind = "fact"
     title: str = Field(min_length=1, max_length=255)
     detail: str = ""
@@ -193,8 +223,8 @@ class MemoryCreate(BaseModel):
 
 
 class MemoryUpdate(BaseModel):
-    scope: MemoryScope
-    kind: MemoryKind
+    scope: Literal["global", "conversation"] = "global"
+    kind: MemoryKind = "fact"
     title: str = Field(min_length=1, max_length=255)
     detail: str = ""
     tags: list[str] = Field(default_factory=list)
@@ -202,3 +232,7 @@ class MemoryUpdate(BaseModel):
     pinned: bool = False
     active: bool = True
     conversation_id: Optional[int] = None
+
+
+class MemoryPromote(BaseModel):
+    scope: Literal["global", "conversation"] = "conversation"

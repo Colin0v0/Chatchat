@@ -76,7 +76,7 @@ export function ThinkingPanel({ trace, streaming = false }: ThinkingPanelProps) 
               : "text-[15px] italic tracking-[0.01em] text-app-muted/80"
           }
         >
-          Thinking
+          {streaming ? "Thinking" : "Think"}
         </span>
         {streaming ? (
           <span aria-hidden="true" className="inline-flex items-center gap-1.25 self-center">
