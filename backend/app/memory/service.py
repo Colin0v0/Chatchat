@@ -33,16 +33,19 @@ class MemoryService:
         self,
         *,
         db: Session,
+        user_id: int,
         conversation_id: int,
         query: str,
     ) -> MemoryPromptPayload:
         store = MemoryStore(db)
         pinned_items = store.list_pinned(
+            user_id=user_id,
             conversation_id=conversation_id,
             limit=self._pinned_limit,
         )
         matches = store.recall(
             query=query,
+            user_id=user_id,
             conversation_id=conversation_id,
             limit=self._recall_limit,
         )
@@ -50,7 +53,7 @@ class MemoryService:
             return MemoryPromptPayload(message=None, debug={"memory_candidates": 0, "memory_pinned": 0})
 
         ids = [match.memory_id for match in matches]
-        items = [store.get_by_id(memory_id) for memory_id in ids]
+        items = [store.get_by_id(memory_id, user_id=user_id) for memory_id in ids]
         resolved = [item for item in pinned_items if item is not None and item.active]
         resolved_ids = {item.id for item in resolved}
         for item in items:
@@ -64,7 +67,7 @@ class MemoryService:
                 debug={"memory_candidates": len(matches), "memory_pinned": len(pinned_items)},
             )
 
-        store.touch([item.id for item in resolved])
+        store.touch([item.id for item in resolved], user_id=user_id)
         db.commit()
         return MemoryPromptPayload(
             message=self._build_prompt_message(resolved),
@@ -108,16 +111,19 @@ class MemoryService:
             assistant_message = db.get(Message, assistant_message_id)
             if conversation is None or user_message is None or assistant_message is None:
                 return
+            if conversation.user_id is None:
+                return
 
             store = MemoryStore(db)
             related_matches = store.recall(
                 query="\n".join([user_message.content, assistant_message.content]),
+                user_id=conversation.user_id,
                 conversation_id=conversation_id,
                 limit=6,
             )
             existing_memories = []
             for match in related_matches:
-                memory = store.get_by_id(match.memory_id)
+                memory = store.get_by_id(match.memory_id, user_id=conversation.user_id)
                 if memory is None:
                     continue
                 existing_memories.append(self._memory_line(memory))
@@ -142,6 +148,7 @@ class MemoryService:
 
             store.merge_candidates(
                 candidates=normalized_candidates,
+                user_id=conversation.user_id,
                 conversation_id=conversation_id,
                 user_message_id=user_message_id,
                 assistant_message_id=assistant_message_id,
@@ -153,13 +160,20 @@ class MemoryService:
         finally:
             db.close()
 
-    def list_collection(self, *, db: Session, conversation_id: int | None) -> MemoryCollection:
-        return MemoryStore(db).list_collection(conversation_id=conversation_id)
+    def list_collection(
+        self,
+        *,
+        db: Session,
+        user_id: int,
+        conversation_id: int | None,
+    ) -> MemoryCollection:
+        return MemoryStore(db).list_collection(user_id=user_id, conversation_id=conversation_id)
 
     def create_manual_memory(
         self,
         *,
         db: Session,
+        user_id: int,
         scope: str,
         kind: str,
         title: str,
@@ -171,6 +185,7 @@ class MemoryService:
         conversation_id: int | None,
     ) -> MemoryItem:
         memory = MemoryStore(db).create_manual_memory(
+            user_id=user_id,
             scope=scope,
             kind=kind,
             title=title,
@@ -190,6 +205,7 @@ class MemoryService:
         *,
         db: Session,
         memory: MemoryItem,
+        user_id: int,
         scope: str,
         kind: str,
         title: str,
@@ -202,6 +218,7 @@ class MemoryService:
     ) -> MemoryItem:
         updated = MemoryStore(db).update_manual_memory(
             memory,
+            user_id=user_id,
             scope=scope,
             kind=kind,
             title=title,

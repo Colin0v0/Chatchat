@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from .api import audio_router, chat_router, conversations_router, memories_router, models_router, rag_router
+from .api import auth_router, audio_router, chat_router, conversations_router, memories_router, models_router, rag_router
 from .audio import build_audio_services
 from .chat.state import build_chat_services
 from .core.config import settings
@@ -23,7 +23,7 @@ def create_app() -> FastAPI:
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=settings.cors_allowed_origin_list,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -44,6 +44,7 @@ def create_app() -> FastAPI:
     def on_shutdown() -> None:
         app.state.audio_services.transcriber.unload()
 
+    app.include_router(auth_router)
     app.include_router(models_router)
     app.include_router(rag_router)
     app.include_router(memories_router)

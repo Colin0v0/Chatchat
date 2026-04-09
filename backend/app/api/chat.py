@@ -3,13 +3,15 @@ from __future__ import annotations
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from ..auth import require_current_user
 from ..chat.state import ChatServices, get_chat_services
 from ..chat.workflow import chat_stream_response, regenerate_chat_response
 from ..schemas import MessageFeedbackUpdate, RegenerateRequest, RetrievalMode
 from ..storage.database import get_db
-from ..storage.models import Message
+from ..storage.models import Conversation, Message, User
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
@@ -19,9 +21,11 @@ async def regenerate_chat(
     payload: RegenerateRequest,
     request: Request,
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
 ):
     services = get_chat_services(request)
     return await regenerate_chat_response(
+        current_user=current_user,
         services=services,
         payload=payload,
         request=request,
@@ -39,9 +43,11 @@ async def chat_stream(
     thinking_enabled: Optional[bool] = Form(None),
     files: Optional[list[UploadFile]] = File(None),
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
 ):
     services = get_chat_services(request)
     return await chat_stream_response(
+        current_user=current_user,
         services=services,
         request=request,
         db=db,
@@ -59,8 +65,17 @@ async def update_message_feedback(
     message_id: int,
     payload: MessageFeedbackUpdate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
 ):
-    message = db.get(Message, message_id)
+    message = db.scalar(
+        select(Message)
+        .join(Conversation, Message.conversation_id == Conversation.id)
+        .where(
+            Message.id == message_id,
+            Message.role == "assistant",
+            Conversation.user_id == current_user.id,
+        )
+    )
     if message is None or message.role != "assistant":
         raise HTTPException(status_code=404, detail="Assistant message not found")
 

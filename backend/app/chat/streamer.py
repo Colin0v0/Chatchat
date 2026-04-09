@@ -237,6 +237,7 @@ async def response_event_stream(
         retrieval_query = latest_user_query(prepared_retrieval_history.messages, query)
         memory_prompt = services.memory_service.build_prompt_payload(
             db=stream_db,
+            user_id=conversation.user_id or 0,
             conversation_id=conversation.id,
             query=query or retrieval_query,
         )

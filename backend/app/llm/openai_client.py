@@ -57,7 +57,7 @@ async def _list_openai_models_for_provider(provider: Provider) -> list[Discovere
     try:
         async with httpx.AsyncClient(
             base_url=normalize_base_url(openai_base_url(provider)),
-            timeout=10.0,
+            timeout=httpx.Timeout(settings.request_timeout_seconds, connect=settings.openai_connect_timeout_seconds),
             headers=openai_headers(provider),
         ) as client:
             response = await client.get("/models")
@@ -158,7 +158,7 @@ async def upload_openai_file(
 
     async with httpx.AsyncClient(
         base_url=normalize_base_url(openai_upstream_service_base_url(provider, base_url_override)),
-        timeout=httpx.Timeout(settings.request_timeout_seconds, connect=10.0),
+        timeout=httpx.Timeout(settings.request_timeout_seconds, connect=settings.openai_connect_timeout_seconds),
         headers=openai_headers(provider, api_key_override),
     ) as client:
         response = await client.post(
@@ -317,7 +317,7 @@ async def stream_openai_chat(
         max_attempts = 2 if provider == "openai_local" else 1
         async with httpx.AsyncClient(
             base_url=normalize_base_url(openai_base_url(provider, base_url_override)),
-            timeout=httpx.Timeout(request_timeout, connect=10.0),
+            timeout=httpx.Timeout(request_timeout, connect=settings.openai_connect_timeout_seconds),
             headers=openai_headers(provider, api_key_override),
         ) as fallback_client:
             payload_data: dict[str, object] | None = None
@@ -365,7 +365,7 @@ async def stream_openai_chat(
         return
 
     stream_timeout = httpx.Timeout(
-        connect=10.0,
+        connect=settings.openai_connect_timeout_seconds,
         read=None,
         write=request_timeout,
         pool=request_timeout,

@@ -118,7 +118,11 @@ export function MainHeader({
           <div />
         )}
 
-        {isDesktop ? actionMenu : null}
+        {isDesktop ? (
+          <div className="flex items-center gap-2">
+            {actionMenu}
+          </div>
+        ) : null}
 
         {!isDesktop ? (
           <div className="fixed top-4 right-4 z-30 flex items-center gap-1.5">

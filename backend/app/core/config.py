@@ -7,10 +7,30 @@ BASE_DIR = Path(__file__).resolve().parents[2]
 ENV_FILE = BASE_DIR / ".env"
 
 
+def _read_env_name_from_file(path: Path) -> str:
+    if not path.exists():
+        return ""
+
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        normalized_key = key.strip()
+        if normalized_key not in {"CHATCHAT_ENV", "APP_ENV"}:
+            continue
+        return value.strip().strip("\"'")
+    return ""
+
+
 def _resolve_env_files() -> tuple[str, ...]:
     env_files: list[str] = []
     explicit_file = os.getenv("CHATCHAT_ENV_FILE", "").strip()
-    env_name = os.getenv("CHATCHAT_ENV", "").strip()
+    env_name = (
+        os.getenv("CHATCHAT_ENV", "").strip()
+        or os.getenv("APP_ENV", "").strip()
+        or _read_env_name_from_file(ENV_FILE)
+    )
 
     if ENV_FILE.exists():
         env_files.append(str(ENV_FILE))
@@ -38,8 +58,12 @@ def _resolve_env_files() -> tuple[str, ...]:
 class Settings(BaseSettings):
     app_env: str = "default"
     app_name: str = "Chatchat API"
+    cors_allowed_origins: str = "http://127.0.0.1:5200,http://localhost:5200"
     database_url: str = "sqlite:///./storage/app.db"
     media_root: str = "./storage/media"
+    auth_session_cookie_name: str = "chatchat_session"
+    auth_session_ttl_hours: int = 168
+    auth_cookie_secure: bool = False
     ollama_base_url: str = "http://127.0.0.1:11434"
     ollama_model_denylist: str = ""
     ollama_keep_alive_seconds: int = 0
@@ -75,6 +99,7 @@ class Settings(BaseSettings):
     audio_max_upload_size_bytes: int = 25 * 1024 * 1024
     local_model_idle_timeout_seconds: float = 60.0
     request_timeout_seconds: float = 180.0
+    openai_connect_timeout_seconds: float = 30.0
     model_max_concurrency_per_model: int = 3
     chat_history_message_limit: int = 14
     chat_history_token_budget: int = 3600
@@ -110,6 +135,10 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    @property
+    def cors_allowed_origin_list(self) -> list[str]:
+        return [item.strip() for item in self.cors_allowed_origins.split(",") if item.strip()]
 
 
 settings = Settings(_env_file=_resolve_env_files())

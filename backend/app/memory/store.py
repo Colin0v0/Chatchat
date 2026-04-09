@@ -154,7 +154,7 @@ class MemoryStore:
     def __init__(self, db: Session):
         self._db = db
 
-    def list_collection(self, *, conversation_id: int | None) -> MemoryCollection:
+    def list_collection(self, *, user_id: int, conversation_id: int | None) -> MemoryCollection:
         ordered = (
             desc(MemoryItem.pinned),
             desc(MemoryItem.last_used_at),
@@ -163,7 +163,10 @@ class MemoryStore:
         )
         global_items = self._db.scalars(
             select(MemoryItem)
-            .where(MemoryItem.scope == "global")
+            .where(
+                MemoryItem.user_id == user_id,
+                MemoryItem.scope == "global",
+            )
             .order_by(*ordered)
         ).all()
         conversation_items: list[MemoryItem] = []
@@ -171,6 +174,7 @@ class MemoryStore:
             conversation_items = self._db.scalars(
                 select(MemoryItem)
                 .where(
+                    MemoryItem.user_id == user_id,
                     MemoryItem.scope == "conversation",
                     MemoryItem.conversation_id == conversation_id,
                 )
@@ -181,6 +185,7 @@ class MemoryStore:
     def create_manual_memory(
         self,
         *,
+        user_id: int,
         scope: MemoryScope,
         kind: str,
         title: str,
@@ -192,6 +197,7 @@ class MemoryStore:
         conversation_id: int | None,
     ) -> MemoryItem:
         memory = MemoryItem(
+            user_id=user_id,
             scope=scope,
             kind=kind,
             title=normalize_memory_text(title, max_length=255),
@@ -211,6 +217,7 @@ class MemoryStore:
         self,
         memory: MemoryItem,
         *,
+        user_id: int,
         scope: MemoryScope,
         kind: str,
         title: str,
@@ -221,6 +228,7 @@ class MemoryStore:
         active: bool,
         conversation_id: int | None,
     ) -> MemoryItem:
+        memory.user_id = user_id
         memory.scope = scope
         memory.kind = kind
         memory.title = normalize_memory_text(title, max_length=255)
@@ -245,6 +253,7 @@ class MemoryStore:
         self,
         *,
         candidates: list[MemoryCandidate],
+        user_id: int,
         conversation_id: int,
         user_message_id: int,
         assistant_message_id: int,
@@ -258,10 +267,13 @@ class MemoryStore:
         }
         existing_items = self._db.scalars(
             select(MemoryItem).where(
-                (MemoryItem.scope == "global")
-                | (
-                    (MemoryItem.scope == "conversation")
-                    & (MemoryItem.conversation_id == conversation_id)
+                MemoryItem.user_id == user_id,
+                (
+                    (MemoryItem.scope == "global")
+                    | (
+                        (MemoryItem.scope == "conversation")
+                        & (MemoryItem.conversation_id == conversation_id)
+                    )
                 )
             )
         ).all()
@@ -291,6 +303,7 @@ class MemoryStore:
                 )
             if existing is None:
                 created = MemoryItem(
+                    user_id=user_id,
                     scope=scope,
                     kind=candidate.kind,
                     title=title,
@@ -330,6 +343,7 @@ class MemoryStore:
         self,
         *,
         query: str,
+        user_id: int,
         conversation_id: int,
         limit: int,
     ) -> list[MemoryMatch]:
@@ -339,10 +353,13 @@ class MemoryStore:
                 select(MemoryItem.id)
                 .where(
                     MemoryItem.active.is_(True),
-                    (MemoryItem.scope == "global")
-                    | (
-                        (MemoryItem.scope == "conversation")
-                        & (MemoryItem.conversation_id == conversation_id)
+                    MemoryItem.user_id == user_id,
+                    (
+                        (MemoryItem.scope == "global")
+                        | (
+                            (MemoryItem.scope == "conversation")
+                            & (MemoryItem.conversation_id == conversation_id)
+                        )
                     ),
                 )
                 .order_by(
@@ -357,6 +374,7 @@ class MemoryStore:
 
         match_query = " OR ".join(tokens)
         params = {
+            "user_id": user_id,
             "conversation_id": conversation_id,
             "match_query": match_query,
             "limit": limit,
@@ -375,6 +393,7 @@ class MemoryStore:
                 JOIN memory_items AS m ON m.id = memory_search.memory_id
                 WHERE memory_search MATCH :match_query
                   AND m.active = 1
+                  AND m.user_id = :user_id
                   AND (
                     m.scope = 'global'
                     OR (m.scope = 'conversation' AND m.conversation_id = :conversation_id)
@@ -393,22 +412,33 @@ class MemoryStore:
             for row in rows
         ]
 
-    def touch(self, memory_ids: list[int]) -> None:
+    def touch(self, memory_ids: list[int], *, user_id: int) -> None:
         if not memory_ids:
             return
         timestamp = datetime.utcnow()
-        items = self._db.scalars(select(MemoryItem).where(MemoryItem.id.in_(memory_ids))).all()
+        items = self._db.scalars(
+            select(MemoryItem).where(
+                MemoryItem.id.in_(memory_ids),
+                MemoryItem.user_id == user_id,
+            )
+        ).all()
         for item in items:
             item.last_used_at = timestamp
             self._db.add(item)
         self._db.flush()
 
-    def get_by_id(self, memory_id: int) -> MemoryItem | None:
-        return self._db.get(MemoryItem, memory_id)
+    def get_by_id(self, memory_id: int, *, user_id: int) -> MemoryItem | None:
+        return self._db.scalar(
+            select(MemoryItem).where(
+                MemoryItem.id == memory_id,
+                MemoryItem.user_id == user_id,
+            )
+        )
 
     def list_pinned(
         self,
         *,
+        user_id: int,
         conversation_id: int,
         limit: int,
     ) -> list[MemoryItem]:
@@ -417,10 +447,13 @@ class MemoryStore:
             .where(
                 MemoryItem.active.is_(True),
                 MemoryItem.pinned.is_(True),
-                (MemoryItem.scope == "global")
-                | (
-                    (MemoryItem.scope == "conversation")
-                    & (MemoryItem.conversation_id == conversation_id)
+                MemoryItem.user_id == user_id,
+                (
+                    (MemoryItem.scope == "global")
+                    | (
+                        (MemoryItem.scope == "conversation")
+                        & (MemoryItem.conversation_id == conversation_id)
+                    )
                 ),
             )
             .order_by(

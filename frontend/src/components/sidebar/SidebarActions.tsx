@@ -1,6 +1,7 @@
-import { MessageSquarePlus, PanelLeftOpen, Search, type LucideIcon } from "lucide-react";
+import { LogOut, MessageSquarePlus, PanelLeftOpen, Search, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
+import { AppLogo } from "../AppLogo";
 import { SIDEBAR_MOTION, cn, sidebarIconButtonClass } from "./styles";
 
 interface SidebarActionProps {
@@ -84,24 +85,26 @@ export function SidebarAction({
 
 export function SidebarBrand({
   compact = false,
+  title = "Chatchat",
   onIconClick,
 }: {
   compact?: boolean;
+  title?: string;
   onIconClick?: () => void;
 }) {
   return (
     <div className="flex min-w-0 items-center gap-3">
       <button
         aria-label="Open settings"
-        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[8px] bg-app-accent-soft text-[18px] font-semibold text-app-accent-strong"
+        className="flex h-9 w-9 shrink-0 items-center justify-center text-[#13227a]"
         onClick={onIconClick}
         type="button"
       >
-        C
+        <AppLogo className="h-[22px] w-[22px]" />
       </button>
       {!compact ? (
         <div className="min-w-0">
-          <div className="truncate text-[15px] font-semibold tracking-[-0.02em]">Chatchat</div>
+          <div className="truncate text-[15px] font-semibold tracking-[-0.02em]">{title}</div>
           <div className="truncate text-[13px] tracking-[0.08em] text-app-muted lowercase">
             reasoning workspace
           </div>
@@ -149,16 +152,18 @@ export function DesktopPinnedHeader({
   open,
   onNewChat,
   onOpenSettings,
+  title,
 }: {
   open: boolean;
   onNewChat: () => void;
   onOpenSettings: () => void;
+  title: string;
 }) {
   return (
     <div className="absolute top-4 right-2 left-[10px] z-10">
       <div className="relative h-9">
         <div className="absolute inset-y-0 left-0">
-          <SidebarBrand compact onIconClick={onOpenSettings} />
+          <SidebarBrand compact onIconClick={onOpenSettings} title={title} />
         </div>
 
         <div
@@ -169,7 +174,7 @@ export function DesktopPinnedHeader({
             open ? "opacity-100" : "pointer-events-none opacity-0",
           )}
         >
-          <div className="truncate text-[15px] font-semibold tracking-[-0.02em]">Chatchat</div>
+          <div className="truncate text-[15px] font-semibold tracking-[-0.02em]">{title}</div>
           <div className="truncate text-[13px] tracking-[0.08em] text-app-muted lowercase">
             reasoning workspace
           </div>
@@ -193,6 +198,81 @@ export function SidebarLoadingState() {
           <span className="size-[4px] rounded-full bg-current animate-[thinking-dot_1.8s_ease-in-out_0.3s_infinite]" />
           <span className="size-[4px] rounded-full bg-current animate-[thinking-dot_1.8s_ease-in-out_0.45s_infinite]" />
         </span>
+      </div>
+    </div>
+  );
+}
+
+function SidebarFooterAction({
+  icon,
+  label,
+  onClick,
+}: {
+  icon: ReactNode;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      aria-label={label}
+      className={cn(sidebarIconButtonClass, "h-9 w-9")}
+      onClick={onClick}
+      type="button"
+    >
+      {icon}
+    </button>
+  );
+}
+
+export function DesktopSidebarFooter({
+  open,
+  onLogout,
+  onToggle,
+}: {
+  open: boolean;
+  onLogout?: () => void;
+  onToggle: () => void;
+}) {
+  return (
+    <div className="absolute right-[10px] bottom-4 left-[10px] z-20 flex items-center justify-between">
+      <button
+        aria-label={open ? "Collapse sidebar" : "Expand sidebar"}
+        className={cn(sidebarIconButtonClass, "h-9 w-9", SIDEBAR_MOTION)}
+        onClick={onToggle}
+        type="button"
+      >
+        <PanelLeftOpen className={cn("size-4 transition-transform", SIDEBAR_MOTION, open && "rotate-180")} />
+      </button>
+      {onLogout ? (
+        open ? (
+          <SidebarFooterAction
+            icon={<LogOut className="size-4" />}
+            label="退出登录"
+            onClick={onLogout}
+          />
+        ) : (
+          <span className="h-9 w-9" />
+        )
+      ) : (
+        <span className="h-9 w-9" />
+      )}
+    </div>
+  );
+}
+
+export function MobileSidebarFooter({ onLogout }: { onLogout?: () => void }) {
+  if (!onLogout) {
+    return null;
+  }
+
+  return (
+    <div className="px-4 pt-4">
+      <div className="flex justify-end">
+        <SidebarFooterAction
+          icon={<LogOut className="size-4" />}
+          label="退出登录"
+          onClick={onLogout}
+        />
       </div>
     </div>
   );

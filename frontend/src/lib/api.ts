@@ -1,4 +1,5 @@
 import type {
+  AuthSession,
   AudioTranscriptionResult,
   ChatStreamEvent,
   ChatStreamRequest,
@@ -16,6 +17,23 @@ import type {
 import { toModelLabel } from "./models";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "";
+let unauthorizedHandler: (() => void) | null = null;
+
+export class ApiError extends Error {
+  status: number;
+  code: string | null;
+
+  constructor(message: string, status: number, code: string | null = null) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.code = code;
+  }
+}
+
+export function setUnauthorizedHandler(handler: (() => void) | null) {
+  unauthorizedHandler = handler;
+}
 
 export function toApiUrl(path: string): string {
   if (!path.startsWith("/")) {
@@ -24,29 +42,58 @@ export function toApiUrl(path: string): string {
   return `${API_BASE}${path}`;
 }
 
-async function readErrorMessage(response: Response): Promise<string> {
+async function readErrorPayload(response: Response): Promise<{ code: string | null; message: string }> {
   const raw = await response.text();
   if (!raw) {
-    return `Request failed: ${response.status}`;
+    return {
+      code: null,
+      message: `Request failed: ${response.status}`,
+    };
   }
 
   try {
-    const parsed = JSON.parse(raw) as { detail?: unknown; message?: unknown };
+    const parsed = JSON.parse(raw) as {
+      code?: unknown;
+      detail?: unknown;
+      message?: unknown;
+    };
+    if (parsed.detail && typeof parsed.detail === "object") {
+      const detail = parsed.detail as { code?: unknown; message?: unknown };
+      if (typeof detail.message === "string" && detail.message.trim()) {
+        return {
+          code: typeof detail.code === "string" ? detail.code : null,
+          message: detail.message,
+        };
+      }
+    }
     if (typeof parsed.detail === "string" && parsed.detail.trim()) {
-      return parsed.detail;
+      return {
+        code: typeof parsed.code === "string" ? parsed.code : null,
+        message: parsed.detail,
+      };
     }
     if (typeof parsed.message === "string" && parsed.message.trim()) {
-      return parsed.message;
+      return {
+        code: typeof parsed.code === "string" ? parsed.code : null,
+        message: parsed.message,
+      };
     }
   } catch {
-    return raw;
+    return {
+      code: null,
+      message: raw,
+    };
   }
 
-  return raw;
+  return {
+    code: null,
+    message: raw,
+  };
 }
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(toApiUrl(path), {
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
       ...(init?.headers ?? {}),
@@ -55,7 +102,11 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response));
+    const { code, message } = await readErrorPayload(response);
+    if (response.status === 401) {
+      unauthorizedHandler?.();
+    }
+    throw new ApiError(message, response.status, code);
   }
 
   return response.json() as Promise<T>;
@@ -79,6 +130,39 @@ function toModelOption(model: string | ModelOption): ModelOption {
 
 export function fetchConversations() {
   return apiFetch<ConversationSummary[]>("/api/conversations");
+}
+
+export function fetchSession() {
+  return apiFetch<AuthSession>("/api/auth/session");
+}
+
+export async function login(payload: { username: string; password: string }) {
+  const response = await fetch(toApiUrl("/api/auth/login"), {
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const { code, message } = await readErrorPayload(response);
+    throw new ApiError(message, response.status, code);
+  }
+
+  return response.json() as Promise<AuthSession>;
+}
+
+export async function logout() {
+  const response = await fetch(toApiUrl("/api/auth/logout"), {
+    credentials: "include",
+    method: "POST",
+  });
+  if (!response.ok) {
+    const { code, message } = await readErrorPayload(response);
+    throw new ApiError(message, response.status, code);
+  }
 }
 
 export function fetchConversation(conversationId: number) {
@@ -106,11 +190,16 @@ export function renameConversation(conversationId: number, title: string) {
 
 export async function deleteConversation(conversationId: number) {
   const response = await fetch(toApiUrl(`/api/conversations/${conversationId}`), {
+    credentials: "include",
     method: "DELETE",
   });
 
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response));
+    const { code, message } = await readErrorPayload(response);
+    if (response.status === 401) {
+      unauthorizedHandler?.();
+    }
+    throw new ApiError(message, response.status, code);
   }
 }
 
@@ -142,11 +231,16 @@ export function updateMemory(memoryId: number, payload: MemoryUpsertPayload) {
 
 export async function deleteMemory(memoryId: number) {
   const response = await fetch(toApiUrl(`/api/memories/${memoryId}`), {
+    credentials: "include",
     method: "DELETE",
   });
 
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response));
+    const { code, message } = await readErrorPayload(response);
+    if (response.status === 401) {
+      unauthorizedHandler?.();
+    }
+    throw new ApiError(message, response.status, code);
   }
 }
 
@@ -233,11 +327,16 @@ export async function transcribeAudio(file: Blob): Promise<AudioTranscriptionRes
   appendAudioFile(formData, file);
 
   const response = await fetch(toApiUrl("/api/audio/transcribe"), {
+    credentials: "include",
     method: "POST",
     body: formData,
   });
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response));
+    const { code, message } = await readErrorPayload(response);
+    if (response.status === 401) {
+      unauthorizedHandler?.();
+    }
+    throw new ApiError(message, response.status, code);
   }
   return response.json() as Promise<AudioTranscriptionResult>;
 }
@@ -258,13 +357,18 @@ export async function streamChat(payload: ChatStreamRequest, options: StreamRequ
   payload.files?.forEach((file) => formData.append("files", file));
 
   const response = await fetch(toApiUrl("/api/chat/stream"), {
+    credentials: "include",
     method: "POST",
     body: formData,
     signal: options.signal,
   });
 
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response));
+    const { code, message } = await readErrorPayload(response);
+    if (response.status === 401) {
+      unauthorizedHandler?.();
+    }
+    throw new ApiError(message, response.status, code);
   }
 
   await consumeNdjsonStream(response, options.onEvent);
@@ -272,6 +376,7 @@ export async function streamChat(payload: ChatStreamRequest, options: StreamRequ
 
 export async function regenerateChat(payload: RegenerateChatRequest, options: StreamRequestOptions) {
   const response = await fetch(toApiUrl("/api/chat/regenerate"), {
+    credentials: "include",
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -281,7 +386,11 @@ export async function regenerateChat(payload: RegenerateChatRequest, options: St
   });
 
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response));
+    const { code, message } = await readErrorPayload(response);
+    if (response.status === 401) {
+      unauthorizedHandler?.();
+    }
+    throw new ApiError(message, response.status, code);
   }
 
   await consumeNdjsonStream(response, options.onEvent);

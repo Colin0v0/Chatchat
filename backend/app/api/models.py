@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from ..auth import require_current_user
 from ..core.config import settings
 from ..llm import (
     build_model_options,
@@ -21,7 +22,7 @@ async def healthcheck():
 
 
 @router.get("/api/models")
-async def list_models():
+async def list_models(_=Depends(require_current_user)):
     default_model = normalize_model(settings.default_model)
     catalog_models = list_catalog_discovered_models()
 

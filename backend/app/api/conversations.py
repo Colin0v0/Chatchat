@@ -6,23 +6,29 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import delete, desc, select
 from sqlalchemy.orm import Session
 
+from ..auth import require_current_user
 from ..chat.context import conversation_media_paths, conversation_options, message_preview, MESSAGE_LOAD_OPTION
 from ..core.config import settings
 from ..llm.catalog import resolve_model_route
 from ..llm import normalize_model
 from ..schemas import ConversationCreate, ConversationDetail, ConversationSummary, ConversationUpdate
+from ..storage.access import get_user_conversation
 from ..storage.database import get_db
 from ..storage.media import remove_media_files
-from ..storage.models import Conversation, MemoryItem
+from ..storage.models import Conversation, MemoryItem, User
 
 router = APIRouter(prefix="/api/conversations", tags=["conversations"])
 
 
 @router.get("", response_model=list[ConversationSummary])
-def list_conversations(db: Session = Depends(get_db)):
+def list_conversations(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
     conversations = db.scalars(
         select(Conversation)
         .options(MESSAGE_LOAD_OPTION)
+        .where(Conversation.user_id == current_user.id)
         .order_by(desc(Conversation.updated_at), desc(Conversation.id))
     ).all()
 
@@ -41,12 +47,17 @@ def list_conversations(db: Session = Depends(get_db)):
 
 
 @router.post("", response_model=ConversationSummary)
-def create_conversation(payload: ConversationCreate, db: Session = Depends(get_db)):
+def create_conversation(
+    payload: ConversationCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
     target_model = payload.model or normalize_model(settings.default_model)
     if settings.model_catalog_strict and resolve_model_route(target_model) is None:
         raise HTTPException(status_code=400, detail=f"Model not enabled: {target_model}")
 
     conversation = Conversation(
+        user_id=current_user.id,
         title=payload.title,
         model=target_model,
     )
@@ -63,10 +74,15 @@ def create_conversation(payload: ConversationCreate, db: Session = Depends(get_d
 
 
 @router.get("/{conversation_id}", response_model=ConversationDetail)
-def get_conversation(conversation_id: int, db: Session = Depends(get_db)):
-    conversation = db.get(
-        Conversation,
-        conversation_id,
+def get_conversation(
+    conversation_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
+    conversation = get_user_conversation(
+        db,
+        conversation_id=conversation_id,
+        user_id=current_user.id,
         options=conversation_options(),
     )
     if not conversation:
@@ -79,10 +95,12 @@ def update_conversation(
     conversation_id: int,
     payload: ConversationUpdate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
 ):
-    conversation = db.get(
-        Conversation,
-        conversation_id,
+    conversation = get_user_conversation(
+        db,
+        conversation_id=conversation_id,
+        user_id=current_user.id,
         options=conversation_options(),
     )
     if not conversation:
@@ -104,12 +122,26 @@ def update_conversation(
 
 
 @router.delete("/{conversation_id}", status_code=204)
-def delete_conversation(conversation_id: int, db: Session = Depends(get_db)):
-    conversation = db.get(Conversation, conversation_id, options=conversation_options())
+def delete_conversation(
+    conversation_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
+    conversation = get_user_conversation(
+        db,
+        conversation_id=conversation_id,
+        user_id=current_user.id,
+        options=conversation_options(),
+    )
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
     remove_media_files(conversation_media_paths(conversation))
-    db.execute(delete(MemoryItem).where(MemoryItem.conversation_id == conversation_id))
+    db.execute(
+        delete(MemoryItem).where(
+            MemoryItem.conversation_id == conversation_id,
+            MemoryItem.user_id == current_user.id,
+        )
+    )
     db.delete(conversation)
     db.commit()
