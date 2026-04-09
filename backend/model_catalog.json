@@ -31,7 +31,7 @@
       "display_name": "DeepSeek Reasoner",
       "provider_ref": "openai_default",
       "upstream_model": "deepseek-reasoner",
-      "thinking_mode": "default_on",
+      "thinking_mode": "force_on",
       "context_window": 1000000,
       "native_multimodal": false,
       "enabled": true
@@ -41,7 +41,7 @@
       "display_name": "Claude Sonnet 4.6",
       "provider_ref": "openai_local_router",
       "upstream_model": "claude-sonnet-4-6",
-      "thinking_mode": "default_on",
+      "thinking_mode": "force_on",
       "context_window": 1000000,
       "native_multimodal": true,
       "enabled": true
@@ -51,7 +51,7 @@
       "display_name": "Claude Haiku 4.5",
       "provider_ref": "openai_local_router",
       "upstream_model": "claude-haiku-4-5",
-      "thinking_mode": "default_on",
+      "thinking_mode": "force_on",
       "context_window": 1000000,
       "native_multimodal": false,
       "enabled": true
@@ -62,7 +62,7 @@
       "display_name": "Claude Opus 4.6",
       "provider_ref": "openai_local_router",
       "upstream_model": "claude-opus-4-6",
-      "thinking_mode": "default_on",
+      "thinking_mode": "force_on",
       "context_window": 1000000,
       "native_multimodal": false,
       "enabled": true
