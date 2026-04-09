@@ -119,7 +119,12 @@ export function DesktopPinnedNewChatButton({ open, onClick }: { open: boolean; o
     <div className="group relative h-12">
       <button
         aria-label="New chat"
-        className={cn(sidebarIconButtonClass, "absolute inset-y-0 left-0 z-20 h-12 w-9")}
+        className={cn(
+          sidebarIconButtonClass,
+          "absolute inset-y-0 left-0 z-20 h-12 w-9",
+          SIDEBAR_MOTION,
+          open ? "pointer-events-none opacity-0" : "opacity-100",
+        )}
         onClick={onClick}
         type="button"
       >
@@ -138,7 +143,7 @@ export function DesktopPinnedNewChatButton({ open, onClick }: { open: boolean; o
         tabIndex={open ? 0 : -1}
         type="button"
       >
-        <span className="flex h-full items-center whitespace-nowrap pl-12 pr-4 text-[15px] tracking-[-0.02em]">
+        <span className="flex h-full items-center whitespace-nowrap px-4 text-[15px] tracking-[-0.02em]">
           New chat
         </span>
       </button>
@@ -162,7 +167,7 @@ export function DesktopPinnedHeader({
   return (
     <div className="absolute top-4 right-2 left-[10px] z-10">
       <div className="relative h-9">
-        <div className="absolute inset-y-0 left-0">
+        <div className="absolute inset-y-0 left-0 flex items-center">
           <SidebarBrand compact onIconClick={onOpenSettings} title={title} />
         </div>
 
@@ -207,15 +212,17 @@ function SidebarFooterAction({
   icon,
   label,
   onClick,
+  className,
 }: {
   icon: ReactNode;
   label: string;
   onClick: () => void;
+  className?: string;
 }) {
   return (
     <button
       aria-label={label}
-      className={cn(sidebarIconButtonClass, "h-9 w-9")}
+      className={cn(sidebarIconButtonClass, "h-9 w-9", className)}
       onClick={onClick}
       type="button"
     >
@@ -234,28 +241,32 @@ export function DesktopSidebarFooter({
   onToggle: () => void;
 }) {
   return (
-    <div className="absolute right-[10px] bottom-4 left-[10px] z-20 flex items-center justify-between">
+    <div className="absolute right-[10px] bottom-4 left-[10px] z-20 h-9">
       <button
         aria-label={open ? "Collapse sidebar" : "Expand sidebar"}
-        className={cn(sidebarIconButtonClass, "h-9 w-9", SIDEBAR_MOTION)}
+        className={cn(
+          sidebarIconButtonClass,
+          "absolute top-0 left-0 h-9 w-9",
+          SIDEBAR_MOTION,
+        )}
         onClick={onToggle}
         type="button"
       >
         <PanelLeftOpen className={cn("size-4 transition-transform", SIDEBAR_MOTION, open && "rotate-180")} />
       </button>
+
       {onLogout ? (
-        open ? (
-          <SidebarFooterAction
-            icon={<LogOut className="size-4" />}
-            label="退出登录"
-            onClick={onLogout}
-          />
-        ) : (
-          <span className="h-9 w-9" />
-        )
-      ) : (
-        <span className="h-9 w-9" />
-      )}
+        <SidebarFooterAction
+          icon={<LogOut className="size-4" />}
+          label="退出登录"
+          onClick={onLogout}
+          className={cn(
+            "absolute top-0 right-0",
+            SIDEBAR_MOTION,
+            open ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0",
+          )}
+        />
+      ) : null}
     </div>
   );
 }
