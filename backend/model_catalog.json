@@ -43,7 +43,7 @@
       "upstream_model": "claude-sonnet-4-6",
       "thinking_mode": "default_on",
       "context_window": 1000000,
-      "native_multimodal": false,
+      "native_multimodal": true,
       "enabled": true
     },
     {

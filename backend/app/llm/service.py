@@ -28,9 +28,18 @@ async def stream_chat(
         thinking_enabled,
         thinking_mode=route["thinking_mode"] if route else None,
     )
+    base_url_override = None
     if route:
         provider = route["provider"]
         model_name = route["upstream_model"]
+        if route.get("native_multimodal"):
+            base_url_override = route["upstream_service_base_url"]
+            if provider == "openai_local" and not base_url_override:
+                base_url_override = settings.openai_local_upstream_service_base_url.strip() or None
+            if not base_url_override:
+                raise RuntimeError(f"Native multimodal endpoint is not configured for model: {model}")
+        else:
+            base_url_override = route["base_url"]
     else:
         provider, model_name = model_provider_and_name(model)
 
@@ -40,7 +49,7 @@ async def stream_chat(
             messages=messages,
             provider=provider,
             thinking_enabled=effective_thinking,
-            base_url_override=route["base_url"] if route else None,
+            base_url_override=base_url_override,
             api_key_override=route["api_key"] if route else None,
         ):
             yield chunk
@@ -50,7 +59,7 @@ async def stream_chat(
         model=model_name,
         messages=messages,
         thinking_enabled=effective_thinking,
-        base_url_override=route["base_url"] if route else None,
+        base_url_override=base_url_override,
         context_window=route["context_window"] if route else None,
     ):
         yield chunk

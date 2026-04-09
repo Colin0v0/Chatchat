@@ -218,6 +218,7 @@ async def response_event_stream(
             history_budget = min(history_budget, max(900, int(model_context_window * 0.36)))
             summary_budget = min(summary_budget, max(450, int(model_context_window * 0.14)))
 
+        native_multimodal = uses_native_multimodal(model)
         strategy = choose_context_strategy(
             query=query,
             retrieval_mode=retrieval_mode,
@@ -230,9 +231,10 @@ async def response_event_stream(
             message_limit=services.history_message_limit,
             token_budget=strategy.history_token_budget,
         )
-        include_image_context = not uses_native_multimodal(model)
+        include_image_context = not native_multimodal
+        include_file_context = strategy.file_retrieval_enabled and not native_multimodal
         message_history_service = MessageHistoryService(stream_db, services.attachment_context_service)
-        needs_retrieval_grounding = retrieval_mode != "none" and message_history_service.needs_retrieval_grounding(
+        needs_retrieval_grounding = include_file_context and retrieval_mode != "none" and message_history_service.needs_retrieval_grounding(
             messages=history_window.recent_messages,
         )
         if message_history_service.needs_image_text(model=model, messages=history_window.recent_messages) or needs_retrieval_grounding:
@@ -257,7 +259,7 @@ async def response_event_stream(
             query=retrieval_query,
             retrieval_mode=retrieval_mode,
         )
-        status_items = retrieval_status_items(plan=retrieval_plan, include_file_context=strategy.file_retrieval_enabled)
+        status_items = retrieval_status_items(plan=retrieval_plan, include_file_context=include_file_context)
         if status_items:
             yield json.dumps({"type": "status", "items": status_items}, ensure_ascii=False) + "\n"
 
@@ -266,7 +268,7 @@ async def response_event_stream(
             query=query or retrieval_query,
             plan=retrieval_plan,
             conversation_messages=all_history_messages,
-            include_file_context=strategy.file_retrieval_enabled,
+            include_file_context=include_file_context,
             include_image_context=include_image_context,
         )
 
