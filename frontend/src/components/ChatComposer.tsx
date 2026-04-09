@@ -237,7 +237,7 @@ export function ChatComposer({
   };
 
   return (
-    <div className={`w-full ${centered ? "max-w-[880px]" : "mx-auto max-w-[920px]"}`}>
+    <div className={`w-full ${centered ? "mx-auto max-w-[880px]" : ""}`}>
       <div
         className={`relative rounded-lg border bg-app-panel-strong shadow-[0_1px_3px_rgba(39,28,18,0.05)] transition-colors ${
           dragActive ? "border-app-accent-strong bg-app-panel-soft" : "border-app-border"
@@ -259,7 +259,7 @@ export function ChatComposer({
         <ComposerAttachmentStrip attachments={attachments} onRemove={onRemoveAttachment} />
 
         <textarea
-          className="min-h-24 w-full resize-none bg-transparent px-4 py-4 text-[16px] leading-7 text-app-text placeholder:text-[#9a9387]"
+          className="min-h-24 max-h-[220px] w-full resize-none overflow-y-auto bg-transparent px-4 py-4 text-[16px] leading-7 text-app-text placeholder:text-[#9a9387] [field-sizing:fixed]"
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}

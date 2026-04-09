@@ -4,6 +4,7 @@ import type {
   ChatStreamEvent,
   ChatStreamRequest,
   ConversationDetail,
+  ConversationMessagePage,
   ConversationSummary,
   MemoryCollection,
   MemoryDocument,
@@ -269,8 +270,42 @@ export async function logout() {
   }
 }
 
-export function fetchConversation(conversationId: number) {
-  return apiFetch<ConversationDetail>(`/api/conversations/${conversationId}`);
+export function fetchConversation(
+  conversationId: number,
+  options?: {
+    limit?: number;
+    signal?: AbortSignal;
+  },
+) {
+  const params = new URLSearchParams();
+  if (options?.limit != null) {
+    params.set("message_limit", String(options.limit));
+  }
+  const suffix = params.size > 0 ? `?${params.toString()}` : "";
+  return apiFetch<ConversationDetail>(`/api/conversations/${conversationId}${suffix}`, {
+    signal: options?.signal,
+  });
+}
+
+export function fetchConversationMessages(
+  conversationId: number,
+  options: {
+    beforeMessageId: number;
+    limit?: number;
+    signal?: AbortSignal;
+  },
+) {
+  const params = new URLSearchParams({
+    before_message_id: String(options.beforeMessageId),
+  });
+  if (options.limit != null) {
+    params.set("limit", String(options.limit));
+  }
+
+  return apiFetch<ConversationMessagePage>(
+    `/api/conversations/${conversationId}/messages?${params.toString()}`,
+    { signal: options.signal },
+  );
 }
 
 export async function fetchModels() {

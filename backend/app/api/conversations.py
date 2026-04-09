@@ -2,17 +2,27 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import delete, desc, select
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
 from ..auth import require_current_user
-from ..chat.context import conversation_media_paths, conversation_options, message_preview, MESSAGE_LOAD_OPTION
+from ..chat.context import conversation_media_paths, conversation_options, message_preview
 from ..core.config import settings
 from ..llm.catalog import resolve_model_route
 from ..llm import normalize_model
-from ..schemas import ConversationCreate, ConversationDetail, ConversationSummary, ConversationUpdate
-from ..storage.access import get_user_conversation
+from ..schemas import (
+    ConversationCreate,
+    ConversationDetail,
+    ConversationMessagePage,
+    ConversationSummary,
+    ConversationUpdate,
+)
+from ..storage.access import (
+    get_user_conversation,
+    list_conversation_messages_window,
+    list_user_conversation_summaries,
+)
 from ..storage.database import get_db
 from ..storage.media import remove_media_files
 from ..storage.models import Conversation, MemoryItem, User
@@ -25,25 +35,16 @@ def list_conversations(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_current_user),
 ):
-    conversations = db.scalars(
-        select(Conversation)
-        .options(MESSAGE_LOAD_OPTION)
-        .where(Conversation.user_id == current_user.id)
-        .order_by(desc(Conversation.updated_at), desc(Conversation.id))
-    ).all()
-
-    items: list[ConversationSummary] = []
-    for conversation in conversations:
-        items.append(
-            ConversationSummary(
-                id=conversation.id,
-                title=conversation.title,
-                model=conversation.model,
-                updated_at=conversation.updated_at,
-                last_message_preview=message_preview(conversation.messages[-1] if conversation.messages else None),
-            )
+    return [
+        ConversationSummary(
+            id=item.id,
+            title=item.title,
+            model=item.model,
+            updated_at=item.updated_at,
+            last_message_preview=item.last_message_preview,
         )
-    return items
+        for item in list_user_conversation_summaries(db, user_id=current_user.id)
+    ]
 
 
 @router.post("", response_model=ConversationSummary)
@@ -76,6 +77,7 @@ def create_conversation(
 @router.get("/{conversation_id}", response_model=ConversationDetail)
 def get_conversation(
     conversation_id: int,
+    message_limit: int = Query(default=settings.conversation_view_message_limit, ge=1, le=200),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_current_user),
 ):
@@ -83,11 +85,52 @@ def get_conversation(
         db,
         conversation_id=conversation_id,
         user_id=current_user.id,
-        options=conversation_options(),
     )
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    return conversation
+    window = list_conversation_messages_window(
+        db,
+        conversation_id=conversation_id,
+        limit=message_limit,
+    )
+    return ConversationDetail(
+        id=conversation.id,
+        title=conversation.title,
+        model=conversation.model,
+        messages=window.messages,
+        total_message_count=window.total_message_count,
+        loaded_message_count=window.loaded_message_count,
+        remaining_message_count=window.remaining_message_count,
+    )
+
+
+@router.get("/{conversation_id}/messages", response_model=ConversationMessagePage)
+def get_conversation_messages(
+    conversation_id: int,
+    before_message_id: int = Query(..., ge=1),
+    limit: int = Query(default=settings.conversation_view_message_limit, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
+    conversation = get_user_conversation(
+        db,
+        conversation_id=conversation_id,
+        user_id=current_user.id,
+    )
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    window = list_conversation_messages_window(
+        db,
+        conversation_id=conversation_id,
+        limit=limit,
+        before_message_id=before_message_id,
+    )
+    return ConversationMessagePage(
+        messages=window.messages,
+        loaded_message_count=window.loaded_message_count,
+        remaining_message_count=window.remaining_message_count,
+    )
 
 
 @router.patch("/{conversation_id}", response_model=ConversationSummary)

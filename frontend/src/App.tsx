@@ -47,7 +47,8 @@ function ErrorToast({ message }: { message: string | null }) {
 function Disclaimer() {
   return (
     <div className="pointer-events-none px-4 pt-2 pb-2 text-center text-[13px] text-app-muted/80 md:px-6 md:pt-2 md:pb-2">
-      Chatchat can make mistakes. Please verify important information.
+      <span className="md:hidden">Chatchat can make mistakes.</span>
+      <span className="hidden md:inline">Chatchat can make mistakes. Please verify important information.</span>
     </div>
   );
 }

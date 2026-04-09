@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { ApiError, fetchSession, login, logout } from "../lib/api";
 import type { AuthUser } from "../types";
+import { useLatestRequestGuard } from "./useLatestRequestGuard";
 
 export interface LoginErrorState {
   form: string | null;
@@ -34,23 +35,33 @@ export function useAuthSession() {
   const [authError, setAuthError] = useState<LoginErrorState>(EMPTY_LOGIN_ERROR);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const bootstrapGuard = useLatestRequestGuard();
 
   const refreshSession = useCallback(async () => {
+    const requestId = bootstrapGuard.begin();
     setIsBootstrapping(true);
     try {
       const session = await fetchSession();
+      if (!bootstrapGuard.isCurrent(requestId)) {
+        return;
+      }
       setUser(session.user);
       setAuthError(EMPTY_LOGIN_ERROR);
     } catch (error) {
+      if (!bootstrapGuard.isCurrent(requestId)) {
+        return;
+      }
       if (!(error instanceof ApiError && error.status === 401)) {
         console.warn("Failed to restore session.", error);
       }
       setUser(null);
       setAuthError(EMPTY_LOGIN_ERROR);
     } finally {
-      setIsBootstrapping(false);
+      if (bootstrapGuard.isCurrent(requestId)) {
+        setIsBootstrapping(false);
+      }
     }
-  }, []);
+  }, [bootstrapGuard]);
 
   useEffect(() => {
     void refreshSession();
