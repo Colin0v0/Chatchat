@@ -63,6 +63,8 @@ class MemoryService:
         self._extractor = MemoryExtractor(extract_limit=settings.memory_extract_max_items)
         self._memory_model = settings.memory_model.strip()
         self._recall_limit = max(1, settings.memory_recall_top_k)
+        self._refresh_semaphore = asyncio.Semaphore(max(1, settings.memory_refresh_max_concurrency))
+        self._refresh_tasks: dict[int, asyncio.Task[None]] = {}
 
     def build_prompt_payload(
         self,
@@ -115,14 +117,56 @@ class MemoryService:
         assistant_message_id: int,
         response_model: str,
     ) -> None:
-        asyncio.create_task(
-            self.refresh_from_turn(
+        previous_task = self._refresh_tasks.get(conversation_id)
+        task = asyncio.create_task(
+            self._run_scheduled_refresh(
                 conversation_id=conversation_id,
                 user_message_id=user_message_id,
                 assistant_message_id=assistant_message_id,
                 response_model=response_model,
             )
         )
+        self._refresh_tasks[conversation_id] = task
+        task.add_done_callback(
+            lambda completed_task, tracked_conversation_id=conversation_id: self._finalize_refresh_task(
+                conversation_id=tracked_conversation_id,
+                task=completed_task,
+            )
+        )
+        if previous_task is not None and previous_task is not task:
+            previous_task.cancel()
+
+    def _finalize_refresh_task(
+        self,
+        *,
+        conversation_id: int,
+        task: asyncio.Task[None],
+    ) -> None:
+        try:
+            task.result()
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            logger.exception("memory refresh task failed")
+        finally:
+            if self._refresh_tasks.get(conversation_id) is task:
+                self._refresh_tasks.pop(conversation_id, None)
+
+    async def _run_scheduled_refresh(
+        self,
+        *,
+        conversation_id: int,
+        user_message_id: int,
+        assistant_message_id: int,
+        response_model: str,
+    ) -> None:
+        async with self._refresh_semaphore:
+            await self.refresh_from_turn(
+                conversation_id=conversation_id,
+                user_message_id=user_message_id,
+                assistant_message_id=assistant_message_id,
+                response_model=response_model,
+            )
 
     async def refresh_from_turn(
         self,
@@ -199,6 +243,9 @@ class MemoryService:
                 db.commit()
             else:
                 db.commit()
+        except asyncio.CancelledError:
+            db.rollback()
+            raise
         except Exception:
             db.rollback()
             logger.exception("memory refresh failed")

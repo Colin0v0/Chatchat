@@ -5,7 +5,6 @@ import httpx
 from app.llm.openai_client import (
     _decode_openai_stream_payload,
     _iter_openai_stream_payloads,
-    _looks_like_startup_log,
     _parse_openai_json_response,
 )
 
@@ -70,14 +69,10 @@ class OpenAIClientStreamParsingTests(unittest.IsolatedAsyncioTestCase):
         )
 
         with self.assertRaises(RuntimeError) as ctx:
-            _parse_openai_json_response(response, context="chat.completions fallback")
+            _parse_openai_json_response(response, context="chat.completions")
 
         self.assertIn("non-JSON response", str(ctx.exception))
-        self.assertIn("chat.completions fallback", str(ctx.exception))
-
-    def test_looks_like_startup_log_matches_uvicorn_warmup_lines(self):
-        payload = "Waiting for application startup.\\nINFO: Application startup complete."
-        self.assertTrue(_looks_like_startup_log(payload))
+        self.assertIn("chat.completions", str(ctx.exception))
 
 
 if __name__ == "__main__":

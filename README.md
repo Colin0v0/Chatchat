@@ -1,218 +1,360 @@
 # Chatchat
 
-Local chat workspace with:
-- host Ollama inference
-- FastAPI backend
-- React frontend
-- built-in Obsidian RAG (markdown only)
+Chatchat 是一个面向个人/小团队的聊天工作台，当前提供：
 
-## Stack
+- 多模型聊天：`Ollama`、`OpenAI`、`OpenAI-compatible local router`
+- 登录与多用户隔离：基于账号密码和 Cookie Session
+- 推理展示：支持 reasoning/thinking 流式展示与持久化
+- 检索增强：`RAG`、`Web Search`
+- 多模态输入：图片、PDF、DOCX、XLSX、CSV、文本类文件
+- 语音转写：可选本地 `SenseVoice / FunASR`
+- 记忆系统：全局记忆、会话记忆、工作记忆、候选记忆、记忆文档
 
-- Frontend: `React 19 + Vite + TypeScript`
-- Backend: `FastAPI + SQLAlchemy + SQLite`
-- Inference: host `Ollama`
-- Orchestration: `Docker Compose`
+当前代码默认遵循这几个原则：
 
-## Docker First
+- 优先做清晰重构，不堆补丁
+- 不主动引入隐式 fallback
+- 能力按领域收口，避免逻辑散落
 
-This repo now supports one-command startup for:
-- `frontend`
-- `backend`
+详细开发说明见 [开发文档.md](开发文档.md)。
 
-Ollama is expected to run on the host machine, not inside Docker.
+## 当前架构
 
-## Quick Start
-
-### 1. Prepare env
-
-Copy the example file:
-
-```bash
-cp .env.example .env
+```text
+Chatchat/
+  backend/      FastAPI + SQLAlchemy + LLM / Retrieval / Memory
+  frontend/     React 19 + Vite + TypeScript
+  storage/      数据库、媒体、RAG 索引持久化目录
+  docker-compose.yml
+  README.md
+  开发文档.md
 ```
 
-On Windows PowerShell:
+## 当前核心功能
+
+### 1. 聊天与推理
+
+- 支持普通聊天、重试回答、停止生成
+- reasoning 面板支持流式展示
+- reasoning 会随 assistant message 一起持久化到数据库
+- 前端消费统一 NDJSON 事件流：
+  - `meta`
+  - `status`
+  - `reasoning`
+  - `token`
+  - `sources`
+  - `context`
+  - `done`
+  - `error`
+
+### 2. 检索
+
+- `none`：不检索
+- `rag`：检索本地 Markdown 笔记
+- `web`：联网搜索
+
+### 3. 多模态与附件
+
+所有模型前端都允许上传附件，但后端处理分两种模式：
+
+- `native_multimodal=false`
+  - 走本地附件解析链路
+  - 图片走本地视觉/OCR
+  - 文件走本地解析器
+  - 把结果写入 `attachment_context`
+
+- `native_multimodal=true`
+  - 不走本地 OCR / 文件解析
+  - 直接上传到上游 OpenAI-compatible `/v1/files`
+  - 聊天请求里传 `input_file`
+
+当前 `native_multimodal` 由 [backend/model_catalog.json](backend/model_catalog.json) 控制。
+
+### 4. 认证与用户
+
+- 不开放注册页
+- 通过数据库注入/脚本创建账号
+- 登录后通过 Cookie Session 维持状态
+- 会话、记忆、设置按用户隔离
+
+创建用户脚本：
 
 ```powershell
-Copy-Item .env.example .env
+cd backend
+python scripts/create_user.py --username alice --password secret123
 ```
 
-If you want DeepSeek or another OpenAI-compatible provider, fill:
+如果要接管历史无主数据：
 
-```env
-OPENAI_BASE_URL=https://api.deepseek.com/v1
-OPENAI_API_KEY=your_real_key
-OPENAI_MODEL_ALLOWLIST=deepseek-chat,deepseek-reasoner
-DEFAULT_PROVIDER=openai
-DEFAULT_MODEL=deepseek-chat
+```powershell
+cd backend
+python scripts/create_user.py --username alice --password secret123 --take-ownership-of-orphans
 ```
 
-If you want Ollama by default, keep:
+## 模型配置
 
-```env
-OLLAMA_BASE_URL=http://host.docker.internal:11434
-OBSIDIAN_VAULT_HOST_PATH=E:/360MoveData/Users/29220/Documents/COLIN_all_in_one_note
-RAG_VAULT_PATH=/data/obsidian
-RAG_INDEX_PATH=/app/storage/rag/index.json
-RAG_EMBEDDING_MODEL=nomic-embed-text
-RAG_TOP_K=4
-RAG_SECTION_MAX_CHARS=1400
-DEFAULT_PROVIDER=ollama
-DEFAULT_MODEL=qwen2.5:7b
-```
+模型由 [backend/model_catalog.json](backend/model_catalog.json) 管理。
 
-### 2. Start all services
+当前常用字段：
 
-Make sure Ollama is already running on your host:
+- `id`
+- `display_name`
+- `provider_ref`
+- `upstream_model`
+- `thinking_mode`
+- `context_window`
+- `native_multimodal`
+- `enabled`
 
-```bash
-ollama serve
-```
+当前 provider 主要有三类：
 
-```bash
-docker compose up --build
-```
+- `ollama`
+- `openai`
+- `openai_local`
 
-### 3. Open the app
+前端 `/api/models` 当前使用的模型能力字段：
 
-- Frontend: [http://127.0.0.1:3300](http://127.0.0.1:3300)
-- Backend API: [http://127.0.0.1:8000/api/health](http://127.0.0.1:8000/api/health)
-- Host Ollama API: [http://127.0.0.1:11434](http://127.0.0.1:11434)
+- `supports_thinking`
+- `supports_thinking_trace`
+- `supports_attachment_upload`
+- `chat_model`
+- `reasoning_model`
 
-## Multi-Env Setup
+## 环境变量
 
-Backend config now supports layered env files:
+后端支持分层环境文件：
 
-- default: `backend/.env`
-- named env: set `CHATCHAT_ENV=<name>` to also load `backend/.env.<name>`
-- explicit file: set `CHATCHAT_ENV_FILE=<path>` to load an additional env file
+- 默认：`backend/.env`
+- 命名环境：`CHATCHAT_ENV=<name>` 时额外加载 `backend/.env.<name>`
+- 显式文件：`CHATCHAT_ENV_FILE=<path>`
 
-Examples:
+示例：
 
 ```powershell
 $env:CHATCHAT_ENV = "dev.windows"
-python app.py --reload
+cd backend
+python app.py
 ```
 
 ```bash
-CHATCHAT_ENV=deploy.wsl python app.py --host 0.0.0.0 --port 8000
+CHATCHAT_ENV=deploy.wsl python app.py
 ```
 
-Reference templates:
+常用模板：
 
-- [backend/.env.dev.windows.example](backend/.env.dev.windows.example)
-- [backend/.env.deploy.wsl.example](backend/.env.deploy.wsl.example)
+- `backend/.env.dev.windows.example`
+- `backend/.env.deploy.wsl.example`
 
-Copy them to real env files before use, for example:
+### 关键环境变量
 
-- `backend/.env.dev.windows`
-- `backend/.env.deploy.wsl`
-
-### SSH Tunnel For Remote Model Router
-
-If your OpenAI-compatible model service is reachable only through SSH, open a local tunnel first:
-
-```bash
-ssh -N -L 18000:127.0.0.1:8000 user@remote-host
-```
-
-Then point:
+#### 模型与路由
 
 ```env
-OPENAI_LOCAL_BASE_URL=http://127.0.0.1:18000/v1
-OPENAI_LOCAL_API_KEY=sk-local
+OPENAI_BASE_URL=
+OPENAI_API_KEY=
+OPENAI_LOCAL_BASE_URL=
+OPENAI_LOCAL_UPSTREAM_SERVICE_BASE_URL=
+OPENAI_LOCAL_API_KEY=
+OLLAMA_BASE_URL=
+MODEL_CATALOG_PATH=./model_catalog.json
+MODEL_CATALOG_STRICT=true
+DEFAULT_PROVIDER=openai
+DEFAULT_MODEL=openai:deepseek-chat
 ```
 
-If the tunnel runs on Windows but the backend runs inside WSL2 or Docker, use the address reachable from that runtime instead of blindly reusing Windows paths.
+#### 并发与连接池
 
-### Audio Dependency
+```env
+REQUEST_TIMEOUT_SECONDS=180
+OPENAI_CONNECT_TIMEOUT_SECONDS=30
+HTTP_POOL_MAX_CONNECTIONS=100
+HTTP_POOL_MAX_KEEPALIVE_CONNECTIONS=20
+OPENAI_HTTP_MAX_CONCURRENCY=8
+OPENAI_LOCAL_HTTP_MAX_CONCURRENCY=4
+OLLAMA_HTTP_MAX_CONCURRENCY=4
+WEB_SEARCH_HTTP_MAX_CONCURRENCY=4
+MODEL_MAX_CONCURRENCY_PER_MODEL=3
+ATTACHMENT_PROCESSING_MAX_CONCURRENCY=2
+MEMORY_REFRESH_MAX_CONCURRENCY=1
+```
 
-Audio transcription is now optional. If `funasr` is not installed in the current environment, disable it:
+#### 检索
+
+```env
+RAG_VAULT_PATH=/data/obsidian
+RAG_INDEX_PATH=./storage/rag/index.json
+RAG_EMBEDDING_MODEL=nomic-embed-text
+WEB_SEARCH_BASE_URL=https://api.tavily.com
+WEB_SEARCH_API_KEY=
+WEB_SEARCH_TRANSLATION_MODEL=openai_local:claude-haiku-4-5
+```
+
+#### 语音
+
+```env
+AUDIO_TRANSCRIPTION_ENABLED=true
+AUDIO_TRANSCRIPTION_EAGER_LOAD=false
+AUDIO_TRANSCRIPTION_MODEL=iic/SenseVoiceSmall
+AUDIO_TRANSCRIPTION_DEVICE=cpu
+```
+
+如果当前环境没有装 `funasr`，请直接关闭语音：
 
 ```env
 AUDIO_TRANSCRIPTION_ENABLED=false
 AUDIO_TRANSCRIPTION_EAGER_LOAD=false
 ```
 
-## Common Commands
+## 本地开发
 
-Start in background:
+### 1. 启动后端
+
+```powershell
+cd backend
+python app.py
+```
+
+默认后端接口：
+
+- `http://127.0.0.1:8000/api/health`
+
+### 2. 启动前端
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+默认前端地址：
+
+- `http://127.0.0.1:5200`
+
+## Docker
+
+当前 `docker compose` 主要启动：
+
+- `frontend`
+- `backend`
+
+`Ollama` 默认仍然跑在宿主机，不放进容器。
+
+启动：
 
 ```bash
 docker compose up -d --build
 ```
 
-Stop:
+停止：
 
 ```bash
 docker compose down
 ```
 
-View logs:
+看日志：
 
 ```bash
 docker compose logs -f
 ```
 
-Pull an Ollama model on the host:
+## WSL2 / SSH Tunnel / 远程模型
+
+如果部署环境在 WSL2，模型路由在 Windows 或远端机器，需要先把地址打通。
+
+### 场景 1：Windows 上跑本地模型路由，WSL2 后端访问
+
+把 `OPENAI_LOCAL_BASE_URL` / `OPENAI_LOCAL_UPSTREAM_SERVICE_BASE_URL` 指向 WSL2 可访问的地址，例如：
+
+```env
+OPENAI_LOCAL_BASE_URL=http://host.docker.internal:61527/v1
+OPENAI_LOCAL_UPSTREAM_SERVICE_BASE_URL=http://host.docker.internal:61527/v1
+```
+
+### 场景 2：远端机器通过 SSH 暴露模型路由
 
 ```bash
-ollama pull qwen2.5:7b
+ssh -N -L 61527:127.0.0.1:61527 user@remote-host
 ```
 
-List Ollama models:
+然后本地后端指向：
 
-```bash
-ollama list
+```env
+OPENAI_LOCAL_BASE_URL=http://127.0.0.1:61527/v1
+OPENAI_LOCAL_UPSTREAM_SERVICE_BASE_URL=http://127.0.0.1:61527/v1
 ```
 
-Build Obsidian RAG index (markdown files split by `##`):
+## 常用接口
 
-```bash
-curl -X POST http://127.0.0.1:8000/api/rag/reindex
+### 系统
+
+- `GET /api/health`
+- `GET /api/models`
+
+### 认证
+
+- `POST /api/auth/login`
+- `POST /api/auth/logout`
+- `GET /api/auth/session`
+
+### 对话
+
+- `GET /api/conversations`
+- `GET /api/conversations/{id}`
+- `PATCH /api/conversations/{id}`
+- `DELETE /api/conversations/{id}`
+
+### 聊天
+
+- `POST /api/chat/stream`
+- `POST /api/chat/regenerate`
+- `PATCH /api/chat/messages/{message_id}/feedback`
+
+### 检索 / 记忆 / 语音
+
+- `GET /api/rag/status`
+- `POST /api/rag/reindex`
+- `GET /api/memories`
+- `POST /api/memories/items`
+- `PATCH /api/memories/items/{id}`
+- `POST /api/memories/{id}/promote`
+- `POST /api/memories/{id}/dismiss`
+- `DELETE /api/memories/items/{id}`
+- `POST /api/audio/transcribe`
+
+说明：
+
+- `POST /api/memories`、`PATCH /api/memories/{id}`、`DELETE /api/memories/{id}` 仍保留为兼容接口
+- 当前前端和新链路建议优先使用 `/api/memories/items/*`
+
+## 测试
+
+后端：
+
+```powershell
+$env:PYTHONPATH='E:\VScodeproject\Chatchat\backend'
+python -m pytest backend\tests
 ```
 
-Check RAG status:
+前端：
 
-```bash
-curl http://127.0.0.1:8000/api/rag/status
+```powershell
+cd frontend
+npm run build
 ```
 
-## Services
+## 当前文档对应代码状态
 
-### `frontend`
+本 README 已按当前代码整理，重点同步了：
 
-- Built with Vite
-- Served by Nginx
-- Proxies `/api` to `backend`
+- 登录/多用户链路
+- `native_multimodal` 双分支策略
+- reasoning 持久化
+- memory 系统
+- 共享 HTTP 连接池与上游限流
+- 本地开发 / Docker / WSL2 / SSH tunnel 场景
 
-### `backend`
+如果你要继续开发，请优先同时更新：
 
-- Runs `python app.py --host 0.0.0.0 --port 8000`
-- Stores SQLite data in a Docker volume
-- Connects to host Ollama via `host.docker.internal`
-- Mounts Obsidian vault read-only at `/data/obsidian`
-- Indexes `.md` files and retrieves context when `RAG` is enabled
-
-## Files Added For Docker
-
-```text
-docker-compose.yml
-.env.example
-backend/
-  Dockerfile
-  .dockerignore
-  .env.example
-frontend/
-  Dockerfile
-  .dockerignore
-  nginx.conf
-```
-
-## RAG Notes
-
-Current implementation:
-1. scans only `.md` files
-2. splits by level-2 headings (`##`)
-3. embeds sections with `nomic-embed-text` via host Ollama
-4. injects retrieved sections as system context when `RAG` toggle is on
+- [README.md](README.md)
+- [开发文档.md](开发文档.md)
+- [backend/model_catalog.json](backend/model_catalog.json)

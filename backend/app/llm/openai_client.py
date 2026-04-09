@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 from collections.abc import AsyncIterator
@@ -10,6 +9,7 @@ import httpx
 
 from ..chat.types import ChatMessagePayload
 from ..core.config import settings
+from ..core.http import limited_request, shared_http_clients
 from .capabilities import (
     DiscoveredModel,
     Provider,
@@ -21,6 +21,64 @@ from .capabilities import (
 
 
 logger = logging.getLogger("chatchat.llm.openai")
+
+
+def _openai_http_limits() -> httpx.Limits:
+    return httpx.Limits(
+        max_connections=max(1, settings.http_pool_max_connections),
+        max_keepalive_connections=max(1, settings.http_pool_max_keepalive_connections),
+    )
+
+
+def _openai_request_timeout() -> httpx.Timeout:
+    return httpx.Timeout(
+        settings.request_timeout_seconds,
+        connect=settings.openai_connect_timeout_seconds,
+    )
+
+
+def _openai_stream_timeout() -> httpx.Timeout:
+    return httpx.Timeout(
+        connect=settings.openai_connect_timeout_seconds,
+        read=None,
+        write=settings.request_timeout_seconds,
+        pool=settings.request_timeout_seconds,
+    )
+
+
+def _request_gate(provider: Provider) -> tuple[str, int]:
+    if provider == "openai_local":
+        return ("openai_local", max(1, settings.openai_local_http_max_concurrency))
+    return ("openai", max(1, settings.openai_http_max_concurrency))
+
+
+async def _openai_client(
+    *,
+    provider: Provider,
+    base_url_override: str | None,
+    api_key_override: str | None,
+    timeout: httpx.Timeout,
+) -> httpx.AsyncClient:
+    return await shared_http_clients.get_client(
+        base_url=normalize_base_url(openai_base_url(provider, base_url_override)),
+        headers=openai_headers(provider, api_key_override),
+        timeout=timeout,
+        limits=_openai_http_limits(),
+    )
+
+
+async def _openai_upstream_client(
+    *,
+    provider: Provider,
+    base_url_override: str | None,
+    api_key_override: str | None,
+) -> httpx.AsyncClient:
+    return await shared_http_clients.get_client(
+        base_url=normalize_base_url(openai_upstream_service_base_url(provider, base_url_override)),
+        headers=openai_headers(provider, api_key_override),
+        timeout=_openai_request_timeout(),
+        limits=_openai_http_limits(),
+    )
 
 
 def openai_base_url(provider: Provider = "openai", base_url_override: str | None = None) -> str:
@@ -55,11 +113,14 @@ def openai_headers(provider: Provider = "openai", api_key_override: str | None =
 async def _list_openai_models_for_provider(provider: Provider) -> list[DiscoveredModel]:
     allowlist = parse_openai_allowlist(provider)
     try:
-        async with httpx.AsyncClient(
-            base_url=normalize_base_url(openai_base_url(provider)),
-            timeout=httpx.Timeout(settings.request_timeout_seconds, connect=settings.openai_connect_timeout_seconds),
-            headers=openai_headers(provider),
-        ) as client:
+        gate, max_concurrency = _request_gate(provider)
+        async with limited_request(gate=gate, max_concurrency=max_concurrency):
+            client = await _openai_client(
+                provider=provider,
+                base_url_override=None,
+                api_key_override=None,
+                timeout=_openai_request_timeout(),
+            )
             response = await client.get("/models")
             response.raise_for_status()
     except httpx.HTTPError:
@@ -97,17 +158,14 @@ async def list_openai_local_models() -> list[DiscoveredModel]:
 
 
 def openai_message_payload(message: ChatMessagePayload) -> dict[str, object]:
-    # 纯文本消息
     if not message.images and not message.documents and not message.files:
         return {
             "role": message.role,
             "content": message.content,
         }
 
-    # 多模态消息（图片+文档）
     content: list[dict[str, object]] = [{"type": "text", "text": message.content}]
-    
-    # 添加图片
+
     content.extend(
         {
             "type": "image_url",
@@ -115,8 +173,7 @@ def openai_message_payload(message: ChatMessagePayload) -> dict[str, object]:
         }
         for image in message.images
     )
-    
-    # 添加PDF文档（Claude 3.5+ API格式）
+
     content.extend(
         {
             "type": "document",
@@ -136,7 +193,7 @@ def openai_message_payload(message: ChatMessagePayload) -> dict[str, object]:
         }
         for file_ref in message.files
     )
-    
+
     return {
         "role": message.role,
         "content": content,
@@ -156,11 +213,13 @@ async def upload_openai_file(
     if not content:
         raise RuntimeError(f"Cannot upload empty file to upstream service: {file_path.name}")
 
-    async with httpx.AsyncClient(
-        base_url=normalize_base_url(openai_upstream_service_base_url(provider, base_url_override)),
-        timeout=httpx.Timeout(settings.request_timeout_seconds, connect=settings.openai_connect_timeout_seconds),
-        headers=openai_headers(provider, api_key_override),
-    ) as client:
+    gate, max_concurrency = _request_gate(provider)
+    async with limited_request(gate=gate, max_concurrency=max_concurrency):
+        client = await _openai_upstream_client(
+            provider=provider,
+            base_url_override=base_url_override,
+            api_key_override=api_key_override,
+        )
         response = await client.post(
             "/files",
             data={"purpose": "user_data"},
@@ -259,14 +318,6 @@ def _decode_openai_stream_payload(payload: str) -> dict[str, object]:
     return event
 
 
-def _looks_like_startup_log(payload: str) -> bool:
-    normalized = payload.lower()
-    return (
-        "waiting for application startup" in normalized
-        or "application startup complete" in normalized
-    )
-
-
 def _parse_openai_json_response(response: httpx.Response, *, context: str) -> dict[str, object]:
     try:
         payload = response.json()
@@ -301,7 +352,6 @@ async def stream_openai_chat(
 ) -> AsyncIterator[dict]:
     logger.info("stream_openai_chat called | model=%s | provider=%s | thinking_enabled=%s", model, provider, thinking_enabled)
     use_stream = not (provider == "openai_local" and not settings.openai_local_stream)
-    request_timeout = settings.request_timeout_seconds
     payload = {
         "model": model,
         "messages": [openai_message_payload(message) for message in messages],
@@ -311,97 +361,51 @@ async def stream_openai_chat(
         logger.info("setting thinking in payload | type=%s", "enabled" if thinking_enabled else "disabled")
         payload["thinking"] = {"type": "enabled" if thinking_enabled else "disabled"}
 
-    async def _yield_non_stream_fallback() -> AsyncIterator[dict]:
-        fallback_payload = dict(payload)
-        fallback_payload["stream"] = False
-        max_attempts = 2 if provider == "openai_local" else 1
-        async with httpx.AsyncClient(
-            base_url=normalize_base_url(openai_base_url(provider, base_url_override)),
-            timeout=httpx.Timeout(request_timeout, connect=settings.openai_connect_timeout_seconds),
-            headers=openai_headers(provider, api_key_override),
-        ) as fallback_client:
-            payload_data: dict[str, object] | None = None
-            for attempt in range(max_attempts):
-                fallback_response = await fallback_client.post("/chat/completions", json=fallback_payload)
-                fallback_response.raise_for_status()
-
-                try:
-                    payload_data = _parse_openai_json_response(
-                        fallback_response,
-                        context="chat.completions fallback",
-                    )
-                    break
-                except RuntimeError:
-                    if attempt >= max_attempts - 1:
-                        raise
-                    body = fallback_response.text.strip()
-                    if not _looks_like_startup_log(body):
-                        raise
-                    logger.warning(
-                        "openai_local fallback received startup log; retrying | attempt=%s/%s | model=%s",
-                        attempt + 1,
-                        max_attempts,
-                        model,
-                    )
-                    await asyncio.sleep(1.0)
-
-            if payload_data is None:
-                return
-            choices = payload_data.get("choices") or []
-            if not choices:
-                return
-            message_payload = choices[0].get("message", {})
-            content = message_payload.get("content", "")
-            reasoning_text = message_payload.get("reasoning_content", "")
-            if reasoning_text:
-                yield {"reasoning": {"content": reasoning_text}}
-            if content:
-                yield {"message": {"content": content}}
-            yield {"done": True}
+    async def _yield_non_stream_completion() -> AsyncIterator[dict]:
+        completion_payload = dict(payload)
+        completion_payload["stream"] = False
+        gate, max_concurrency = _request_gate(provider)
+        async with limited_request(gate=gate, max_concurrency=max_concurrency):
+            client = await _openai_client(
+                provider=provider,
+                base_url_override=base_url_override,
+                api_key_override=api_key_override,
+                timeout=_openai_request_timeout(),
+            )
+            response = await client.post("/chat/completions", json=completion_payload)
+            response.raise_for_status()
+        payload_data = _parse_openai_json_response(response, context="chat.completions")
+        choices = payload_data.get("choices") or []
+        if not choices:
+            return
+        message_payload = choices[0].get("message", {})
+        content = message_payload.get("content", "")
+        reasoning_text = message_payload.get("reasoning_content", "")
+        if reasoning_text:
+            yield {"reasoning": {"content": reasoning_text}}
+        if content:
+            yield {"message": {"content": content}}
+        yield {"done": True}
 
     if not use_stream:
-        async for event in _yield_non_stream_fallback():
+        async for event in _yield_non_stream_completion():
             yield event
         return
 
-    stream_timeout = httpx.Timeout(
-        connect=settings.openai_connect_timeout_seconds,
-        read=None,
-        write=request_timeout,
-        pool=request_timeout,
+    client = await _openai_client(
+        provider=provider,
+        base_url_override=base_url_override,
+        api_key_override=api_key_override,
+        timeout=_openai_stream_timeout(),
     )
-    async with httpx.AsyncClient(
-        base_url=normalize_base_url(openai_base_url(provider, base_url_override)),
-        timeout=stream_timeout,
-        headers=openai_headers(provider, api_key_override),
-    ) as client:
-        emitted_any = False
-        try:
+    gate, max_concurrency = _request_gate(provider)
+    emitted_any = False
+    try:
+        async with limited_request(gate=gate, max_concurrency=max_concurrency):
             async with client.stream("POST", "/chat/completions", json=payload) as response:
                 response.raise_for_status()
-                fallback_to_non_stream = False
                 async for payload_text in _iter_openai_stream_payloads(response.aiter_lines()):
-                    try:
-                        chunk = _decode_openai_stream_payload(payload_text)
-                    except RuntimeError:
-                        if emitted_any:
-                            logger.warning(
-                                "ignoring malformed trailing stream payload | provider=%s | model=%s | payload=%s",
-                                provider,
-                                model,
-                                payload_text[:160],
-                            )
-                            continue
-                        if provider == "openai_local":
-                            logger.warning(
-                                "switching to non-stream fallback after malformed stream head | provider=%s | model=%s | payload=%s",
-                                provider,
-                                model,
-                                payload_text[:160],
-                            )
-                            fallback_to_non_stream = True
-                            break
-                        raise
+                    chunk = _decode_openai_stream_payload(payload_text)
                     if not chunk:
                         continue
                     if chunk.get("done") and "message" not in chunk and "reasoning" not in chunk:
@@ -426,16 +430,11 @@ async def stream_openai_chat(
                     if event:
                         emitted_any = True
                         yield event
-                if fallback_to_non_stream:
-                    async for event in _yield_non_stream_fallback():
-                        yield event
-                    return
                 if emitted_any:
                     yield {"done": True}
-        except httpx.TransportError:
-            # Some OpenAI-compatible routers intermittently close chunked streams early.
-            if emitted_any:
-                yield {"done": True}
-                return
-            async for event in _yield_non_stream_fallback():
-                yield event
+    except httpx.TransportError:
+        # Some OpenAI-compatible routers intermittently close chunked streams early.
+        if emitted_any:
+            yield {"done": True}
+            return
+        raise

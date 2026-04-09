@@ -5,11 +5,13 @@ from urllib.parse import urlparse
 import httpx
 
 from ....core.config import Settings
+from ....core.http import limited_request, shared_http_clients
 from ..types import WebQuery, WebSearchResult
 
 
 class TavilyProvider:
     def __init__(self, settings: Settings):
+        self._settings = settings
         self._base_url = settings.web_search_base_url.rstrip("/")
         self._api_key = settings.web_search_api_key
         self._timeout = httpx.Timeout(settings.web_search_timeout_seconds, connect=10.0)
@@ -36,7 +38,18 @@ class TavilyProvider:
         if query.exclude_domains:
             payload["exclude_domains"] = list(query.exclude_domains)
 
-        async with httpx.AsyncClient(base_url=self._base_url, timeout=self._timeout) as client:
+        async with limited_request(
+            gate="web_search",
+            max_concurrency=self._settings.web_search_http_max_concurrency,
+        ):
+            client = await shared_http_clients.get_client(
+                base_url=self._base_url,
+                timeout=self._timeout,
+                limits=httpx.Limits(
+                    max_connections=max(1, self._settings.http_pool_max_connections),
+                    max_keepalive_connections=max(1, self._settings.http_pool_max_keepalive_connections),
+                ),
+            )
             response = await client.post("/search", json=payload)
             if response.is_error:
                 raise RuntimeError(_build_error_message(response))

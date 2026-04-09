@@ -48,7 +48,7 @@ export function SidebarAction({
     return (
       <label
         className={cn(
-          "flex h-12 items-center rounded-[8px] border border-app-border bg-app-panel-strong text-app-muted",
+          "flex h-12 items-center overflow-hidden rounded-[8px] border border-app-border bg-app-panel-strong text-app-muted",
           "transition-colors focus-within:border-app-border-strong",
           alignToRail ? "pl-0 pr-4" : "gap-3 px-4",
         )}
@@ -56,8 +56,8 @@ export function SidebarAction({
         <IconSlot alignToRail={alignToRail} icon={icon} />
         <input
           className={cn(
-            "w-full bg-transparent text-[15px] placeholder:text-app-muted",
-            alignToRail && "min-w-0 pl-3",
+            "h-full min-w-0 flex-1 bg-transparent text-[15px] placeholder:text-app-muted",
+            alignToRail ? "pl-0 pr-0" : "px-0",
           )}
           onChange={(event) => onChange?.(event.target.value)}
           placeholder={label}
@@ -70,14 +70,15 @@ export function SidebarAction({
   return (
     <button
       className={cn(
-        "flex h-12 items-center gap-3 rounded-[8px] border border-app-border bg-app-panel-strong px-4",
+        "flex h-12 items-center rounded-[8px] border border-app-border bg-app-panel-strong",
         "text-[15px] font-medium tracking-[-0.02em] text-app-text transition-colors",
         "hover:bg-app-panel-soft focus:outline-none focus-visible:outline-none focus-visible:ring-0",
+        alignToRail ? "pl-0 pr-4" : "gap-3 px-4",
       )}
       onClick={onClick}
       type="button"
     >
-      <IconSlot alignToRail={false} icon={icon} />
+      <IconSlot alignToRail={alignToRail} icon={icon} />
       <span>{label}</span>
     </button>
   );
@@ -153,8 +154,8 @@ export function DesktopPinnedAction({
         tabIndex={open ? 0 : -1}
         type="button"
       >
-        <span className="flex h-full items-center gap-3 whitespace-nowrap px-4 text-[15px] tracking-[-0.02em]">
-          <span className="shrink-0 text-app-muted">{icon}</span>
+        <span className="flex h-full items-center whitespace-nowrap pl-0 pr-4 text-[15px] tracking-[-0.02em]">
+          <IconSlot alignToRail icon={icon} />
           <span>{label}</span>
         </span>
       </button>
@@ -213,6 +214,7 @@ export function DesktopPinnedHeader({
         {open ? (
           <SidebarAction
             icon={<Search className="size-4" />}
+            alignToRail
             isInput
             label="Search chats"
             onChange={onQueryChange}

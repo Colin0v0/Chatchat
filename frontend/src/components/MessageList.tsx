@@ -213,7 +213,7 @@ export function MessageList({
   const hideActions = isStreaming;
 
   return (
-    <div className="mx-auto flex w-full max-w-[920px] flex-col pb-6">
+    <div className="flex w-full flex-col pb-6">
       {items.map((item) => {
         if (collapsedMessageIds?.has(item.id)) {
           return null;
@@ -252,7 +252,7 @@ export function MessageList({
 
         return (
           <article className="mb-5 flex justify-start last:mb-0" key={item.id}>
-            <div className="w-full max-w-[760px]">
+            <div className="w-full">
               {showThinkingPanel ? (
                 <StreamingStatusSlot
                   label={null}

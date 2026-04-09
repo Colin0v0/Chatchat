@@ -8,6 +8,7 @@ from .api import auth_router, audio_router, chat_router, conversations_router, m
 from .audio import build_audio_services
 from .chat.state import build_chat_services
 from .core.config import settings
+from .core.http import shared_http_clients
 from .core.logging import configure_logging
 from .llm.catalog import ModelCatalogError, validate_model_catalog
 from .storage.database import ensure_schema_ready
@@ -40,7 +41,8 @@ def create_app() -> FastAPI:
             app.state.audio_services.transcriber.load()
 
     @app.on_event("shutdown")
-    def on_shutdown() -> None:
+    async def on_shutdown() -> None:
+        await shared_http_clients.aclose()
         app.state.audio_services.transcriber.unload()
 
     app.include_router(auth_router)

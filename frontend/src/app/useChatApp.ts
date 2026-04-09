@@ -10,9 +10,11 @@ import {
 
 import { useComposerAttachments } from "./useComposerAttachments";
 import { useConversationStreams } from "./useConversationStreams";
+import { useLatestRequestGuard } from "./useLatestRequestGuard";
 import {
   deleteConversation,
   fetchConversation,
+  fetchConversationMessages,
   fetchConversations,
   fetchModels,
   regenerateChat,
@@ -29,7 +31,7 @@ import type {
   RagReindexResult,
   RetrievalMode,
 } from "../types";
-import { deriveConversationTitle, pickLandingTitle } from "./constants";
+import { deriveConversationTitle, INITIAL_CHAT_MODEL, pickLandingTitle } from "./constants";
 import { useAudioRecorder } from "./useAudioRecorder";
 import {
   appendRetryDraft,
@@ -55,6 +57,8 @@ type UseChatAppOptions = {
   sidebarOpen: boolean;
   toggleSidebar: () => void;
 };
+
+const CONVERSATION_VIEW_MESSAGE_LIMIT = 10;
 
 function toggleRetrievalMode(current: RetrievalMode, next: Exclude<RetrievalMode, "none">): RetrievalMode {
   return current === next ? "none" : next;
@@ -87,7 +91,7 @@ export function useChatApp({
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState("");
   const [models, setModels] = useState<ModelOption[]>(() => createInitialModelOptions());
-  const [selectedModel, setSelectedModel] = useState("openai:deepseek-reasoner");
+  const [selectedModel, setSelectedModel] = useState(INITIAL_CHAT_MODEL);
   const [collapsedMessageIds, setCollapsedMessageIds] = useState<Set<number | string>>(new Set());
   const [retrievalMode, setRetrievalMode] = useState<RetrievalMode>("none");
   const [landingHeroAnimated, setLandingHeroAnimated] = useState(false);
@@ -95,6 +99,7 @@ export function useChatApp({
   const [error, setError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
+  const [isLoadingEarlierMessages, setIsLoadingEarlierMessages] = useState(false);
   const [isUpdatingRag, setIsUpdatingRag] = useState(false);
   const [ragUpdateError, setRagUpdateError] = useState<string | null>(null);
   const [ragUpdateResult, setRagUpdateResult] = useState<RagReindexResult | null>(null);
@@ -107,6 +112,11 @@ export function useChatApp({
   const { cancelRecording, isRecording, recordingError, startRecording, stopRecording } =
     useAudioRecorder();
   const transientAttachmentUrlsRef = useRef<string[]>([]);
+  const conversationLoadAbortRef = useRef<AbortController | null>(null);
+  const earlierMessagesAbortRef = useRef<AbortController | null>(null);
+  const conversationLoadGuard = useLatestRequestGuard();
+  const conversationsRefreshGuard = useLatestRequestGuard();
+  const modelsLoadGuard = useLatestRequestGuard();
   const deferredQuery = useDeferredValue(query);
 
   const selectedModelOption = useMemo(
@@ -146,6 +156,8 @@ export function useChatApp({
 
   const loadConversation = useCallback(
     async (conversationId: number) => {
+      const requestId = conversationLoadGuard.begin();
+      conversationLoadAbortRef.current?.abort();
       const sessionConversation = getSessionConversation(conversationId);
       if (sessionConversation) {
         setActiveConversation(sessionConversation);
@@ -153,11 +165,34 @@ export function useChatApp({
         return;
       }
 
-      const conversation = await fetchConversation(conversationId);
-      setActiveConversation(conversation);
-      setSelectedModel(conversation.model);
+      const controller = new AbortController();
+      conversationLoadAbortRef.current = controller;
+
+      try {
+        const conversation = await fetchConversation(conversationId, {
+          limit: CONVERSATION_VIEW_MESSAGE_LIMIT,
+          signal: controller.signal,
+        });
+        if (!conversationLoadGuard.isCurrent(requestId)) {
+          return;
+        }
+        setActiveConversation(conversation);
+        setSelectedModel(conversation.model);
+      } catch (loadError) {
+        if (controller.signal.aborted) {
+          return;
+        }
+        if (!conversationLoadGuard.isCurrent(requestId)) {
+          return;
+        }
+        setError(loadError instanceof Error ? loadError.message : "Failed to load conversation.");
+      } finally {
+        if (conversationLoadAbortRef.current === controller) {
+          conversationLoadAbortRef.current = null;
+        }
+      }
     },
-    [getSessionConversation],
+    [conversationLoadGuard, getSessionConversation, setError],
   );
 
   const filteredConversations = useMemo(() => {
@@ -175,21 +210,41 @@ export function useChatApp({
   );
 
   const refreshConversations = useCallback(async () => {
+    const requestId = conversationsRefreshGuard.begin();
     try {
       const items = await fetchConversations();
+      if (!conversationsRefreshGuard.isCurrent(requestId)) {
+        return;
+      }
       setConversations(mergeConversationSummariesWithSessions(items));
+    } catch (refreshError) {
+      if (conversationsRefreshGuard.isCurrent(requestId)) {
+        setError(refreshError instanceof Error ? refreshError.message : "Failed to refresh conversations.");
+      }
     } finally {
-      setConversationsLoaded(true);
+      if (conversationsRefreshGuard.isCurrent(requestId)) {
+        setConversationsLoaded(true);
+      }
     }
-  }, [mergeConversationSummariesWithSessions]);
+  }, [conversationsRefreshGuard, mergeConversationSummariesWithSessions, setError]);
 
   const loadModels = useCallback(async () => {
-    const payload = await fetchModels();
-    const nextModels =
-      payload.models.length > 0 ? payload.models : [createModelOption(payload.default_model)];
-    setModels(nextModels);
-    setSelectedModel(resolveInitialSelectedModel(nextModels, payload.default_model));
-  }, []);
+    const requestId = modelsLoadGuard.begin();
+    try {
+      const payload = await fetchModels();
+      if (!modelsLoadGuard.isCurrent(requestId)) {
+        return;
+      }
+      const nextModels =
+        payload.models.length > 0 ? payload.models : [createModelOption(payload.default_model)];
+      setModels(nextModels);
+      setSelectedModel(resolveInitialSelectedModel(nextModels, payload.default_model));
+    } catch (loadError) {
+      if (modelsLoadGuard.isCurrent(requestId)) {
+        setError(loadError instanceof Error ? loadError.message : "Failed to load models.");
+      }
+    }
+  }, [modelsLoadGuard, setError]);
 
   useEffect(() => {
     void refreshConversations();
@@ -206,6 +261,8 @@ export function useChatApp({
 
   useEffect(() => {
     return () => {
+      conversationLoadAbortRef.current?.abort();
+      earlierMessagesAbortRef.current?.abort();
       clearTransientAttachmentUrls();
     };
   }, [clearTransientAttachmentUrls]);
@@ -284,6 +341,8 @@ export function useChatApp({
 
   const handleNewChat = useCallback(() => {
     cancelRecording();
+    conversationLoadAbortRef.current?.abort();
+    earlierMessagesAbortRef.current?.abort();
     clearAttachments();
     startTransition(() => {
       setActiveConversationId(null);
@@ -300,6 +359,7 @@ export function useChatApp({
   const handleSelectConversation = useCallback(
     (conversationId: number) => {
       cancelRecording();
+      earlierMessagesAbortRef.current?.abort();
       startTransition(() => {
         setActiveConversationId(conversationId);
         setError(null);
@@ -363,6 +423,68 @@ export function useChatApp({
     }
   }, [isUpdatingRag]);
 
+  const handleLoadEarlierMessages = useCallback(async () => {
+    if (!activeConversation || activeConversation.id <= 0 || isLoadingEarlierMessages) {
+      return;
+    }
+
+    const firstPersistedMessage = activeConversation.messages.find(
+      (message) => typeof message.id === "number",
+    );
+    if (
+      !firstPersistedMessage ||
+      typeof firstPersistedMessage.id !== "number" ||
+      activeConversation.remaining_message_count <= 0
+    ) {
+      return;
+    }
+
+    earlierMessagesAbortRef.current?.abort();
+    const controller = new AbortController();
+    earlierMessagesAbortRef.current = controller;
+    setIsLoadingEarlierMessages(true);
+
+    try {
+      const page = await fetchConversationMessages(activeConversation.id, {
+        beforeMessageId: firstPersistedMessage.id,
+        limit: CONVERSATION_VIEW_MESSAGE_LIMIT,
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted) {
+        return;
+      }
+
+      setActiveConversation((current) => {
+        if (!current || current.id !== activeConversation.id) {
+          return current;
+        }
+        const currentFirstPersistedMessage = current.messages.find(
+          (message) => typeof message.id === "number",
+        );
+        if (currentFirstPersistedMessage?.id !== firstPersistedMessage.id) {
+          return current;
+        }
+
+        return {
+          ...current,
+          messages: [...page.messages, ...current.messages],
+          loaded_message_count: current.loaded_message_count + page.loaded_message_count,
+          remaining_message_count: page.remaining_message_count,
+        };
+      });
+    } catch (loadError) {
+      if (controller.signal.aborted) {
+        return;
+      }
+      setError(loadError instanceof Error ? loadError.message : "Failed to load earlier messages.");
+    } finally {
+      if (earlierMessagesAbortRef.current === controller) {
+        earlierMessagesAbortRef.current = null;
+      }
+      setIsLoadingEarlierMessages(false);
+    }
+  }, [activeConversation, isLoadingEarlierMessages, setError]);
+
   const handleSend = useCallback(async () => {
     const message = draft.trim();
     const pendingFiles = draftAttachments.map((attachment) => attachment.file);
@@ -383,12 +505,17 @@ export function useChatApp({
       ? {
           ...activeConversation,
           model: effectiveModel,
+          total_message_count: activeConversation.total_message_count + 2,
+          loaded_message_count: activeConversation.loaded_message_count + 2,
           messages: [...activeConversation.messages, tempUserMessage, createAssistantDraftMessage()],
         }
       : {
           id: tempConversationId,
           title: deriveConversationTitle(message, tempAttachments.length),
           model: effectiveModel,
+          total_message_count: 2,
+          loaded_message_count: 2,
+          remaining_message_count: 0,
           messages: [tempUserMessage, createAssistantDraftMessage()],
         };
 
@@ -476,12 +603,17 @@ export function useChatApp({
         sourceUser.content,
         sourceUser.attachments ?? [],
       );
+      const retryConversation: ConversationDetail = {
+        ...nextConversation,
+        total_message_count: nextConversation.total_message_count + 2,
+        loaded_message_count: nextConversation.loaded_message_count + 2,
+      };
 
       setCollapsedMessageIds((current) => new Set([...current, sourceUser.id, messageId]));
-      setActiveConversation(nextConversation);
+      setActiveConversation(retryConversation);
 
       const result = await runStream({
-        conversation: nextConversation,
+        conversation: retryConversation,
         errorMessage: "Failed to regenerate response.",
         initialStage: stageForRetrievalMode(retrievalMode),
         restoreInput: {
@@ -571,11 +703,13 @@ export function useChatApp({
     error,
     conversationProps: activeConversation
       ? {
+          canLoadEarlierMessages: activeConversation.remaining_message_count > 0,
           collapsedMessageIds,
           conversation: activeConversation,
           draft,
           draftAttachments,
           attachmentUploadAvailable,
+          isLoadingEarlierMessages,
           isRecording,
           isReasoningStreaming: activeSession?.reasoningStreaming ?? false,
           isStreaming: visibleStreaming,
@@ -585,6 +719,7 @@ export function useChatApp({
           onChangeDraft: setDraft,
           onFeedback: (messageId: number, value: "up" | "down" | null) =>
             void handleMessageFeedback(messageId, value),
+          onLoadEarlierMessages: () => void handleLoadEarlierMessages(),
           onModelChange: handleModelChange,
           onRemoveDraftAttachment: removeAttachment,
           onRetry: handleRetryAssistant,

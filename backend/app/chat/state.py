@@ -50,6 +50,7 @@ def build_chat_services(settings: Settings) -> ChatServices:
             table_row_limit=settings.file_table_row_limit,
             table_column_limit=settings.file_table_column_limit,
         ),
+        max_concurrency=settings.attachment_processing_max_concurrency,
     )
     retrieval_service = RetrievalService(
         settings,

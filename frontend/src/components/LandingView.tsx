@@ -99,9 +99,9 @@ export function LandingView({
   const showCaret = shouldAnimate && visibleCount < title.length;
 
   return (
-    <section className="flex min-h-0 flex-1 flex-col overflow-hidden px-4 pb-[max(8px,env(safe-area-inset-bottom))] pt-2 md:px-6 md:pb-2 md:pt-8">
-      <div className="mx-auto flex min-h-0 h-full w-full max-w-[920px] flex-col">
-        <div className="flex min-h-0 flex-1 items-center justify-center">
+    <section className="flex min-h-0 flex-1 flex-col pb-1">
+      <div className="flex min-h-0 flex-1 overflow-hidden pt-4">
+        <div className="mx-auto flex min-h-0 w-full max-w-[920px] items-center justify-center px-4 md:px-6">
           <h1 className="text-center text-[36px] font-semibold leading-none tracking-[-0.06em] md:text-[56px]">
             <span>{visibleTitle}</span>
             {showCaret ? (
@@ -109,32 +109,32 @@ export function LandingView({
             ) : null}
           </h1>
         </div>
+      </div>
 
-        <div className="shrink-0 pt-3">
-          <ChatComposer
-            centered={false}
-            attachmentUploadAvailable={attachmentUploadAvailable}
-            attachments={draftAttachments}
-            isRecording={isRecording}
-            isStreaming={isStreaming}
-            isTranscribing={isTranscribing}
-            model={model}
-            models={models}
-            onChange={onChangeDraft}
-            onModelChange={onModelChange}
-            onRemoveAttachment={onRemoveDraftAttachment}
-            onSelectAttachments={onSelectAttachments}
-            onStop={onStop}
-            onSubmit={onSend}
-            onToggleRecording={onToggleRecording}
-            onToggleRag={onToggleRag}
-            onToggleWeb={onToggleWeb}
-            retrievalMode={retrievalMode}
-            submitBlocked={submitBlocked}
-            submitBlockedReason={submitBlockedReason}
-            value={draft}
-          />
-        </div>
+      <div className="mx-auto w-full max-w-[920px] pl-4 pr-4 pt-2 md:pl-6 md:pr-[34px]">
+        <ChatComposer
+          centered={false}
+          attachmentUploadAvailable={attachmentUploadAvailable}
+          attachments={draftAttachments}
+          isRecording={isRecording}
+          isStreaming={isStreaming}
+          isTranscribing={isTranscribing}
+          model={model}
+          models={models}
+          onChange={onChangeDraft}
+          onModelChange={onModelChange}
+          onRemoveAttachment={onRemoveDraftAttachment}
+          onSelectAttachments={onSelectAttachments}
+          onStop={onStop}
+          onSubmit={onSend}
+          onToggleRecording={onToggleRecording}
+          onToggleRag={onToggleRag}
+          onToggleWeb={onToggleWeb}
+          retrievalMode={retrievalMode}
+          submitBlocked={submitBlocked}
+          submitBlockedReason={submitBlockedReason}
+          value={draft}
+        />
       </div>
     </section>
   );

@@ -12,6 +12,7 @@ from PIL import Image
 
 from ..chat.types import ChatImagePayload, ChatMessagePayload
 from ..core.config import settings
+from ..core.http import limited_request, shared_http_clients
 from .ollama_runtime import log_ollama_request, ollama_keep_alive_value
 from .capabilities import (
     DiscoveredModel,
@@ -22,11 +23,31 @@ from .capabilities import (
 )
 
 
+def _ollama_http_limits() -> httpx.Limits:
+    return httpx.Limits(
+        max_connections=max(1, settings.http_pool_max_connections),
+        max_keepalive_connections=max(1, settings.http_pool_max_keepalive_connections),
+    )
+
+
+def _ollama_timeout() -> httpx.Timeout:
+    return httpx.Timeout(settings.request_timeout_seconds, connect=10.0)
+
+
+async def _ollama_client(*, base_url: str, timeout: httpx.Timeout) -> httpx.AsyncClient:
+    return await shared_http_clients.get_client(
+        base_url=normalize_base_url(base_url),
+        timeout=timeout,
+        limits=_ollama_http_limits(),
+    )
+
+
 async def fetch_ollama_capabilities(model_name: str) -> set[str]:
-    async with httpx.AsyncClient(
-        base_url=normalize_base_url(settings.ollama_base_url),
-        timeout=10.0,
-    ) as client:
+    async with limited_request(gate="ollama", max_concurrency=settings.ollama_http_max_concurrency):
+        client = await _ollama_client(
+            base_url=settings.ollama_base_url,
+            timeout=httpx.Timeout(10.0),
+        )
         response = await client.post("/api/show", json={"model": model_name})
         response.raise_for_status()
         payload = response.json()
@@ -36,10 +57,11 @@ async def fetch_ollama_capabilities(model_name: str) -> set[str]:
 
 async def list_ollama_models() -> list[DiscoveredModel]:
     try:
-        async with httpx.AsyncClient(
-            base_url=normalize_base_url(settings.ollama_base_url),
-            timeout=10.0,
-        ) as client:
+        async with limited_request(gate="ollama", max_concurrency=settings.ollama_http_max_concurrency):
+            client = await _ollama_client(
+                base_url=settings.ollama_base_url,
+                timeout=httpx.Timeout(10.0),
+            )
             response = await client.get("/api/tags")
             response.raise_for_status()
     except httpx.HTTPError:
@@ -123,12 +145,12 @@ async def stream_ollama_chat(
     if isinstance(context_window, int) and context_window > 0:
         payload["options"] = {"num_ctx": context_window}
 
-    timeout = httpx.Timeout(settings.request_timeout_seconds, connect=10.0)
     started_at = time.perf_counter()
-    async with httpx.AsyncClient(
-        base_url=normalize_base_url(base_url_override or settings.ollama_base_url),
-        timeout=timeout,
-    ) as client:
+    client = await _ollama_client(
+        base_url=base_url_override or settings.ollama_base_url,
+        timeout=_ollama_timeout(),
+    )
+    async with limited_request(gate="ollama", max_concurrency=settings.ollama_http_max_concurrency):
         async with client.stream("POST", "/api/chat", json=payload) as response:
             response.raise_for_status()
             async for line in response.aiter_lines():

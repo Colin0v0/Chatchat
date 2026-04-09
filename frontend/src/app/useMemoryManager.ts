@@ -15,6 +15,7 @@ import type {
   MemoryScope,
   MemoryUpsertPayload,
 } from "../types";
+import { useLatestRequestGuard } from "./useLatestRequestGuard";
 
 type EditableScope = Exclude<MemoryScope, "working">;
 
@@ -115,19 +116,28 @@ export function useMemoryManager({
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const loadGuard = useLatestRequestGuard();
 
   const loadMemories = useCallback(async () => {
+    const requestId = loadGuard.begin();
     setIsLoading(true);
     setError(null);
     try {
       const nextCollection = await fetchMemories(activeConversationId);
+      if (!loadGuard.isCurrent(requestId)) {
+        return;
+      }
       setCollection(nextCollection);
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Failed to load memory workspace.");
+      if (loadGuard.isCurrent(requestId)) {
+        setError(loadError instanceof Error ? loadError.message : "Failed to load memory workspace.");
+      }
     } finally {
-      setIsLoading(false);
+      if (loadGuard.isCurrent(requestId)) {
+        setIsLoading(false);
+      }
     }
-  }, [activeConversationId]);
+  }, [activeConversationId, loadGuard]);
 
   useEffect(() => {
     if (!open) {

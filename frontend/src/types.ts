@@ -79,6 +79,15 @@ export interface ConversationDetail {
   title: string;
   model: string;
   messages: ChatMessage[];
+  total_message_count: number;
+  loaded_message_count: number;
+  remaining_message_count: number;
+}
+
+export interface ConversationMessagePage {
+  messages: ChatMessage[];
+  loaded_message_count: number;
+  remaining_message_count: number;
 }
 
 export interface ModelOption {
