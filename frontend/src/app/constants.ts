@@ -6,7 +6,7 @@ const FILTER_PATTERN = /\b(?:folder|tag|path):\S+/gi;
 const TITLE_MAX_LENGTH = 40;
 
 const LANDING_TITLES = [
-  "你好同志，请问有什么需要帮助的吗？",
+  "你好同志，请问有需要帮助的吗？",
   "今天想让模型帮你做什么？",
   "这次想先解决哪个问题？",
   "给我一个目标，我来帮你拆。",

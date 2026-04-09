@@ -12,6 +12,7 @@ MemoryScope = Literal["working", "global", "conversation"]
 MemoryKind = Literal["profile", "preference", "goal", "project", "fact", "constraint"]
 MemoryStatus = Literal["candidate", "active", "archived"]
 MemoryDocumentType = Literal["user_profile", "workspace_profile", "conversation_brief"]
+KnowledgeDocumentStatus = Literal["pending", "indexing", "ready", "failed"]
 
 
 class ConversationSummary(BaseModel):
@@ -140,32 +141,61 @@ class ConversationMessagePage(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class RagStatus(BaseModel):
-    vault_path: str
-    index_path: str
-    embedding_model: str
-    top_k: int
-    section_max_chars: int
-    candidate_limit: int
-    rerank_window: int
-    neighbor_window: int
-    min_score: float
-    chunk_count: int
-    updated_at: Optional[str] = None
-    vault_exists: bool
-
-
-class RagReindexResult(BaseModel):
-    indexed_files: int
-    indexed_chunks: int
-    failed_chunks: int = 0
-    updated_at: str
-
-
 class AudioTranscriptionOut(BaseModel):
     text: str
     language: str
     duration_ms: int
+
+
+class KnowledgeDocumentOut(BaseModel):
+    id: int
+    title: str
+    mime_type: str
+    extension: str
+    size_bytes: int
+    status: KnowledgeDocumentStatus
+    error_message: Optional[str] = None
+    chunk_count: int = 0
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class KnowledgeStatusOut(BaseModel):
+    document_count: int = 0
+    pending_document_count: int = 0
+    indexing_document_count: int = 0
+    ready_document_count: int = 0
+    failed_document_count: int = 0
+    chunk_count: int = 0
+    total_size_bytes: int = 0
+    max_documents_per_user: int
+    max_total_size_bytes: int
+    max_file_size_bytes: int
+
+
+class KnowledgeReindexResult(BaseModel):
+    started: bool = False
+    scheduled_documents: int = 0
+    indexing_documents: int = 0
+    ready_documents: int = 0
+    failed_documents: int = 0
+    chunk_count: int = 0
+
+
+class KnowledgeBatchUploadResult(BaseModel):
+    created_count: int = 0
+    documents: list[KnowledgeDocumentOut] = Field(default_factory=list)
+
+
+class KnowledgeBatchDeleteIn(BaseModel):
+    document_ids: list[int] = Field(min_length=1)
+
+
+class KnowledgeBatchDeleteResult(BaseModel):
+    deleted_count: int = 0
+    deleted_ids: list[int] = Field(default_factory=list)
 
 
 class MemoryItemOut(BaseModel):

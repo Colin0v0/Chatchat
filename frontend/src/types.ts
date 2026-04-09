@@ -124,11 +124,51 @@ export interface RegenerateChatRequest {
   thinking_enabled?: boolean | null;
 }
 
-export interface RagReindexResult {
-  indexed_files: number;
-  indexed_chunks: number;
-  failed_chunks: number;
-  updated_at: string;
+export type KnowledgeDocumentStatus = "pending" | "indexing" | "ready" | "failed";
+
+export interface KnowledgeDocument {
+  id: number;
+  title: string;
+  mime_type: string;
+  extension: string;
+  size_bytes: number;
+  status: KnowledgeDocumentStatus;
+  error_message: string | null;
+  chunk_count: number;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface KnowledgeStatus {
+  document_count: number;
+  pending_document_count: number;
+  indexing_document_count: number;
+  ready_document_count: number;
+  failed_document_count: number;
+  chunk_count: number;
+  total_size_bytes: number;
+  max_documents_per_user: number;
+  max_total_size_bytes: number;
+  max_file_size_bytes: number;
+}
+
+export interface KnowledgeReindexResult {
+  started: boolean;
+  scheduled_documents: number;
+  indexing_documents: number;
+  ready_documents: number;
+  failed_documents: number;
+  chunk_count: number;
+}
+
+export interface KnowledgeBatchUploadResult {
+  created_count: number;
+  documents: KnowledgeDocument[];
+}
+
+export interface KnowledgeBatchDeleteResult {
+  deleted_count: number;
+  deleted_ids: number[];
 }
 
 export type MemoryScope = "working" | "global" | "conversation";

@@ -96,16 +96,6 @@
       "context_window": 32768,
       "native_multimodal": false,
       "enabled": false
-    },
-    {
-      "id": "ollama:qwen3:4b",
-      "display_name": "Qwen3 4b",
-      "provider_ref": "ollama_local",
-      "upstream_model": "qwen3:4b",
-      "thinking_mode": "default_on",
-      "context_window": 32768,
-      "native_multimodal": false,
-      "enabled": false
     }
   ]
 }

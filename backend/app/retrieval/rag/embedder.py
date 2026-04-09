@@ -5,6 +5,7 @@ import time
 import httpx
 
 from ...core.config import Settings
+from ...core.http import limited_request, shared_http_clients
 from ...llm.ollama_runtime import log_ollama_request, ollama_keep_alive_value
 from .types import RagChunk, RagChunkSpec
 
@@ -16,8 +17,8 @@ class OllamaEmbedder:
         self._base_url = settings.ollama_base_url.rstrip("/")
 
     async def embed_query(self, query: str) -> list[float]:
-        timeout = httpx.Timeout(self._settings.request_timeout_seconds, connect=10.0)
-        async with httpx.AsyncClient(base_url=self._base_url, timeout=timeout) as client:
+        client = await self._client()
+        async with limited_request(gate="ollama", max_concurrency=self._settings.ollama_http_max_concurrency):
             return await self._embed_text(client=client, text=query)
 
     async def embed_chunk_specs(
@@ -28,8 +29,8 @@ class OllamaEmbedder:
 
         failed_chunks = 0
         embedded_chunks: list[RagChunk] = []
-        timeout = httpx.Timeout(self._settings.request_timeout_seconds, connect=10.0)
-        async with httpx.AsyncClient(base_url=self._base_url, timeout=timeout) as client:
+        client = await self._client()
+        async with limited_request(gate="ollama", max_concurrency=self._settings.ollama_http_max_concurrency):
             for chunk in chunk_specs:
                 try:
                     embedding = await self._embed_text(
@@ -54,6 +55,16 @@ class OllamaEmbedder:
                 )
 
         return embedded_chunks, failed_chunks
+
+    async def _client(self) -> httpx.AsyncClient:
+        return await shared_http_clients.get_client(
+            base_url=self._base_url,
+            timeout=httpx.Timeout(self._settings.request_timeout_seconds, connect=10.0),
+            limits=httpx.Limits(
+                max_connections=max(1, self._settings.http_pool_max_connections),
+                max_keepalive_connections=max(1, self._settings.http_pool_max_keepalive_connections),
+            ),
+        )
 
     async def _embed_text(self, *, client: httpx.AsyncClient, text: str) -> list[float]:
         keep_alive = ollama_keep_alive_value(self._settings.ollama_keep_alive_seconds)
@@ -82,27 +93,6 @@ class OllamaEmbedder:
             if isinstance(embedding, list):
                 return [float(value) for value in embedding]
         except httpx.HTTPError:
-            pass
+            raise
 
-        started_at = time.perf_counter()
-        fallback = await client.post(
-            "/api/embeddings",
-            json={
-                "model": self._embedding_model,
-                "prompt": text,
-                "keep_alive": keep_alive,
-            },
-        )
-        fallback.raise_for_status()
-        data = fallback.json()
-        log_ollama_request(
-            kind="embed",
-            model=self._embedding_model,
-            keep_alive=keep_alive,
-            started_at=started_at,
-            response_payload=data,
-        )
-        embedding = data.get("embedding")
-        if not isinstance(embedding, list):
-            raise ValueError("Invalid embedding payload returned by Ollama")
-        return [float(value) for value in embedding]
+        raise ValueError("Invalid embedding payload returned by Ollama /api/embed")

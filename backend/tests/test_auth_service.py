@@ -15,6 +15,7 @@ from app.auth.service import (
     resolve_request_user,
 )
 from app.storage.database import Base
+from app.storage.models import UserSession
 from fastapi import Response
 
 
@@ -51,10 +52,13 @@ class AuthServiceTests(unittest.TestCase):
         user = create_user(db=self.db, username="bob", password="secret123")
         token = create_user_session(db=self.db, user=user)
         request = SimpleNamespace(cookies={"chatchat_session": token})
+        before_last_seen = self.db.query(UserSession).first().last_seen_at
 
         resolved = resolve_request_user(db=self.db, request=request)
         self.assertIsNotNone(resolved)
         self.assertEqual(resolved.id, user.id)
+        after_last_seen = self.db.query(UserSession).first().last_seen_at
+        self.assertEqual(after_last_seen, before_last_seen)
 
         invalidate_user_session(db=self.db, token=token)
         resolved_after_logout = resolve_request_user(db=self.db, request=request)

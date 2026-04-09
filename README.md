@@ -5,7 +5,7 @@ Chatchat 是一个面向个人/小团队的聊天工作台，当前提供：
 - 多模型聊天：`Ollama`、`OpenAI`、`OpenAI-compatible local router`
 - 登录与多用户隔离：基于账号密码和 Cookie Session
 - 推理展示：支持 reasoning/thinking 流式展示与持久化
-- 检索增强：`RAG`、`Web Search`
+- 检索增强：用户知识库 `RAG`、`Web Search`
 - 多模态输入：图片、PDF、DOCX、XLSX、CSV、文本类文件
 - 语音转写：可选本地 `SenseVoice / FunASR`
 - 记忆系统：全局记忆、会话记忆、工作记忆、候选记忆、记忆文档
@@ -24,7 +24,7 @@ Chatchat 是一个面向个人/小团队的聊天工作台，当前提供：
 Chatchat/
   backend/      FastAPI + SQLAlchemy + LLM / Retrieval / Memory
   frontend/     React 19 + Vite + TypeScript
-  storage/      数据库、媒体、RAG 索引持久化目录
+  storage/      数据库、媒体、用户知识库文件
   docker-compose.yml
   README.md
   开发文档.md
@@ -50,8 +50,14 @@ Chatchat/
 ### 2. 检索
 
 - `none`：不检索
-- `rag`：检索本地 Markdown 笔记
+- `rag`：检索当前用户上传的 Markdown 知识库
 - `web`：联网搜索
+
+`rag` 模式当前会先做一层“查询重写”：
+
+- 结合最近几轮对话，把“它 / 那个 / 上面那段”改写成更完整的检索问题
+- 只影响知识库检索，不影响最终用户原始问题
+- 相关配置见 `RAG_QUERY_REWRITE_*`
 
 ### 3. 多模态与附件
 
@@ -178,12 +184,18 @@ ATTACHMENT_PROCESSING_MAX_CONCURRENCY=2
 MEMORY_REFRESH_MAX_CONCURRENCY=1
 ```
 
-#### 检索
+#### 检索 / 知识库
 
 ```env
-RAG_VAULT_PATH=/data/obsidian
-RAG_INDEX_PATH=./storage/rag/index.json
-RAG_EMBEDDING_MODEL=nomic-embed-text
+KNOWLEDGE_STORAGE_ROOT=./storage/knowledge
+KNOWLEDGE_EMBEDDING_MODEL=qwen3-embedding:0.6b
+KNOWLEDGE_RERANK_MODEL=dengcao/Qwen3-Reranker-0.6B:Q8_0
+KNOWLEDGE_MAX_FILE_SIZE_BYTES=2097152
+KNOWLEDGE_MAX_DOCUMENTS_PER_USER=100
+KNOWLEDGE_MAX_TOTAL_SIZE_BYTES=104857600
+RAG_QUERY_REWRITE_ENABLED=true
+RAG_QUERY_REWRITE_MODEL=openai_local:claude-haiku-4-5
+RAG_QUERY_REWRITE_HISTORY_MESSAGES=6
 WEB_SEARCH_BASE_URL=https://api.tavily.com
 WEB_SEARCH_API_KEY=
 WEB_SEARCH_TRANSLATION_MODEL=openai_local:claude-haiku-4-5
@@ -309,10 +321,16 @@ OPENAI_LOCAL_UPSTREAM_SERVICE_BASE_URL=http://127.0.0.1:61527/v1
 - `POST /api/chat/regenerate`
 - `PATCH /api/chat/messages/{message_id}/feedback`
 
-### 检索 / 记忆 / 语音
+### 检索 / 知识库 / 记忆 / 语音
 
-- `GET /api/rag/status`
-- `POST /api/rag/reindex`
+- `GET /api/knowledge/status`
+- `GET /api/knowledge/documents`
+- `POST /api/knowledge/documents`
+- `POST /api/knowledge/documents/batch`
+- `POST /api/knowledge/documents/{id}/reindex`
+- `POST /api/knowledge/reindex`
+- `DELETE /api/knowledge/documents/{id}`
+- `POST /api/knowledge/documents/delete`
 - `GET /api/memories`
 - `POST /api/memories/items`
 - `PATCH /api/memories/items/{id}`
@@ -323,8 +341,11 @@ OPENAI_LOCAL_UPSTREAM_SERVICE_BASE_URL=http://127.0.0.1:61527/v1
 
 说明：
 
-- `POST /api/memories`、`PATCH /api/memories/{id}`、`DELETE /api/memories/{id}` 仍保留为兼容接口
-- 当前前端和新链路建议优先使用 `/api/memories/items/*`
+- `rag` 模式现在只检索当前登录用户自己的 Markdown 知识库
+- 查询重写会在 `rag` 检索前结合最近会话，把模糊问题改成更完整的知识库查询
+- 知识库 `v1` 只支持 `.md` 上传，不再维护全局 Obsidian 扫描链路
+- 支持批量上传和批量删除 Markdown 文档
+- 上传文档后只会进入待更新状态，点击“更新知识库”后才会统一切分和建索引
 
 ## 测试
 

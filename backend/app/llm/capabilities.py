@@ -36,8 +36,8 @@ EMBEDDING_MODEL_HINTS = (
     "e5-",
 )
 NON_CHAT_MODEL_HINTS = (
-    "translategemma",
     "translation",
+    "translate",
 )
 OLLAMA_CAPABILITY_CACHE: dict[str, set[str]] = {}
 

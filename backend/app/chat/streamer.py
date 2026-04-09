@@ -33,6 +33,24 @@ def strip_loose_think_tags(content: str) -> str:
     return THINK_TAG_ONLY_PATTERN.sub("", content)
 
 
+def coalesce_leading_system_messages(messages: list[ChatMessagePayload]) -> list[ChatMessagePayload]:
+    system_contents: list[str] = []
+    consumed = 0
+    for message in messages:
+        if message.role != "system":
+            break
+        if message.images or message.documents or message.files:
+            break
+        system_contents.append(message.content.strip())
+        consumed += 1
+
+    if consumed <= 1:
+        return messages
+
+    merged_system = "\n\n".join(content for content in system_contents if content)
+    return [ChatMessagePayload(role="system", content=merged_system), *messages[consumed:]]
+
+
 async def refusal_stream(
     *,
     db: Session,
@@ -83,9 +101,10 @@ async def assistant_event_stream(
     if sources:
         yield json.dumps({"type": "sources", "sources": sources}, ensure_ascii=False) + "\n"
 
+    normalized_history = coalesce_leading_system_messages(message_history)
     prepared_message_history = inject_thinking_system_prompt(
         model=model,
-        messages=message_history,
+        messages=normalized_history,
         thinking_enabled=effective_thinking,
     )
 
@@ -265,8 +284,10 @@ async def response_event_stream(
 
         prompt_context = await services.retrieval_service.build_context_payload(
             db=stream_db,
+            user_id=conversation.user_id or 0,
             query=query or retrieval_query,
             plan=retrieval_plan,
+            retrieval_messages=prepared_retrieval_history.messages,
             conversation_messages=all_history_messages,
             include_file_context=include_file_context,
             include_image_context=include_image_context,
