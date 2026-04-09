@@ -8,10 +8,12 @@ export interface SidebarProps {
   open: boolean;
   isDesktop: boolean;
   query: string;
+  viewerName?: string;
   onQueryChange: (value: string) => void;
   onNewChat: () => void;
   onRename: (conversationId: number, title: string) => void | Promise<void>;
   onDelete: (conversationId: number) => void | Promise<void>;
+  onLogout?: () => void | Promise<void>;
   onSelect: (conversationId: number) => void;
   onOpenSettings: () => void;
   onToggleSidebar: () => void;

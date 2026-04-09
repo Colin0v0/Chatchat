@@ -12,8 +12,9 @@ from ..llm.catalog import resolve_model_route
 from ..llm import normalize_model
 from ..retrieval import RetrievalMode
 from ..schemas import RegenerateRequest
+from ..storage.access import get_user_conversation
 from ..storage.media import persist_uploaded_attachments, remove_media_files
-from ..storage.models import Conversation, Message
+from ..storage.models import Conversation, Message, User
 from .context import (
     append_message_attachments,
     clone_message_attachments,
@@ -27,14 +28,16 @@ from .streamer import response_event_stream
 
 async def regenerate_chat_response(
     *,
+    current_user: User,
     services: ChatServices,
     payload: RegenerateRequest,
     request: Request,
     db: Session,
 ) -> StreamingResponse:
-    conversation = db.get(
-        Conversation,
-        payload.conversation_id,
+    conversation = get_user_conversation(
+        db,
+        conversation_id=payload.conversation_id,
+        user_id=current_user.id,
         options=conversation_options(),
     )
     if not conversation:
@@ -107,6 +110,7 @@ async def regenerate_chat_response(
 
 async def chat_stream_response(
     *,
+    current_user: User,
     services: ChatServices,
     request: Request,
     db: Session,
@@ -128,9 +132,10 @@ async def chat_stream_response(
 
     conversation: Optional[Conversation] = None
     if conversation_id is not None:
-        conversation = db.get(
-            Conversation,
-            conversation_id,
+        conversation = get_user_conversation(
+            db,
+            conversation_id=conversation_id,
+            user_id=current_user.id,
             options=conversation_options(),
         )
         if not conversation:
@@ -147,6 +152,7 @@ async def chat_stream_response(
     try:
         if conversation is None:
             conversation = Conversation(
+                user_id=current_user.id,
                 title=conversation_title(content, len(uploaded_attachments)),
                 model=target_model,
             )

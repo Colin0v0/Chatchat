@@ -53,7 +53,7 @@
   }
 
   ::selection {
-    @apply bg-app-accent text-white;
+    @apply bg-app-accent-soft text-app-text;
   }
 
   .app-scrollbar {

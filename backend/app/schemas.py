@@ -27,6 +27,22 @@ class ConversationCreate(BaseModel):
     model: Optional[str] = None
 
 
+class LoginRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=1, max_length=255)
+
+
+class UserOut(BaseModel):
+    id: int
+    username: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SessionOut(BaseModel):
+    user: UserOut
+
+
 class ConversationUpdate(BaseModel):
     title: str = Field(min_length=1, max_length=255)
 

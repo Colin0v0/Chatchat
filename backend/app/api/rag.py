@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 
+from ..auth import require_current_user
 from ..chat.state import get_chat_services
 from ..schemas import RagReindexResult, RagStatus
 
@@ -9,12 +10,12 @@ router = APIRouter(prefix="/api/rag", tags=["rag"])
 
 
 @router.get("/status", response_model=RagStatus)
-async def get_rag_status(request: Request):
+async def get_rag_status(request: Request, _=Depends(require_current_user)):
     services = get_chat_services(request)
     return RagStatus(**services.rag_service.status())
 
 
 @router.post("/reindex", response_model=RagReindexResult)
-async def reindex_rag(request: Request):
+async def reindex_rag(request: Request, _=Depends(require_current_user)):
     services = get_chat_services(request)
     return RagReindexResult(**(await services.rag_service.reindex()))

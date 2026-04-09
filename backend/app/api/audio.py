@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 
+from ..auth import require_current_user
 from ..audio import AudioModelLoadError, get_audio_services
 from ..core.config import settings
 from ..schemas import AudioTranscriptionOut
@@ -13,6 +14,7 @@ router = APIRouter(prefix="/api/audio", tags=["audio"])
 async def transcribe_audio(
     request: Request,
     file: UploadFile = File(...),
+    _=Depends(require_current_user),
 ) -> AudioTranscriptionOut:
     services = get_audio_services(request)
     payload = await file.read()

@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.memory.store import MemoryStore
 from app.memory.types import MemoryCandidate
 from app.storage.database import Base
-from app.storage.models import MemoryItem
+from app.storage.models import MemoryItem, User
 
 
 class MemoryStoreTests(unittest.TestCase):
@@ -28,6 +28,10 @@ class MemoryStoreTests(unittest.TestCase):
         self.session_factory = sessionmaker(bind=self.engine, autoflush=False, autocommit=False)
         self.db: Session = self.session_factory()
         self.store = MemoryStore(self.db)
+        self.user = User(username="tester", password_hash="hash", is_active=True)
+        self.db.add(self.user)
+        self.db.commit()
+        self.db.refresh(self.user)
 
     def tearDown(self):
         self.db.close()
@@ -35,6 +39,7 @@ class MemoryStoreTests(unittest.TestCase):
 
     def test_merge_candidates_collapses_similar_global_memory(self):
         existing = self.store.create_manual_memory(
+            user_id=self.user.id,
             scope="global",
             kind="profile",
             title="姓名",
@@ -58,6 +63,7 @@ class MemoryStoreTests(unittest.TestCase):
                     confidence=1.0,
                 )
             ],
+            user_id=self.user.id,
             conversation_id=12,
             user_message_id=101,
             assistant_message_id=102,
@@ -83,6 +89,7 @@ class MemoryStoreTests(unittest.TestCase):
                     confidence=0.85,
                 )
             ],
+            user_id=self.user.id,
             conversation_id=7,
             user_message_id=201,
             assistant_message_id=202,

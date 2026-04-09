@@ -1,4 +1,4 @@
-import { DesktopPinnedHeader, DesktopSidebarToggle } from "./SidebarActions";
+import { DesktopPinnedHeader, DesktopSidebarFooter } from "./SidebarActions";
 import { SidebarContent } from "./SidebarContent";
 import { SIDEBAR_MOTION, cn } from "./styles";
 import type { SidebarProps } from "./types";
@@ -16,6 +16,7 @@ export function DesktopSidebar({ open, onToggleSidebar, ...contentProps }: Sideb
         onNewChat={contentProps.onNewChat}
         onOpenSettings={contentProps.onOpenSettings}
         open={open}
+        title={contentProps.viewerName || "Chatchat"}
       />
       <div
         aria-hidden={!open}
@@ -27,7 +28,7 @@ export function DesktopSidebar({ open, onToggleSidebar, ...contentProps }: Sideb
       >
         <SidebarContent {...contentProps} mode="desktop" open={open} />
       </div>
-      <DesktopSidebarToggle onToggle={onToggleSidebar} open={open} />
+      <DesktopSidebarFooter onLogout={contentProps.onLogout} onToggle={onToggleSidebar} open={open} />
     </div>
   );
 }

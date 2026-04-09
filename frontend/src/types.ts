@@ -52,6 +52,15 @@ export interface ConversationSummary {
   last_message_preview: string;
 }
 
+export interface AuthUser {
+  id: number;
+  username: string;
+}
+
+export interface AuthSession {
+  user: AuthUser;
+}
+
 export interface ChatMessage {
   id: number | string;
   role: Role;

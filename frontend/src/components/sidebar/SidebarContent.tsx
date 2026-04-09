@@ -1,7 +1,14 @@
 import { LoaderCircle, MessageSquarePlus, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import { Search, SidebarAction, SidebarBrand, SidebarIcon, SidebarLoadingState } from "./SidebarActions";
+import {
+  MobileSidebarFooter,
+  Search,
+  SidebarAction,
+  SidebarBrand,
+  SidebarIcon,
+  SidebarLoadingState,
+} from "./SidebarActions";
 import { SidebarDialog } from "./SidebarDialog";
 import { cn, sidebarMenuItemClass, sidebarMenuPanelClass } from "./styles";
 import type { SidebarDialogState, SidebarSharedProps } from "./types";
@@ -21,8 +28,10 @@ export function SidebarContent({
   onNewChat,
   onRename,
   onDelete,
+  onLogout,
   onSelect,
   onOpenSettings,
+  viewerName,
   mode,
   open = true,
 }: SidebarContentProps) {
@@ -78,7 +87,7 @@ export function SidebarContent({
           </div>
         ) : (
           <div className="flex min-w-0 flex-col gap-4 px-4">
-            <SidebarBrand onIconClick={onOpenSettings} />
+            <SidebarBrand onIconClick={onOpenSettings} title={viewerName || "Chatchat"} />
             <div className="flex flex-col gap-3">
               <SidebarAction
                 icon={<MessageSquarePlus className="size-4" />}
@@ -235,6 +244,8 @@ export function SidebarContent({
             ) : null}
           </div>
         </div>
+
+        {!isDesktop ? <MobileSidebarFooter onLogout={onLogout} /> : null}
       </div>
 
       <SidebarDialog
