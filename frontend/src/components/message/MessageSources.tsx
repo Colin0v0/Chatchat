@@ -17,7 +17,7 @@ export function MessageSources({ sources }: MessageSourcesProps) {
       <div className="font-medium tracking-[0.03em] text-app-muted/80">Sources</div>
       {groups.map((group) => (
         <div className="space-y-2" key={group.key}>
-          <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-app-muted/70">{group.label}</div>
+          <div className="text-[12px] font-medium tracking-[0.04em] text-app-muted/70">{group.label}</div>
           <div className="space-y-2">
             {group.items.map((source, index) => (
               <MessageSourceItem

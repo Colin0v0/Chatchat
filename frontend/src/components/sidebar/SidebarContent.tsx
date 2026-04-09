@@ -42,9 +42,12 @@ export function SidebarContent({
   const showDesktopText = !isDesktop || open;
   const sectionPadding = isDesktop ? "px-2" : "px-4";
   const headingPadding = isDesktop ? "px-3" : "px-4";
-  const contentTopPadding = isDesktop ? "pt-[132px]" : "pt-4";
-  const contentBottomPadding = isDesktop ? "pb-[64px]" : "pb-4";
-  const emptyText = "\u8fd8\u6ca1\u6709\u5bf9\u8bdd\uff0c\u5148\u53d1\u7b2c\u4e00\u6761\u6d88\u606f\u3002";
+  const contentTopPadding = isDesktop ? "pt-[188px]" : "pt-4";
+  const contentBottomPadding = isDesktop ? "pb-[48px]" : "pb-4";
+  const conversationMenuBufferHeight = isDesktop ? "h-[136px]" : "h-0";
+  const emptyText = query.trim()
+    ? "No chats matched your search."
+    : "\u8fd8\u6ca1\u6709\u5bf9\u8bdd\uff0c\u5148\u53d1\u7b2c\u4e00\u6761\u6d88\u606f\u3002";
 
   useEffect(() => {
     function handlePointerDown(event: MouseEvent) {
@@ -74,18 +77,7 @@ export function SidebarContent({
   return (
     <>
       <div className={`flex h-full flex-col bg-app-sidebar ${contentTopPadding} ${contentBottomPadding}`}>
-        {isDesktop ? (
-          <div className={sectionPadding}>
-            <SidebarAction
-              alignToRail
-              icon={<SidebarIcon icon={Search} />}
-              isInput
-              label="Search chats"
-              onChange={onQueryChange}
-              value={query}
-            />
-          </div>
-        ) : (
+        {isDesktop ? null : (
           <div className="flex min-w-0 flex-col gap-4 px-4">
             <SidebarBrand onIconClick={onOpenSettings} title={viewerName || "Chatchat"} />
             <div className="flex flex-col gap-3">
@@ -124,7 +116,7 @@ export function SidebarContent({
             ) : null}
 
             {conversationsLoaded ? (
-              <div className={`flex flex-col gap-2 ${sectionPadding}`}>
+              <div className={`flex flex-col gap-1 ${sectionPadding}`}>
                 {items.length === 0 ? (
                   <div
                     className={cn(
@@ -150,11 +142,11 @@ export function SidebarContent({
                       )}
                       key={item.id}
                     >
-                      <button
-                        className="flex w-full min-w-0 items-center rounded-[8px] px-3 py-3 pr-12 text-left focus:outline-none focus-visible:outline-none"
-                        onClick={() => onSelect(item.id)}
-                        type="button"
-                      >
+                        <button
+                          className="flex w-full min-w-0 items-center rounded-[8px] px-3 py-2.5 pr-12 text-left focus:outline-none focus-visible:outline-none"
+                          onClick={() => onSelect(item.id)}
+                          type="button"
+                        >
                         <span className="flex min-w-0 items-center gap-2.5">
                           <span className="truncate text-[15px] font-semibold tracking-[-0.02em] text-app-text">
                             {item.title}
@@ -240,6 +232,8 @@ export function SidebarContent({
                     </div>
                   );
                 })}
+
+                {items.length > 0 ? <div aria-hidden="true" className={conversationMenuBufferHeight} /> : null}
               </div>
             ) : null}
           </div>

@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+import asyncio
 from dataclasses import replace
 
 from ...core.config import Settings
@@ -16,6 +17,9 @@ from .types import WebSearchPlan, WebSearchResult
 WEB_REFUSAL_MESSAGE = (
     "I could not find enough reliable web sources for this question. "
     "Try making the request more specific or add a site: filter."
+)
+WEB_QUERY_TOO_SHORT_REFUSAL_MESSAGE = (
+    "Search query is too short."
 )
 
 
@@ -37,6 +41,12 @@ class WebSearchService:
         plan = await build_search_plan(query, self._settings)
         if not plan.queries:
             return ContextPayload()
+        if _query_is_too_short(plan):
+            return ContextPayload(
+                should_refuse=True,
+                refusal_message=WEB_QUERY_TOO_SHORT_REFUSAL_MESSAGE,
+                strategy_hint=_strategy_hint(plan),
+            )
 
         raw_results = await self._execute_plan(plan)
         if not raw_results:
@@ -93,17 +103,26 @@ class WebSearchService:
 
     async def _execute_plan(self, plan: WebSearchPlan) -> list[WebSearchResult]:
         results: list[WebSearchResult] = []
+        uncached_queries: list[str] = []
         for search_query in plan.queries:
             cache_key = self._cache_key(plan, search_query)
             cached = self._cache.get(cache_key)
             if cached is not None:
                 results.extend(cached)
                 continue
+            uncached_queries.append(search_query)
 
-            provider_query = replace(plan.query, cleaned_query=search_query)
-            fetched = await self._provider.search(provider_query)
-            self._cache.set(cache_key, fetched)
-            results.extend(fetched)
+        if uncached_queries:
+            fetched_batches = await asyncio.gather(
+                *[
+                    self._provider.search(replace(plan.query, cleaned_query=search_query))
+                    for search_query in uncached_queries
+                ]
+            )
+            for search_query, fetched in zip(uncached_queries, fetched_batches):
+                cache_key = self._cache_key(plan, search_query)
+                self._cache.set(cache_key, fetched)
+                results.extend(fetched)
         return dedupe_results(results)
 
     def _cache_key(self, plan: WebSearchPlan, search_query: str) -> str:
@@ -125,3 +144,7 @@ def _truncate_excerpt(content: str, limit: int = 280) -> str:
     if len(normalized) <= limit:
         return normalized
     return f"{normalized[:limit].rstrip()}..."
+
+
+def _query_is_too_short(plan: WebSearchPlan) -> bool:
+    return any(len(search_query.strip()) < 2 for search_query in plan.queries)

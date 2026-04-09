@@ -1,15 +1,62 @@
 from __future__ import annotations
 
 import re
+from dataclasses import replace
+
+from ..chat.types import ChatMessagePayload
+from .catalog import resolve_effective_thinking, resolve_model_route
 
 
 THINK_BLOCK_PATTERN = re.compile(r"<think>(.*?)</think>", flags=re.IGNORECASE | re.DOTALL)
+GEMMA_THINK_PREFIX = "<|think|>"
+GEMMA_MAPPED_THINKING_MODELS = ("claude-sonnet-",)
+GEMMA_THINKING_SYSTEM_PROMPT = """<|think|>
+Thinking is enabled for this conversation.
+First write your internal reasoning inside a single <think>...</think> block.
+Then write the final answer outside the think block.
+Do not mention these formatting instructions in the final answer."""
 
 
 def split_complete_think_blocks(text: str) -> tuple[str, str]:
     reasoning_parts = [match.group(1).strip() for match in THINK_BLOCK_PATTERN.finditer(text) if match.group(1).strip()]
     answer = THINK_BLOCK_PATTERN.sub("", text)
     return "\n\n".join(reasoning_parts), answer
+
+
+def inject_thinking_system_prompt(
+    *,
+    model: str,
+    messages: list[ChatMessagePayload],
+    thinking_enabled: bool | None,
+) -> list[ChatMessagePayload]:
+    route = resolve_model_route(model)
+    effective_thinking = resolve_effective_thinking(
+        model,
+        thinking_enabled,
+        thinking_mode=route["thinking_mode"] if route else None,
+    )
+    if effective_thinking is not True or not _uses_gemma_thinking_prompt(model):
+        return messages
+
+    if messages and messages[0].role == "system":
+        existing_content = messages[0].content.lstrip()
+        if existing_content.startswith(GEMMA_THINK_PREFIX):
+            return messages
+        return [
+            replace(
+                messages[0],
+                content=f"{GEMMA_THINKING_SYSTEM_PROMPT}\n\n{messages[0].content}",
+            ),
+            *messages[1:],
+        ]
+
+    return [ChatMessagePayload(role="system", content=GEMMA_THINKING_SYSTEM_PROMPT), *messages]
+
+
+def _uses_gemma_thinking_prompt(model: str) -> bool:
+    normalized = model.strip().lower()
+    model_name = normalized.split(":", 1)[-1]
+    return any(model_name.startswith(prefix) for prefix in GEMMA_MAPPED_THINKING_MODELS)
 
 
 class ThinkTagStreamNormalizer:

@@ -8,6 +8,28 @@ import { CodeBlock } from "./CodeBlock";
 
 const sentenceBreakPattern = /([\u3002\uff01\uff1f\uff1b\uff1a\u201d\u300d\u300f\u300b\uff09])\s+/g;
 const stageHeadingPattern = /((?:\u7b2c[\u4e00\u4e8c\u4e09\u56db\u4e94\u516d\u4e03\u516b\u4e5d\u53410-9]+\u9636\u6bb5|\u603b\u7ed3|\u7ed3\u8bba|\u8865\u5145\u8bf4\u660e)[:\uff1a])/g;
+const accidentalInlineCodePattern = /`([^`\n]{12,})`/g;
+const codeLikeTokenPattern = /\b(?:const|let|var|function|return|import|export|class|if|else|for|while|async|await|<\w+|<\/\w+|=>)\b|[{}[\];]/;
+const proseLikeCodePattern = /[\u3400-\u9fff]|[ρστυλμΣΠΩαβγδθ∈→≤≥≠≻≺]/;
+
+function unwrapAccidentalInlineCode(content: string) {
+  return content.replace(accidentalInlineCodePattern, (match, inner: string) => {
+    const normalized = inner.trim();
+    if (!normalized) {
+      return match;
+    }
+
+    if (codeLikeTokenPattern.test(normalized)) {
+      return match;
+    }
+
+    if (proseLikeCodePattern.test(normalized) || normalized.includes("|") || normalized.includes("——")) {
+      return normalized;
+    }
+
+    return match;
+  });
+}
 
 function normalizeMathDelimiters(content: string) {
   const withExplicitDelimiters = content
@@ -51,7 +73,7 @@ function normalizeMathDelimiters(content: string) {
 }
 
 function normalizeMarkdown(content: string) {
-  return normalizeMathDelimiters(content)
+  return unwrapAccidentalInlineCode(normalizeMathDelimiters(content))
     .replace(/\r\n/g, "\n")
     .replace(sentenceBreakPattern, (match, punctuation, offset, source) => {
       const remainder = source.slice(offset + match.length);

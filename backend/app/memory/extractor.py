@@ -64,15 +64,16 @@ class MemoryExtractor:
         instructions = (
             "You extract durable memories for a personal AI workspace.\n"
             "Return strict JSON with this shape: "
-            '{"items":[{"scope":"global|conversation","kind":"profile|preference|goal|project|fact|constraint","title":"...","detail":"...","tags":["..."],"confidence":0.0}]}\n'
+            '{"items":[{"scope":"working|global|conversation","kind":"profile|preference|goal|project|fact|constraint","title":"...","detail":"...","tags":["..."],"confidence":0.0}]}\n'
             "Keep items atomic. Prefer facts that will matter in future turns.\n"
             "Do not output any <think> tags or analysis sections.\n"
             "Do not use markdown fences.\n"
             "Do not include LaTeX, backslashes, or formulas in title/detail; rewrite them as plain Chinese text.\n"
             "Do not include one-off requests, greetings, temporary wording, or things already obvious from the current question alone.\n"
             "Default to scope=conversation.\n"
+            "Use scope=working for temporary task state, current-session constraints, and short-lived project context.\n"
             "Use scope=global only for durable user identity, long-term preferences, or stable facts that should remain useful across unrelated future chats.\n"
-            "If an item is specific to the current task, current project, current session, or recent exchange, it must stay in scope=conversation.\n"
+            "If an item is specific to the current task, current project, current session, or recent exchange, it should usually stay in scope=working or scope=conversation.\n"
             "Avoid paraphrasing an existing memory as a new item. If a similar memory already exists, keep wording aligned with the existing one.\n"
             f"Return at most {self._extract_limit} items. No markdown.\n"
             "Write title, detail, and tags in concise Simplified Chinese."

@@ -1,6 +1,7 @@
 import unittest
 
-from app.llm.thinking import ThinkTagStreamNormalizer, split_complete_think_blocks
+from app.chat.types import ChatMessagePayload
+from app.llm.thinking import ThinkTagStreamNormalizer, inject_thinking_system_prompt, split_complete_think_blocks
 
 
 class ThinkingNormalizerTests(unittest.TestCase):
@@ -34,6 +35,66 @@ class ThinkingNormalizerTests(unittest.TestCase):
         self.assertEqual(answer_a, "hello")
         self.assertEqual(reasoning_b, "")
         self.assertEqual(answer_b, "world")
+
+    def test_inject_thinking_system_prompt_prepends_for_claude_sonnet(self):
+        messages = [ChatMessagePayload(role="user", content="hello")]
+
+        injected = inject_thinking_system_prompt(
+            model="openai_local:claude-sonnet-4-6",
+            messages=messages,
+            thinking_enabled=True,
+        )
+
+        self.assertEqual(injected[0].role, "system")
+        self.assertTrue(injected[0].content.startswith("<|think|>"))
+        self.assertEqual(injected[1:], messages)
+
+    def test_inject_thinking_system_prompt_prefixes_existing_system_message(self):
+        messages = [
+            ChatMessagePayload(role="system", content="existing instructions"),
+            ChatMessagePayload(role="user", content="hello"),
+        ]
+
+        injected = inject_thinking_system_prompt(
+            model="openai_local:claude-sonnet-4-6",
+            messages=messages,
+            thinking_enabled=True,
+        )
+
+        self.assertEqual(len(injected), 2)
+        self.assertEqual(injected[0].role, "system")
+        self.assertTrue(injected[0].content.startswith("<|think|>"))
+        self.assertIn("existing instructions", injected[0].content)
+
+    def test_inject_thinking_system_prompt_respects_catalog_default_on_when_request_is_none(self):
+        messages = [ChatMessagePayload(role="user", content="hello")]
+
+        injected = inject_thinking_system_prompt(
+            model="openai_local:claude-sonnet-4-6",
+            messages=messages,
+            thinking_enabled=None,
+        )
+
+        self.assertEqual(injected[0].role, "system")
+        self.assertTrue(injected[0].content.startswith("<|think|>"))
+        self.assertEqual(injected[1:], messages)
+
+    def test_inject_thinking_system_prompt_skips_non_target_models_or_disabled_mode(self):
+        messages = [ChatMessagePayload(role="user", content="hello")]
+
+        disabled = inject_thinking_system_prompt(
+            model="openai_local:claude-sonnet-4-6",
+            messages=messages,
+            thinking_enabled=False,
+        )
+        other_model = inject_thinking_system_prompt(
+            model="openai_local:claude-haiku-4-5",
+            messages=messages,
+            thinking_enabled=True,
+        )
+
+        self.assertEqual(disabled, messages)
+        self.assertEqual(other_model, messages)
 
 
 if __name__ == "__main__":

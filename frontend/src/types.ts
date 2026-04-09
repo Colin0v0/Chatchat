@@ -122,8 +122,10 @@ export interface RagReindexResult {
   updated_at: string;
 }
 
-export type MemoryScope = "global" | "conversation";
+export type MemoryScope = "working" | "global" | "conversation";
 export type MemoryKind = "profile" | "preference" | "goal" | "project" | "fact" | "constraint";
+export type MemoryStatus = "candidate" | "active" | "archived";
+export type MemoryDocumentType = "user_profile" | "workspace_profile" | "conversation_brief";
 
 export interface MemoryItem {
   id: number;
@@ -133,23 +135,49 @@ export interface MemoryItem {
   detail: string;
   tags: string[];
   confidence: number;
+  status: MemoryStatus;
+  source_type: string;
+  modality: string;
+  write_policy: string;
   pinned: boolean;
   active: boolean;
   conversation_id: number | null;
   source_user_message_id: number | null;
   source_assistant_message_id: number | null;
+  source_attachment_id: number | null;
+  expires_at: string | null;
+  last_confirmed_at: string | null;
+  promoted_at: string | null;
   created_at: string | null;
   updated_at: string | null;
   last_used_at: string | null;
 }
 
-export interface MemoryCollection {
+export interface MemoryDocument {
+  id: number;
+  doc_type: MemoryDocumentType;
+  title: string;
+  content: string;
+  source_memory_ids: number[];
+  auto_managed: boolean;
+  conversation_id: number | null;
+  updated_at: string | null;
+}
+
+export interface MemoryLayerCollection {
   global_items: MemoryItem[];
   conversation_items: MemoryItem[];
+  working_items: MemoryItem[];
+}
+
+export interface MemoryCollection {
+  documents: MemoryDocument[];
+  active_items: MemoryLayerCollection;
+  candidate_items: MemoryLayerCollection;
 }
 
 export interface MemoryUpsertPayload {
-  scope: MemoryScope;
+  scope: Exclude<MemoryScope, "working">;
   kind: MemoryKind;
   title: string;
   detail: string;
@@ -158,6 +186,10 @@ export interface MemoryUpsertPayload {
   pinned: boolean;
   active: boolean;
   conversation_id: number | null;
+}
+
+export interface MemoryPromotePayload {
+  scope: Exclude<MemoryScope, "working">;
 }
 
 export interface AudioTranscriptionResult {

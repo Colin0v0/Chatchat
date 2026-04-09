@@ -114,11 +114,21 @@ export function SidebarBrand({
   );
 }
 
-export function DesktopPinnedNewChatButton({ open, onClick }: { open: boolean; onClick: () => void }) {
+export function DesktopPinnedAction({
+  open,
+  icon,
+  label,
+  onClick,
+}: {
+  open: boolean;
+  icon: ReactNode;
+  label: string;
+  onClick: () => void;
+}) {
   return (
     <div className="group relative h-12">
       <button
-        aria-label="New chat"
+        aria-label={label}
         className={cn(
           sidebarIconButtonClass,
           "absolute inset-y-0 left-0 z-20 h-12 w-9",
@@ -128,7 +138,7 @@ export function DesktopPinnedNewChatButton({ open, onClick }: { open: boolean; o
         onClick={onClick}
         type="button"
       >
-        <MessageSquarePlus className="size-4" />
+        {icon}
       </button>
 
       <button
@@ -143,12 +153,13 @@ export function DesktopPinnedNewChatButton({ open, onClick }: { open: boolean; o
         tabIndex={open ? 0 : -1}
         type="button"
       >
-        <span className="flex h-full items-center whitespace-nowrap px-4 text-[15px] tracking-[-0.02em]">
-          New chat
+        <span className="flex h-full items-center gap-3 whitespace-nowrap px-4 text-[15px] tracking-[-0.02em]">
+          <span className="shrink-0 text-app-muted">{icon}</span>
+          <span>{label}</span>
         </span>
       </button>
 
-      {!open ? <SidebarTooltip label="New chat" /> : null}
+      {!open ? <SidebarTooltip label={label} /> : null}
     </div>
   );
 }
@@ -156,12 +167,18 @@ export function DesktopPinnedNewChatButton({ open, onClick }: { open: boolean; o
 export function DesktopPinnedHeader({
   open,
   onNewChat,
+  onSearch,
+  onQueryChange,
   onOpenSettings,
+  query,
   title,
 }: {
   open: boolean;
   onNewChat: () => void;
+  onSearch: () => void;
+  onQueryChange: (value: string) => void;
   onOpenSettings: () => void;
+  query: string;
   title: string;
 }) {
   return (
@@ -186,8 +203,29 @@ export function DesktopPinnedHeader({
         </div>
       </div>
 
-      <div className="mt-4">
-        <DesktopPinnedNewChatButton onClick={onNewChat} open={open} />
+      <div className="mt-4 flex flex-col gap-3">
+        <DesktopPinnedAction
+          icon={<MessageSquarePlus className="size-4" />}
+          label="New chat"
+          onClick={onNewChat}
+          open={open}
+        />
+        {open ? (
+          <SidebarAction
+            icon={<Search className="size-4" />}
+            isInput
+            label="Search chats"
+            onChange={onQueryChange}
+            value={query}
+          />
+        ) : (
+          <DesktopPinnedAction
+            icon={<Search className="size-4" />}
+            label="Search chats"
+            onClick={onSearch}
+            open={open}
+          />
+        )}
       </div>
     </div>
   );
