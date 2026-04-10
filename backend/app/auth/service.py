@@ -135,10 +135,6 @@ def resolve_request_user(*, db: Session, request: Request) -> User | None:
     if session is None:
         return None
 
-    session.last_seen_at = now
-    db.add(session)
-    db.commit()
-    db.refresh(session)
     return session.user
 
 

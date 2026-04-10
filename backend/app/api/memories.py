@@ -194,21 +194,6 @@ def list_memories(
     )
 
 
-@router.post("", response_model=MemoryItemOut)
-def create_memory_legacy(
-    payload: MemoryCreate,
-    request: Request,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_current_user),
-):
-    return _create_memory_response(
-        payload=payload,
-        request=request,
-        db=db,
-        current_user=current_user,
-    )
-
-
 @router.post("/items", response_model=MemoryItemOut)
 def create_memory(
     payload: MemoryCreate,
@@ -217,23 +202,6 @@ def create_memory(
     current_user: User = Depends(require_current_user),
 ):
     return _create_memory_response(
-        payload=payload,
-        request=request,
-        db=db,
-        current_user=current_user,
-    )
-
-
-@router.patch("/{memory_id}", response_model=MemoryItemOut)
-def update_memory_legacy(
-    memory_id: int,
-    payload: MemoryUpdate,
-    request: Request,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_current_user),
-):
-    return _update_memory_response(
-        memory_id=memory_id,
         payload=payload,
         request=request,
         db=db,
@@ -283,21 +251,6 @@ def dismiss_memory(
     current_user: User = Depends(require_current_user),
 ):
     return _dismiss_memory_response(
-        memory_id=memory_id,
-        request=request,
-        db=db,
-        current_user=current_user,
-    )
-
-
-@router.delete("/{memory_id}", status_code=204)
-def delete_memory_legacy(
-    memory_id: int,
-    request: Request,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_current_user),
-):
-    _delete_memory_response(
         memory_id=memory_id,
         request=request,
         db=db,

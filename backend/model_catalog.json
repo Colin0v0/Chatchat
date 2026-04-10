@@ -4,6 +4,16 @@
       "provider": "openai",
       "api_key_env": "OPENAI_API_KEY"
     },
+    "codex_default": {
+      "provider": "codex",
+      "base_url": "${CODEX_BASE_URL}",
+      "api_key_env": "CODEX_API_KEY"
+    },
+    "gemini_default": {
+      "provider": "gemini",
+      "base_url": "${GEMINI_BASE_URL}",
+      "api_key_env": "GEMINI_API_KEY"
+    },
     "openai_local_router": {
       "provider": "openai_local",
       "base_url": "${OPENAI_LOCAL_BASE_URL}",
@@ -22,8 +32,8 @@
       "provider_ref": "openai_default",
       "upstream_model": "deepseek-chat",
       "thinking_mode": "force_off",
-      "context_window": 1000000,
-      "native_multimodal": false,
+      "context_window": 200000,
+      "native_multimodal": "false",
       "enabled": true
     },
     {
@@ -32,8 +42,8 @@
       "provider_ref": "openai_default",
       "upstream_model": "deepseek-reasoner",
       "thinking_mode": "force_on",
-      "context_window": 1000000,
-      "native_multimodal": false,
+      "context_window": 200000,
+      "native_multimodal": "false",
       "enabled": true
     },
     {
@@ -41,9 +51,9 @@
       "display_name": "Claude Sonnet 4.6",
       "provider_ref": "openai_local_router",
       "upstream_model": "claude-sonnet-4-6",
-      "thinking_mode": "force_on",
-      "context_window": 1000000,
-      "native_multimodal": true,
+      "thinking_mode": "force_off",
+      "context_window": 200000,
+      "native_multimodal": "local",
       "enabled": true
     },
     {
@@ -52,8 +62,8 @@
       "provider_ref": "openai_local_router",
       "upstream_model": "claude-haiku-4-5",
       "thinking_mode": "force_on",
-      "context_window": 1000000,
-      "native_multimodal": false,
+      "context_window": 200000,
+      "native_multimodal": "false",
       "enabled": true
 
     },
@@ -63,8 +73,38 @@
       "provider_ref": "openai_local_router",
       "upstream_model": "claude-opus-4-6",
       "thinking_mode": "force_on",
-      "context_window": 1000000,
-      "native_multimodal": false,
+      "context_window": 200000,
+      "native_multimodal": "false",
+      "enabled": true
+    },
+    {
+      "id": "codex:gpt-5.2",
+      "display_name": "GPT-5.2",
+      "provider_ref": "codex_default",
+      "upstream_model": "gpt-5.2",
+      "thinking_mode": "force_off",
+      "context_window": 200000,
+      "native_multimodal": "codex",
+      "enabled": true
+    },
+    {
+      "id": "codex:gpt-5.4",
+      "display_name": "GPT-5.4",
+      "provider_ref": "codex_default",
+      "upstream_model": "gpt-5.4",
+      "thinking_mode": "force_off",
+      "context_window": 200000,
+      "native_multimodal": "codex",
+      "enabled": true
+    },
+    {
+      "id": "gemini:gemini-3-flash",
+      "display_name": "Gemini 3 Flash",
+      "provider_ref": "gemini_default",
+      "upstream_model": "gemini-3-flash",
+      "thinking_mode": "force_off",
+      "context_window": 200000,
+      "native_multimodal": "gemini",
       "enabled": true
     },
     {
@@ -74,7 +114,7 @@
       "upstream_model": "gemma4:e4b",
       "thinking_mode": "default_on",
       "context_window": 32768,
-      "native_multimodal": false,
+      "native_multimodal": "false",
       "enabled": false
     },
     {
@@ -84,7 +124,7 @@
       "upstream_model": "huihui-qwen35-9b-opus:latest",
       "thinking_mode": "default_on",
       "context_window": 32768,
-      "native_multimodal": false,
+      "native_multimodal": "false",
       "enabled": false
     },
     {
@@ -94,17 +134,7 @@
       "upstream_model": "deepseek-r1:7b",
       "thinking_mode": "default_on",
       "context_window": 32768,
-      "native_multimodal": false,
-      "enabled": false
-    },
-    {
-      "id": "ollama:qwen3:4b",
-      "display_name": "Qwen3 4b",
-      "provider_ref": "ollama_local",
-      "upstream_model": "qwen3:4b",
-      "thinking_mode": "default_on",
-      "context_window": 32768,
-      "native_multimodal": false,
+      "native_multimodal": "false",
       "enabled": false
     }
   ]

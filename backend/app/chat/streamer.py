@@ -11,7 +11,12 @@ from sqlalchemy.orm import Session
 
 from ..chat.types import ChatMessagePayload
 from ..llm import stream_chat
-from ..llm.catalog import resolve_context_window, resolve_effective_thinking, resolve_model_route, uses_native_multimodal
+from ..llm.catalog import (
+    resolve_context_window,
+    resolve_effective_thinking,
+    resolve_model_route,
+    resolve_native_multimodal_mode,
+)
 from ..llm.thinking import ThinkTagStreamNormalizer, inject_thinking_system_prompt
 from ..retrieval import RetrievalMode, RetrievalPlan
 from ..storage.database import SessionLocal
@@ -31,6 +36,24 @@ def strip_loose_think_tags(content: str) -> str:
     if not content:
         return content
     return THINK_TAG_ONLY_PATTERN.sub("", content)
+
+
+def coalesce_leading_system_messages(messages: list[ChatMessagePayload]) -> list[ChatMessagePayload]:
+    system_contents: list[str] = []
+    consumed = 0
+    for message in messages:
+        if message.role != "system":
+            break
+        if message.images or message.documents or message.files:
+            break
+        system_contents.append(message.content.strip())
+        consumed += 1
+
+    if consumed <= 1:
+        return messages
+
+    merged_system = "\n\n".join(content for content in system_contents if content)
+    return [ChatMessagePayload(role="system", content=merged_system), *messages[consumed:]]
 
 
 async def refusal_stream(
@@ -83,9 +106,10 @@ async def assistant_event_stream(
     if sources:
         yield json.dumps({"type": "sources", "sources": sources}, ensure_ascii=False) + "\n"
 
+    normalized_history = coalesce_leading_system_messages(message_history)
     prepared_message_history = inject_thinking_system_prompt(
         model=model,
-        messages=message_history,
+        messages=normalized_history,
         thinking_enabled=effective_thinking,
     )
 
@@ -218,7 +242,7 @@ async def response_event_stream(
             history_budget = min(history_budget, max(900, int(model_context_window * 0.36)))
             summary_budget = min(summary_budget, max(450, int(model_context_window * 0.14)))
 
-        native_multimodal = uses_native_multimodal(model)
+        native_multimodal_mode = resolve_native_multimodal_mode(model)
         strategy = choose_context_strategy(
             query=query,
             retrieval_mode=retrieval_mode,
@@ -231,10 +255,11 @@ async def response_event_stream(
             message_limit=services.history_message_limit,
             token_budget=strategy.history_token_budget,
         )
-        include_image_context = not native_multimodal
-        include_file_context = strategy.file_retrieval_enabled and not native_multimodal
+        include_image_context = native_multimodal_mode == "false"
+        include_file_context = strategy.file_retrieval_enabled and native_multimodal_mode != "local"
         message_history_service = MessageHistoryService(stream_db, services.attachment_context_service)
         needs_retrieval_grounding = include_file_context and retrieval_mode != "none" and message_history_service.needs_retrieval_grounding(
+            model=model,
             messages=history_window.recent_messages,
         )
         if message_history_service.needs_image_text(model=model, messages=history_window.recent_messages) or needs_retrieval_grounding:
@@ -265,8 +290,10 @@ async def response_event_stream(
 
         prompt_context = await services.retrieval_service.build_context_payload(
             db=stream_db,
+            user_id=conversation.user_id or 0,
             query=query or retrieval_query,
             plan=retrieval_plan,
+            retrieval_messages=prepared_retrieval_history.messages,
             conversation_messages=all_history_messages,
             include_file_context=include_file_context,
             include_image_context=include_image_context,

@@ -18,7 +18,6 @@ import {
   fetchConversations,
   fetchModels,
   regenerateChat,
-  reindexRag,
   renameConversation,
   streamChat,
   transcribeAudio,
@@ -28,11 +27,11 @@ import type {
   ConversationDetail,
   ConversationSummary,
   ModelOption,
-  RagReindexResult,
   RetrievalMode,
 } from "../types";
 import { deriveConversationTitle, INITIAL_CHAT_MODEL, pickLandingTitle } from "./constants";
 import { useAudioRecorder } from "./useAudioRecorder";
+import { useKnowledgeManager } from "./useKnowledgeManager";
 import {
   appendRetryDraft,
   createAssistantDraftMessage,
@@ -100,13 +99,11 @@ export function useChatApp({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [isLoadingEarlierMessages, setIsLoadingEarlierMessages] = useState(false);
-  const [isUpdatingRag, setIsUpdatingRag] = useState(false);
-  const [ragUpdateError, setRagUpdateError] = useState<string | null>(null);
-  const [ragUpdateResult, setRagUpdateResult] = useState<RagReindexResult | null>(null);
   const memoryManager = useMemoryManager({
     activeConversationId: activeConversationId && activeConversationId > 0 ? activeConversationId : null,
     open: settingsOpen,
   });
+  const knowledgeManager = useKnowledgeManager({ open: settingsOpen });
   const { addAttachments, clearAttachments, draftAttachments, removeAttachment, replaceAttachments } =
     useComposerAttachments();
   const { cancelRecording, isRecording, recordingError, startRecording, stopRecording } =
@@ -403,25 +400,6 @@ export function useChatApp({
     },
     [abortAndRemoveSession, activeConversationId, cancelRecording, clearAttachments, refreshConversations],
   );
-
-  const handleUpdateRagDatabase = useCallback(async () => {
-    if (isUpdatingRag) {
-      return;
-    }
-
-    setRagUpdateError(null);
-    setIsUpdatingRag(true);
-    try {
-      const result = await reindexRag();
-      setRagUpdateResult(result);
-    } catch (updateError) {
-      setRagUpdateError(
-        updateError instanceof Error ? updateError.message : "Update database failed.",
-      );
-    } finally {
-      setIsUpdatingRag(false);
-    }
-  }, [isUpdatingRag]);
 
   const handleLoadEarlierMessages = useCallback(async () => {
     if (!activeConversation || activeConversation.id <= 0 || isLoadingEarlierMessages) {
@@ -775,13 +753,10 @@ export function useChatApp({
     settingsProps: {
       activeConversationId: activeConversationId && activeConversationId > 0 ? activeConversationId : null,
       activeConversationTitle: activeConversation?.title ?? "",
-      isUpdating: isUpdatingRag,
+      knowledge: knowledgeManager,
       memories: memoryManager,
       onClose: () => setSettingsOpen(false),
-      onUpdateDatabase: () => void handleUpdateRagDatabase(),
       open: settingsOpen,
-      updateError: ragUpdateError,
-      updateResult: ragUpdateResult,
     },
     showLanding,
     sidebarProps: {

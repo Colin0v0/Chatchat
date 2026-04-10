@@ -5,11 +5,11 @@ from dataclasses import dataclass
 from fastapi import Request
 
 from ..core.config import Settings
+from ..knowledge import KnowledgeService
 from ..memory.service import MemoryService
 from ..multimodal.attachment import AttachmentContextService
 from ..multimodal.file_parser import FileParser
 from ..multimodal.image import ImageTextService
-from ..retrieval.rag import RagService
 from ..retrieval.file_context import ConversationFileContextService
 from ..retrieval import RetrievalService
 from ..retrieval.websearch import WebSearchService
@@ -18,7 +18,7 @@ from .model_queue import ModelExecutionCoordinator
 
 @dataclass(frozen=True)
 class ChatServices:
-    rag_service: RagService
+    knowledge_service: KnowledgeService
     web_search_service: WebSearchService
     memory_service: MemoryService
     attachment_context_service: AttachmentContextService
@@ -30,7 +30,7 @@ class ChatServices:
 
 
 def build_chat_services(settings: Settings) -> ChatServices:
-    rag_service = RagService(settings)
+    knowledge_service = KnowledgeService(settings)
     web_search_service = WebSearchService(settings)
     image_text_service = ImageTextService(
         min_confidence=settings.image_ocr_min_confidence,
@@ -54,13 +54,13 @@ def build_chat_services(settings: Settings) -> ChatServices:
     )
     retrieval_service = RetrievalService(
         settings,
-        rag_service,
+        knowledge_service,
         web_search_service,
         ConversationFileContextService(settings, attachment_context_service),
     )
     memory_service = MemoryService(settings)
     return ChatServices(
-        rag_service=rag_service,
+        knowledge_service=knowledge_service,
         web_search_service=web_search_service,
         memory_service=memory_service,
         attachment_context_service=attachment_context_service,

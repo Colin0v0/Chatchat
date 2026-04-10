@@ -249,11 +249,9 @@ def build_context_inspection_summary(
     if recent_turn_count > 0:
         sentences.append(f"本次回答截取了最近{recent_turn_count}轮对话。")
     if older_turn_count > 0:
-        sentences.append(f"更早的{older_turn_count}轮内容已压缩后参考，不再逐条展开。")
+        sentences.append(f"更早的{older_turn_count}轮内容已压缩。")
     if recent_user_points:
         sentences.append(f"最近主要围绕这些内容继续交流：{recent_user_points}。")
-    if has_attachments:
-        sentences.append("最近对话里包含附件或图片，回答时一并参考了相关内容。")
     if memory_count > 0:
         sentences.append(f"另外参考了{memory_count}条记忆信息。")
     if source_count > 0:

@@ -7,13 +7,14 @@ from ..chat.types import ChatMessagePayload
 from ..core.config import Settings
 from .language import prefers_simplified_chinese, response_language_instruction
 from .plan import RetrievalMode, RetrievalPlan, build_retrieval_plan
+from .query_rewrite import QueryRewriteResult, RagQueryRewriter
 from .strategy import RetrievalStrategy
 from .types import ContextEntry, ContextPayload, PromptContextPayload
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
-    from .rag import RagService
+    from ..knowledge import KnowledgeService
     from .websearch import WebSearchService
     from .file_context import ConversationFileContextService
     from ..storage.models import Message
@@ -23,14 +24,15 @@ class RetrievalService:
     def __init__(
         self,
         settings: Settings,
-        rag_service: "RagService",
+        knowledge_service: "KnowledgeService",
         web_search_service: "WebSearchService",
         file_context_service: "ConversationFileContextService",
     ):
-        self._rag_service = rag_service
+        self._knowledge_service = knowledge_service
         self._web_search_service = web_search_service
         self._file_context_service = file_context_service
         self._context_top_k = max(1, settings.retrieval_context_top_k)
+        self._rag_query_rewriter = RagQueryRewriter(settings)
 
     def plan_retrieval(
         self,
@@ -44,13 +46,16 @@ class RetrievalService:
         self,
         *,
         db: "Session",
+        user_id: int,
         query: str,
         plan: RetrievalPlan,
+        retrieval_messages: list[dict[str, str]],
         conversation_messages: list["Message"],
         include_file_context: bool,
         include_image_context: bool,
     ) -> PromptContextPayload:
-        debug = self._base_debug(plan=plan)
+        rewrite_result = await self._rewrite_query(plan=plan, retrieval_messages=retrieval_messages)
+        debug = self._base_debug(plan=plan, rewrite_result=rewrite_result)
         configuration_refusal = self._resolve_configuration_refusal(query=query, plan=plan)
         if configuration_refusal:
             return PromptContextPayload(
@@ -65,7 +70,13 @@ class RetrievalService:
 
         tasks: list[asyncio.Future | asyncio.Task | object] = []
         if plan.mode == "rag":
-            tasks.append(self._rag_service.retrieve_context(plan.query))
+            tasks.append(
+                self._knowledge_service.retrieve_context(
+                    db=db,
+                    user_id=user_id,
+                    query=rewrite_result.effective_query,
+                )
+            )
         if plan.mode == "web":
             tasks.append(self._web_search_service.retrieve_context(plan.query))
         if include_file_context:
@@ -82,7 +93,7 @@ class RetrievalService:
         merged_sources = self._merge_sources(results)
         merged_entries = self._merge_entries(results, strategy=plan.strategy)
         refusal_message = self._resolve_refusal_message(results, query=query)
-        merged_debug = self._merge_debug(results, plan=plan)
+        merged_debug = self._merge_debug(results, plan=plan, rewrite_result=rewrite_result)
         merged_instructions = self._merge_instructions(results)
 
         if not merged_entries:
@@ -141,19 +152,48 @@ class RetrievalService:
             instructions.extend(result.instructions)
         return tuple(dict.fromkeys(item.strip() for item in instructions if item.strip()))
 
-    def _base_debug(self, *, plan: RetrievalPlan) -> dict[str, object]:
+    async def _rewrite_query(
+        self,
+        *,
+        plan: RetrievalPlan,
+        retrieval_messages: list[dict[str, str]],
+    ) -> QueryRewriteResult:
+        if plan.mode != "rag":
+            return QueryRewriteResult(
+                original_query=plan.query,
+                effective_query=plan.query,
+                applied=False,
+                model=None,
+                context_message_count=0,
+            )
+        return await self._rag_query_rewriter.rewrite(
+            query=plan.query,
+            history_messages=retrieval_messages,
+        )
+
+    def _base_debug(self, *, plan: RetrievalPlan, rewrite_result: QueryRewriteResult) -> dict[str, object]:
         return {
             "retrieval_strategy": plan.strategy.name,
             "retrieval_mode": plan.mode,
             "retrieval_reason": plan.reason,
-            "retrieval_query": plan.query,
+            "retrieval_query": rewrite_result.effective_query,
+            "retrieval_query_original": rewrite_result.original_query,
+            "rag_query_rewrite_applied": rewrite_result.applied,
+            "rag_query_rewrite_model": rewrite_result.model,
+            "rag_query_rewrite_context_messages": rewrite_result.context_message_count,
             "rag_executed": False,
             "web_executed": False,
             "file_executed": False,
         }
 
-    def _merge_debug(self, results: list[ContextPayload], *, plan: RetrievalPlan) -> dict[str, object]:
-        merged = self._base_debug(plan=plan)
+    def _merge_debug(
+        self,
+        results: list[ContextPayload],
+        *,
+        plan: RetrievalPlan,
+        rewrite_result: QueryRewriteResult,
+    ) -> dict[str, object]:
+        merged = self._base_debug(plan=plan, rewrite_result=rewrite_result)
         merged["rag_executed"] = plan.mode == "rag"
         merged["web_executed"] = plan.mode == "web"
         merged["file_executed"] = any(result.debug.get("file_hits") is not None for result in results if result.debug)
@@ -201,6 +241,8 @@ class RetrievalService:
             fields = [f"[Source {index}]", f"type: {source.type}"]
             if source.type == "note":
                 fields.append(f"path: {source.path}")
+                if source.title:
+                    fields.append(f"title: {source.title}")
                 if source.heading:
                     fields.append(f"heading: {source.heading}")
             elif source.type == "file":
