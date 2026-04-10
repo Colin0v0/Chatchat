@@ -2,7 +2,7 @@
 
 Chatchat 是一个面向个人/小团队的聊天工作台，当前提供：
 
-- 多模型聊天：`Ollama`、`OpenAI`、`OpenAI-compatible local router`
+- 多模型聊天：`Ollama`、`OpenAI`、`OpenAI Codex`、`OpenAI-compatible local router`
 - 登录与多用户隔离：基于账号密码和 Cookie Session
 - 推理展示：支持 reasoning/thinking 流式展示与持久化
 - 检索增强：用户知识库 `RAG`、`Web Search`
@@ -61,18 +61,23 @@ Chatchat/
 
 ### 3. 多模态与附件
 
-所有模型前端都允许上传附件，但后端处理分两种模式：
+所有模型前端都允许上传附件，但后端现在按三态处理：
 
-- `native_multimodal=false`
+- `native_multimodal="false"`
   - 走本地附件解析链路
   - 图片走本地视觉/OCR
   - 文件走本地解析器
   - 把结果写入 `attachment_context`
 
-- `native_multimodal=true`
-  - 不走本地 OCR / 文件解析
-  - 直接上传到上游 OpenAI-compatible `/v1/files`
+- `native_multimodal="local"`
+  - 保留当前 OpenAI-compatible 本地路由的原生附件链路
+  - 附件上传到上游 `/v1/files`
   - 聊天请求里传 `input_file`
+
+- `native_multimodal="codex"`
+  - 图片直接作为原生多模态输入发送给 Codex / GPT-5
+  - 文档和其他文件继续走本地解析
+  - 不复用 `/v1/files` 直传链路
 
 当前 `native_multimodal` 由 [backend/model_catalog.json](backend/model_catalog.json) 控制。
 
@@ -116,6 +121,7 @@ python scripts/create_user.py --username alice --password secret123 --take-owner
 
 - `ollama`
 - `openai`
+- `codex`
 - `openai_local`
 
 前端 `/api/models` 当前使用的模型能力字段：
@@ -158,6 +164,8 @@ CHATCHAT_ENV=deploy.wsl python app.py
 ```env
 OPENAI_BASE_URL=
 OPENAI_API_KEY=
+CODEX_BASE_URL=
+CODEX_API_KEY=
 OPENAI_LOCAL_BASE_URL=
 OPENAI_LOCAL_UPSTREAM_SERVICE_BASE_URL=
 OPENAI_LOCAL_API_KEY=
@@ -166,6 +174,15 @@ MODEL_CATALOG_PATH=./model_catalog.json
 MODEL_CATALOG_STRICT=true
 DEFAULT_PROVIDER=openai
 DEFAULT_MODEL=openai:deepseek-chat
+```
+
+如果要接入 OpenAI Codex，推荐单独配置：
+
+```env
+CODEX_BASE_URL=https://api.openai.com/v1
+CODEX_API_KEY=sk-...
+DEFAULT_PROVIDER=codex
+DEFAULT_MODEL=codex:gpt-5.3-codex
 ```
 
 #### 并发与连接池
@@ -189,7 +206,7 @@ MEMORY_REFRESH_MAX_CONCURRENCY=1
 ```env
 KNOWLEDGE_STORAGE_ROOT=./storage/knowledge
 KNOWLEDGE_EMBEDDING_MODEL=qwen3-embedding:0.6b
-KNOWLEDGE_RERANK_MODEL=dengcao/Qwen3-Reranker-0.6B:Q8_0
+KNOWLEDGE_RERANK_MODEL=codex:gpt-5.2
 KNOWLEDGE_MAX_FILE_SIZE_BYTES=2097152
 KNOWLEDGE_MAX_DOCUMENTS_PER_USER=100
 KNOWLEDGE_MAX_TOTAL_SIZE_BYTES=104857600
@@ -368,7 +385,7 @@ npm run build
 本 README 已按当前代码整理，重点同步了：
 
 - 登录/多用户链路
-- `native_multimodal` 双分支策略
+- `native_multimodal` 三态策略
 - reasoning 持久化
 - memory 系统
 - 共享 HTTP 连接池与上游限流

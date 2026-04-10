@@ -71,6 +71,12 @@ class Settings(BaseSettings):
     openai_base_url: str = "https://api.openai.com/v1"
     openai_api_key: str = ""
     openai_model_allowlist: str = ""
+    codex_base_url: str = "https://api.openai.com/v1"
+    codex_api_key: str = ""
+    codex_model_allowlist: str = ""
+    gemini_base_url: str = "https://generativelanguage.googleapis.com"
+    gemini_api_key: str = ""
+    gemini_model_allowlist: str = ""
     openai_local_base_url: str = "http://127.0.0.1:18000/v1"
     openai_local_upstream_service_base_url: str = ""
     openai_local_api_key: str = ""
@@ -120,14 +126,14 @@ class Settings(BaseSettings):
     memory_refresh_max_concurrency: int = 1
     retrieval_context_top_k: int = 6
     rag_query_rewrite_enabled: bool = True
-    rag_query_rewrite_model: str = "openai_local:claude-haiku-4-5"
+    rag_query_rewrite_model: str = "codex:gpt-5.2"
     rag_query_rewrite_history_messages: int = 6
     file_retrieval_top_k: int = 3
     file_retrieval_chunk_token_limit: int = 220
     file_retrieval_min_score: float = 0.18
     knowledge_storage_root: str = "./storage/knowledge"
     knowledge_embedding_model: str = "qwen3-embedding:0.6b"
-    knowledge_rerank_model: str = "openai_local:claude-sonnet-4-6"
+    knowledge_rerank_model: str = "openai:deepseek-chat"
     knowledge_rerank_max_chars: int = 480
     knowledge_rerank_max_concurrency: int = 1
     knowledge_rerank_num_ctx: int = 512
@@ -147,7 +153,7 @@ class Settings(BaseSettings):
     web_search_top_k: int = 4
     web_search_min_score: float = 0.35
     web_search_content_max_chars: int = 1600
-    web_search_translation_model: str = "openai_local:claude-haiku-4-5"
+    web_search_translation_model: str = "codex:gpt-5.2"
     conversation_title_max_length: int = 40
 
     model_config = SettingsConfigDict(

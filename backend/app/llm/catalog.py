@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Literal, TypedDict, cast
 
 from ..core.config import BASE_DIR, settings
-from .capabilities import DiscoveredModel, Provider, model_provider_and_name, normalize_model
+from .capabilities import DiscoveredModel, NativeMultimodalMode, Provider, model_provider_and_name, normalize_model
 
 logger = logging.getLogger("chatchat.model_catalog")
 
@@ -28,7 +28,7 @@ class ModelRoute(TypedDict):
     api_key: str | None
     thinking_mode: ThinkingMode | None
     context_window: int | None
-    native_multimodal: bool
+    native_multimodal: NativeMultimodalMode
     supports_thinking: bool
 
 
@@ -39,6 +39,24 @@ class ProviderPreset(TypedDict):
     api_key: str | None
 
 
+def _resolve_config_value(env_name: str) -> str | None:
+    env_value = os.getenv(env_name, "").strip()
+    if env_value:
+        return env_value
+
+    setting_name = env_name.strip().lower()
+    if not setting_name:
+        return None
+    if not hasattr(settings, setting_name):
+        return None
+
+    value = getattr(settings, setting_name)
+    if isinstance(value, str):
+        normalized = value.strip()
+        return normalized or None
+    return None
+
+
 def _resolve_catalog_path() -> Path:
     configured = Path(settings.model_catalog_path)
     if configured.is_absolute():
@@ -47,7 +65,7 @@ def _resolve_catalog_path() -> Path:
 
 
 def _normalize_provider(value: str | None, fallback_model_id: str) -> Provider:
-    if value in ("ollama", "openai", "openai_local"):
+    if value in ("ollama", "openai", "openai_local", "codex", "gemini"):
         return cast(Provider, value)
     provider, _ = model_provider_and_name(fallback_model_id)
     return provider
@@ -62,6 +80,13 @@ def _normalize_thinking_mode(value: str) -> ThinkingMode:
     )
 
 
+def _normalize_native_multimodal_mode(value: str) -> NativeMultimodalMode:
+    normalized = value.strip().lower()
+    if normalized in ("false", "local", "codex", "gemini"):
+        return cast(NativeMultimodalMode, normalized)
+    raise ModelCatalogError("Invalid native_multimodal. Expected one of: false, local, codex, gemini")
+
+
 def _resolve_api_key(*, api_key: str | None, api_key_env: str | None) -> str | None:
     direct = (api_key or "").strip()
     if direct:
@@ -69,8 +94,7 @@ def _resolve_api_key(*, api_key: str | None, api_key_env: str | None) -> str | N
     env_name = (api_key_env or "").strip()
     if not env_name:
         return None
-    value = os.getenv(env_name, "").strip()
-    return value or None
+    return _resolve_config_value(env_name)
 
 
 def _resolve_env_value(value: str | None) -> str | None:
@@ -79,7 +103,7 @@ def _resolve_env_value(value: str | None) -> str | None:
     trimmed = value.strip()
     if trimmed.startswith("${") and trimmed.endswith("}"):
         env_name = trimmed[2:-1].strip()
-        return os.getenv(env_name, "").strip() or None
+        return _resolve_config_value(env_name)
     return trimmed
 
 
@@ -238,10 +262,10 @@ def _parse_routes(payload: dict[str, object]) -> list[ModelRoute]:
                 raise ModelCatalogError(f"{row_path}.context_window must be a positive integer")
             context_window = context_window_raw
 
-        native_multimodal_raw = row.get("native_multimodal", False)
-        if not isinstance(native_multimodal_raw, bool):
-            raise ModelCatalogError(f"{row_path}.native_multimodal must be boolean")
-        native_multimodal = native_multimodal_raw
+        native_multimodal_raw = row.get("native_multimodal", "false")
+        if not isinstance(native_multimodal_raw, str):
+            raise ModelCatalogError(f"{row_path}.native_multimodal must be string")
+        native_multimodal = _normalize_native_multimodal_mode(native_multimodal_raw)
 
         supports_thinking_raw = row.get("supports_thinking")
         if supports_thinking_raw is not None and not isinstance(supports_thinking_raw, bool):
@@ -314,6 +338,7 @@ def load_model_routes(*, strict: bool | None = None) -> list[ModelRoute]:
         legacy_values = {
             "OPENAI_MODEL_ALLOWLIST": settings.openai_model_allowlist,
             "OPENAI_LOCAL_MODEL_ALLOWLIST": settings.openai_local_model_allowlist,
+            "GEMINI_MODEL_ALLOWLIST": settings.gemini_model_allowlist,
         }
         active_legacy = [key for key, value in legacy_values.items() if str(value).strip()]
         if active_legacy:
@@ -376,8 +401,24 @@ def resolve_context_window(model: str) -> int | None:
     return route.get("context_window")
 
 
-def uses_native_multimodal(model: str) -> bool:
+def resolve_native_multimodal_mode(model: str) -> NativeMultimodalMode:
     route = resolve_model_route(model)
     if route is None:
-        return False
-    return bool(route.get("native_multimodal"))
+        return "false"
+    return cast(NativeMultimodalMode, route.get("native_multimodal") or "false")
+
+
+def uses_native_multimodal(model: str) -> bool:
+    return resolve_native_multimodal_mode(model) != "false"
+
+
+def uses_local_native_multimodal(model: str) -> bool:
+    return resolve_native_multimodal_mode(model) == "local"
+
+
+def uses_codex_native_multimodal(model: str) -> bool:
+    return resolve_native_multimodal_mode(model) == "codex"
+
+
+def uses_gemini_native_multimodal(model: str) -> bool:
+    return resolve_native_multimodal_mode(model) == "gemini"

@@ -11,6 +11,91 @@ const stageHeadingPattern = /((?:\u7b2c[\u4e00\u4e8c\u4e09\u56db\u4e94\u516d\u4e
 const accidentalInlineCodePattern = /`([^`\n]{12,})`/g;
 const codeLikeTokenPattern = /\b(?:const|let|var|function|return|import|export|class|if|else|for|while|async|await|<\w+|<\/\w+|=>)\b|[{}[\];]/;
 const proseLikeCodePattern = /[\u3400-\u9fff]|[ρστυλμΣΠΩαβγδθ∈→≤≥≠≻≺]/;
+const rawStrongPattern = /\*\*([^*\n]+?)\*\*/gu;
+const symbolLikeBoundaryPattern = /^[\p{P}\p{S}]$/u;
+
+type MarkdownAstNode = {
+  type: string;
+  value?: string;
+  children?: MarkdownAstNode[];
+};
+
+function hasSymbolBoundary(content: string) {
+  const normalized = content.trim();
+  if (!normalized) {
+    return false;
+  }
+  const first = normalized[0];
+  const last = normalized[normalized.length - 1];
+  return symbolLikeBoundaryPattern.test(first) || symbolLikeBoundaryPattern.test(last);
+}
+
+function splitRawStrongText(value: string): MarkdownAstNode[] | null {
+  let matchCount = 0;
+  let cursor = 0;
+  const nodes: MarkdownAstNode[] = [];
+
+  for (const match of value.matchAll(rawStrongPattern)) {
+    const start = match.index ?? -1;
+    if (start < 0) {
+      continue;
+    }
+    const full = match[0];
+    const inner = match[1];
+    if (!hasSymbolBoundary(inner)) {
+      continue;
+    }
+
+    if (start > cursor) {
+      nodes.push({ type: "text", value: value.slice(cursor, start) });
+    }
+    nodes.push({
+      type: "strong",
+      children: [{ type: "text", value: inner }],
+    });
+    cursor = start + full.length;
+    matchCount += 1;
+  }
+
+  if (matchCount === 0) {
+    return null;
+  }
+
+  if (cursor < value.length) {
+    nodes.push({ type: "text", value: value.slice(cursor) });
+  }
+
+  return nodes.filter((node) => node.type !== "text" || Boolean(node.value));
+}
+
+function promoteSymbolBoundStrong(node: MarkdownAstNode) {
+  if (!node.children || node.children.length === 0) {
+    return;
+  }
+
+  const nextChildren: MarkdownAstNode[] = [];
+  for (const child of node.children) {
+    if (child.type === "text" && typeof child.value === "string") {
+      const replaced = splitRawStrongText(child.value);
+      if (replaced) {
+        nextChildren.push(...replaced);
+        continue;
+      }
+    }
+
+    if (child.children && child.type !== "code" && child.type !== "inlineCode" && child.type !== "html") {
+      promoteSymbolBoundStrong(child);
+    }
+    nextChildren.push(child);
+  }
+  node.children = nextChildren;
+}
+
+function remarkSymbolBoundStrong() {
+  return (tree: MarkdownAstNode) => {
+    promoteSymbolBoundStrong(tree);
+  };
+}
 
 function unwrapAccidentalInlineCode(content: string) {
   return content.replace(accidentalInlineCodePattern, (match, inner: string) => {
@@ -140,7 +225,7 @@ function MarkdownMessageComponent({ content }: { content: string }) {
     <ReactMarkdown
       components={markdownComponents}
       rehypePlugins={[rehypeKatex]}
-      remarkPlugins={[remarkGfm, remarkMath]}
+      remarkPlugins={[remarkGfm, remarkMath, remarkSymbolBoundStrong]}
     >
       {normalizedContent}
     </ReactMarkdown>

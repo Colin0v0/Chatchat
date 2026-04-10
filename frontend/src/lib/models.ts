@@ -1,9 +1,7 @@
-const PROVIDER_MODEL_PATTERN = /^(ollama|openai):(.+)$/;
-
 export function toModelLabel(modelId: string): string {
-  const matched = modelId.match(PROVIDER_MODEL_PATTERN);
-  if (!matched) {
+  const separatorIndex = modelId.indexOf(":");
+  if (separatorIndex < 0 || separatorIndex === modelId.length - 1) {
     return modelId;
   }
-  return matched[2];
+  return modelId.slice(separatorIndex + 1);
 }

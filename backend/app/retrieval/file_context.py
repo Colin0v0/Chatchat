@@ -120,21 +120,30 @@ class ConversationFileContextService:
             if message.role != "user" or not message.attachments:
                 continue
 
+            has_image_attachments = any(attachment.kind == "image" for attachment in message.attachments)
+            context_attachments = message.attachments if include_images else [
+                attachment for attachment in message.attachments if attachment.kind == "file"
+            ]
+            if not context_attachments:
+                continue
+
             attachment_context = (message.attachment_context or "").strip()
-            if not attachment_context:
+            should_reuse_cache = include_images or not has_image_attachments
+            if not attachment_context or not should_reuse_cache:
                 result = await self._attachment_context_service.extract_markdown(
-                    message.attachments,
+                    context_attachments,
                     include_images=include_images,
                 )
                 attachment_context = result.markdown.strip()
                 if not attachment_context:
                     continue
-                message.attachment_context = attachment_context
-                if result.has_images and not (message.image_context or "").strip():
-                    message.image_context = attachment_context
-                db.add(message)
-                db.commit()
-                db.refresh(message)
+                if should_reuse_cache:
+                    message.attachment_context = attachment_context
+                    if result.has_images and not (message.image_context or "").strip():
+                        message.image_context = attachment_context
+                    db.add(message)
+                    db.commit()
+                    db.refresh(message)
 
             base_label = ", ".join(attachment.original_name for attachment in message.attachments[:3])
             if len(message.attachments) > 3:

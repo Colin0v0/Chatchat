@@ -535,8 +535,8 @@ export function SettingsDialog({
   const activeTabTitle = activeTab === "memory" ? "记忆管理" : "知识库管理";
   const activeTabDescription =
     activeTab === "memory"
-      ? "管理会话记忆、候选记忆和长期画像，让上下文更稳定。"
-      : "上传 Markdown 文档并统一更新知识库，RAG 只在这里处理。";
+      ? "管理会话记忆、会话记忆和记忆空间"
+      : "上传 md 文档并统一更新知识库";
 
   const handlePickMarkdown = () => uploadInputRef.current?.click();
   const knowledgeProgress =

@@ -7,11 +7,20 @@ import re
 
 import httpx
 
+from ...chat.types import ChatMessagePayload
 from ...core.config import Settings
 from ...core.http import limited_request, shared_http_clients
 from ...llm.capabilities import Provider, model_provider_and_name, normalize_base_url
 from ...llm.catalog import resolve_model_route
-from ...llm.openai_client import openai_base_url, openai_headers
+from ...llm.openai_client import (
+    _extract_responses_output,
+    _parse_openai_json_response,
+    apply_reasoning_controls,
+    apply_responses_reasoning_controls,
+    openai_base_url,
+    openai_headers,
+    responses_message_payload,
+)
 from ...llm.ollama_runtime import ollama_keep_alive_value
 from .types import RetrievalCandidate
 
@@ -117,9 +126,42 @@ class ModelReranker:
         query: str,
         candidate: RetrievalCandidate,
     ) -> float:
+        if self._provider == "codex":
+            return await self._score_candidate_codex(query=query, candidate=candidate)
         if self._provider in ("openai", "openai_local"):
             return await self._score_candidate_openai(query=query, candidate=candidate)
         return await self._score_candidate_ollama(query=query, candidate=candidate)
+
+    async def _score_candidate_codex(
+        self,
+        *,
+        query: str,
+        candidate: RetrievalCandidate,
+    ) -> float:
+        prompt = self._build_prompt(query=query, candidate=candidate)
+        client = await shared_http_clients.get_client(
+            base_url=normalize_base_url(openai_base_url(self._provider, self._base_url_override)),
+            headers=openai_headers(self._provider, self._api_key_override),
+            timeout=httpx.Timeout(
+                self._settings.request_timeout_seconds,
+                connect=self._settings.openai_connect_timeout_seconds,
+            ),
+            limits=httpx.Limits(
+                max_connections=max(1, self._settings.http_pool_max_connections),
+                max_keepalive_connections=max(1, self._settings.http_pool_max_keepalive_connections),
+            ),
+        )
+        gate, max_concurrency = self._request_gate()
+        payload = self._build_codex_payload(prompt)
+
+        async with limited_request(gate=gate, max_concurrency=max_concurrency):
+            response = await client.post("/responses", json=payload)
+            response.raise_for_status()
+
+        payload_data = _parse_openai_json_response(response, context="responses.create")
+        content = _extract_responses_output(payload_data)["message"]
+        score = self._parse_score(content)
+        return max(0.0, min(1.0, score))
 
     async def _score_candidate_openai(
         self,
@@ -141,6 +183,20 @@ class ModelReranker:
             ),
         )
         gate, max_concurrency = self._request_gate()
+        payload = self._build_openai_payload(prompt)
+
+        async with limited_request(gate=gate, max_concurrency=max_concurrency):
+            response = await client.post("/chat/completions", json=payload)
+            response.raise_for_status()
+
+        payload_data = response.json()
+        if not isinstance(payload_data, dict):
+            raise RuntimeError("Reranker returned an unexpected response shape.")
+        content = self._extract_openai_content(payload_data)
+        score = self._parse_score(content)
+        return max(0.0, min(1.0, score))
+
+    def _build_openai_payload(self, prompt: str) -> dict[str, object]:
         payload: dict[str, object] = {
             "model": self._upstream_model,
             "messages": [
@@ -160,19 +216,32 @@ class ModelReranker:
             "temperature": 0,
             "max_tokens": 24,
         }
-        if self._provider == "openai_local":
-            payload["thinking"] = {"type": "disabled"}
+        apply_reasoning_controls(payload, provider=self._provider, thinking_enabled=False)
+        return payload
 
-        async with limited_request(gate=gate, max_concurrency=max_concurrency):
-            response = await client.post("/chat/completions", json=payload)
-            response.raise_for_status()
-
-        payload_data = response.json()
-        if not isinstance(payload_data, dict):
-            raise RuntimeError("Reranker returned an unexpected response shape.")
-        content = self._extract_openai_content(payload_data)
-        score = self._parse_score(content)
-        return max(0.0, min(1.0, score))
+    def _build_codex_payload(self, prompt: str) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "model": self._upstream_model,
+            "input": [
+                responses_message_payload(
+                    ChatMessagePayload(
+                        role="system",
+                        content=(
+                            "You are a strict retrieval reranker. "
+                            "Return JSON only in the exact form {\"score\": 0.00}."
+                        ),
+                    )
+                ),
+                responses_message_payload(
+                    ChatMessagePayload(
+                        role="user",
+                        content=prompt,
+                    )
+                ),
+            ],
+        }
+        apply_responses_reasoning_controls(payload, thinking_enabled=False)
+        return payload
 
     async def _score_candidate_ollama(
         self,
@@ -215,6 +284,11 @@ class ModelReranker:
             return "openai_local", min(
                 self._max_concurrency,
                 max(1, self._settings.openai_local_http_max_concurrency),
+            )
+        if self._provider == "codex":
+            return "codex", min(
+                self._max_concurrency,
+                max(1, self._settings.openai_http_max_concurrency),
             )
         if self._provider == "openai":
             return "openai", min(

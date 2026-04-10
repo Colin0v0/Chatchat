@@ -11,7 +11,12 @@ from sqlalchemy.orm import Session
 
 from ..chat.types import ChatMessagePayload
 from ..llm import stream_chat
-from ..llm.catalog import resolve_context_window, resolve_effective_thinking, resolve_model_route, uses_native_multimodal
+from ..llm.catalog import (
+    resolve_context_window,
+    resolve_effective_thinking,
+    resolve_model_route,
+    resolve_native_multimodal_mode,
+)
 from ..llm.thinking import ThinkTagStreamNormalizer, inject_thinking_system_prompt
 from ..retrieval import RetrievalMode, RetrievalPlan
 from ..storage.database import SessionLocal
@@ -237,7 +242,7 @@ async def response_event_stream(
             history_budget = min(history_budget, max(900, int(model_context_window * 0.36)))
             summary_budget = min(summary_budget, max(450, int(model_context_window * 0.14)))
 
-        native_multimodal = uses_native_multimodal(model)
+        native_multimodal_mode = resolve_native_multimodal_mode(model)
         strategy = choose_context_strategy(
             query=query,
             retrieval_mode=retrieval_mode,
@@ -250,10 +255,11 @@ async def response_event_stream(
             message_limit=services.history_message_limit,
             token_budget=strategy.history_token_budget,
         )
-        include_image_context = not native_multimodal
-        include_file_context = strategy.file_retrieval_enabled and not native_multimodal
+        include_image_context = native_multimodal_mode == "false"
+        include_file_context = strategy.file_retrieval_enabled and native_multimodal_mode != "local"
         message_history_service = MessageHistoryService(stream_db, services.attachment_context_service)
         needs_retrieval_grounding = include_file_context and retrieval_mode != "none" and message_history_service.needs_retrieval_grounding(
+            model=model,
             messages=history_window.recent_messages,
         )
         if message_history_service.needs_image_text(model=model, messages=history_window.recent_messages) or needs_retrieval_grounding:

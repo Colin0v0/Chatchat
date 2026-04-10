@@ -92,7 +92,7 @@ async def list_ollama_models() -> list[DiscoveredModel]:
             DiscoveredModel(
                 id=namespaced_model("ollama", model_name),
                 supports_thinking="thinking" in capabilities,
-                native_multimodal=False,
+                native_multimodal="false",
             )
         )
     return discovered

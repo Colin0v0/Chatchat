@@ -7,6 +7,7 @@ from ..core.config import settings
 from .capabilities import model_provider_and_name
 from .capabilities import normalize_model as normalize_model_id
 from .catalog import resolve_effective_thinking, resolve_model_route
+from .gemini_client import stream_gemini_chat
 from .ollama_client import stream_ollama_chat
 from .openai_client import stream_openai_chat
 
@@ -32,10 +33,8 @@ async def stream_chat(
     if route:
         provider = route["provider"]
         model_name = route["upstream_model"]
-        if route.get("native_multimodal"):
+        if route["native_multimodal"] == "local":
             base_url_override = route["upstream_service_base_url"]
-            if provider == "openai_local" and not base_url_override:
-                base_url_override = settings.openai_local_upstream_service_base_url.strip() or None
             if not base_url_override:
                 raise RuntimeError(f"Native multimodal endpoint is not configured for model: {model}")
         else:
@@ -43,7 +42,17 @@ async def stream_chat(
     else:
         provider, model_name = model_provider_and_name(model)
 
-    if provider in ("openai", "openai_local"):
+    if provider == "gemini":
+        async for chunk in stream_gemini_chat(
+            model=model_name,
+            messages=messages,
+            base_url_override=base_url_override,
+            api_key_override=route["api_key"] if route else None,
+        ):
+            yield chunk
+        return
+
+    if provider in ("openai", "openai_local", "codex"):
         async for chunk in stream_openai_chat(
             model=model_name,
             messages=messages,
