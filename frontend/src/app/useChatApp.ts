@@ -309,6 +309,7 @@ export function useChatApp({
     try {
       const capture = await stopRecording();
       if (!capture.audioBlob) {
+        setError("未捕获到有效音频，请检查 Edge 麦克风权限后重试。");
         return;
       }
 

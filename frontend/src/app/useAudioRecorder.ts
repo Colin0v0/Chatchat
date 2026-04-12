@@ -5,13 +5,20 @@ export interface RecordingCaptureResult {
 }
 
 function resolveMimeType() {
-  const candidates = ["audio/webm;codecs=opus", "audio/mp4", "audio/webm"];
+  const candidates = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"];
   return candidates.find((item) => MediaRecorder.isTypeSupported(item)) ?? "";
 }
 
 function createRecorder(stream: MediaStream): MediaRecorder {
   const mimeType = resolveMimeType();
-  return mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+  if (mimeType) {
+    try {
+      return new MediaRecorder(stream, { mimeType });
+    } catch {
+      // Some browsers report support but still fail to construct recorder with options.
+    }
+  }
+  return new MediaRecorder(stream);
 }
 
 function toRecordingError(error: unknown): string {
@@ -133,6 +140,11 @@ export function useAudioRecorder() {
       };
 
       recorder.addEventListener("stop", handleStop, { once: true });
+      try {
+        recorder.requestData();
+      } catch {
+        // Ignore: not all recorder states support requestData.
+      }
       recorder.stop();
     });
   }, [cleanupStream]);

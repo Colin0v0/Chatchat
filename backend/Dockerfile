@@ -1,5 +1,5 @@
-# syntax=docker/dockerfile:1.7
-FROM python:3.11-slim
+ARG DOCKER_REGISTRY=docker.io
+FROM ${DOCKER_REGISTRY}/library/python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1

@@ -2,6 +2,8 @@ services:
   backend:
     build:
       context: ./backend
+      args:
+        DOCKER_REGISTRY: ${DOCKER_REGISTRY:-docker.io}
     container_name: chatchat-backend
     env_file:
       - ./backend/.env
@@ -14,13 +16,17 @@ services:
       RAG_SECTION_MAX_CHARS: ${RAG_SECTION_MAX_CHARS:-1400}
       # 模型路径（容器内）
       IMAGE_VISION_MODEL: ${IMAGE_VISION_MODEL:-/models/Florence-2-base-ft}
-      AUDIO_TRANSCRIPTION_MODEL: ${AUDIO_TRANSCRIPTION_MODEL:-iic/SenseVoiceSmall}
+      AUDIO_TRANSCRIPTION_MODEL: ${AUDIO_TRANSCRIPTION_MODEL:-/models/SenseVoiceSmall}
     extra_hosts:
       - "host:host-gateway"
     ports:
       - "8000:8000"
+    gpus: all
     volumes:
-      - backend-storage:/app/storage
+      # 使用宿主机目录持久化后端数据（默认项目根目录 ./storage）
+      - ${BACKEND_STORAGE_HOST_PATH:-./storage}:/app/storage
+      # 让后端在容器内可读取 /app/.env.deploy.wsl（配置加载逻辑会校验该文件存在）
+      - ./backend/.env.deploy.wsl:/app/.env.deploy.wsl:ro
       # Windows路径挂载到WSL2（/mnt/驱动器/路径）
       - ${OBSIDIAN_VAULT_HOST_PATH:-/mnt/e/360MoveData/Users/29220/Documents/COLIN_all_in_one_note}:/data/obsidian:ro
       # 项目内模型目录挂载（只读）
@@ -33,6 +39,8 @@ services:
   frontend:
     build:
       context: ./frontend
+      args:
+        DOCKER_REGISTRY: ${DOCKER_REGISTRY:-docker.io}
     container_name: chatchat-frontend
     depends_on:
       - backend
@@ -41,6 +49,5 @@ services:
     restart: unless-stopped
 
 volumes:
-  backend-storage:
   huggingface-cache:
   modelscope-cache:

@@ -129,6 +129,8 @@ class LocalModelEmbedder:
         model_path = self._resolve_model_path()
         device = self._resolve_device(torch)
         load_kwargs: dict[str, object] = {"trust_remote_code": True}
+        # Reduce peak RAM usage during model initialization on low-memory hosts.
+        load_kwargs["low_cpu_mem_usage"] = True
         if device.startswith("cuda"):
             load_kwargs["torch_dtype"] = torch.float16
 
@@ -228,6 +230,12 @@ class LocalModelEmbedder:
     def _resolve_device(self, torch_module) -> str:
         if self._device_preference == "auto":
             return "cuda" if torch_module.cuda.is_available() else "cpu"
+        if self._device_preference.startswith("cuda") and not torch_module.cuda.is_available():
+            logger.warning(
+                "knowledge embedding device requested as %s, but CUDA is unavailable; falling back to cpu",
+                self._device_preference,
+            )
+            return "cpu"
         return self._device_preference
 
     def _extract_embeddings(self, *, outputs: object, attention_mask, torch_module):

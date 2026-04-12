@@ -509,16 +509,18 @@ async function consumeNdjsonStream(response: Response, onEvent: (event: ChatStre
 }
 
 function audioExtensionForMimeType(mimeType: string): string {
-  switch (mimeType) {
-    case "audio/mp4":
-      return ".mp4";
-    case "audio/wav":
-    case "audio/wave":
-    case "audio/x-wav":
-      return ".wav";
-    default:
-      return ".webm";
+  const normalized = mimeType.toLowerCase();
+  if (normalized.startsWith("audio/mp4")) {
+    return ".mp4";
   }
+  if (
+    normalized.startsWith("audio/wav") ||
+    normalized.startsWith("audio/wave") ||
+    normalized.startsWith("audio/x-wav")
+  ) {
+    return ".wav";
+  }
+  return ".webm";
 }
 
 function appendAudioFile(formData: FormData, file: Blob) {
