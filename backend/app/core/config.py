@@ -84,8 +84,8 @@ class Settings(BaseSettings):
     openai_local_stream: bool = True
     model_catalog_path: str = "./model_catalog.json"
     model_catalog_strict: bool = True
-    default_provider: str = "ollama"
-    default_model: str = "qwen2.5:7b"
+    default_provider: str = "openai_local"
+    default_model: str = "openai_local:claude-opus-4-6"
     attachment_max_upload_count: int = 8
     attachment_max_upload_size_bytes: int = 20 * 1024 * 1024
     image_ocr_min_confidence: float = 0.45
@@ -133,6 +133,9 @@ class Settings(BaseSettings):
     file_retrieval_min_score: float = 0.18
     knowledge_storage_root: str = "./storage/knowledge"
     knowledge_embedding_model: str = "qwen3-embedding:0.6b"
+    knowledge_embedding_device: str = "auto"
+    knowledge_embedding_batch_size: int = 8
+    knowledge_embedding_max_length: int = 2048
     knowledge_rerank_model: str = "openai:deepseek-chat"
     knowledge_rerank_max_chars: int = 480
     knowledge_rerank_max_concurrency: int = 1

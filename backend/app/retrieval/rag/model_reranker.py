@@ -152,16 +152,46 @@ class ModelReranker:
             ),
         )
         gate, max_concurrency = self._request_gate()
-        payload = self._build_codex_payload(prompt)
+        retry_errors: list[str] = []
 
-        async with limited_request(gate=gate, max_concurrency=max_concurrency):
-            response = await client.post("/responses", json=payload)
-            response.raise_for_status()
+        for attempt in range(2):
+            payload = self._build_codex_payload(prompt)
+            if attempt > 0:
+                # Retry with lower reasoning overhead to maximize deterministic short JSON output.
+                payload["reasoning"] = {"effort": "minimal"}
 
-        payload_data = _parse_openai_json_response(response, context="responses.create")
-        content = _extract_responses_output(payload_data)["message"]
-        score = self._parse_score(content)
-        return max(0.0, min(1.0, score))
+            async with limited_request(gate=gate, max_concurrency=max_concurrency):
+                response = await client.post("/responses", json=payload)
+                response.raise_for_status()
+
+            payload_data = _parse_openai_json_response(response, context="responses.create")
+            content = self._extract_codex_content(payload_data)
+
+            try:
+                score = self._parse_score(content)
+                return max(0.0, min(1.0, score))
+            except RuntimeError as exc:
+                # Some OpenAI-compatible routers occasionally return empty message text while still
+                # carrying partial structured payload. Try parsing from the raw response body.
+                try:
+                    fallback_raw = json.dumps(payload_data, ensure_ascii=False)
+                    score = self._parse_score(fallback_raw)
+                    return max(0.0, min(1.0, score))
+                except RuntimeError:
+                    retry_errors.append(str(exc))
+                    if attempt == 0:
+                        logger.warning(
+                            "codex rerank response parse failed; retrying once | model=%s | reason=%s",
+                            self._upstream_model,
+                            exc,
+                        )
+                        continue
+                    break
+
+        raise RuntimeError(
+            "Reranker could not parse a score from codex response. "
+            f"Last errors: {' | '.join(retry_errors) if retry_errors else 'unknown'}"
+        )
 
     async def _score_candidate_openai(
         self,
@@ -239,9 +269,49 @@ class ModelReranker:
                     )
                 ),
             ],
+            "max_output_tokens": 64,
+            "text": {"format": {"type": "json_object"}},
         }
         apply_responses_reasoning_controls(payload, thinking_enabled=False)
         return payload
+
+    def _extract_codex_content(self, payload: dict[str, object]) -> str:
+        output = _extract_responses_output(payload)
+        message = output.get("message", "").strip()
+        if message:
+            return message
+
+        output_text = payload.get("output_text")
+        if isinstance(output_text, str) and output_text.strip():
+            return output_text.strip()
+
+        collected_chunks: list[str] = []
+        items = payload.get("output")
+        if isinstance(items, list):
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                content = item.get("content")
+                if isinstance(content, list):
+                    for part in content:
+                        if not isinstance(part, dict):
+                            continue
+                        text = part.get("text")
+                        if isinstance(text, str) and text.strip():
+                            collected_chunks.append(text.strip())
+                summary = item.get("summary")
+                if isinstance(summary, list):
+                    for part in summary:
+                        if not isinstance(part, dict):
+                            continue
+                        text = part.get("text")
+                        if isinstance(text, str) and text.strip():
+                            collected_chunks.append(text.strip())
+                refusal = item.get("refusal")
+                if isinstance(refusal, str) and refusal.strip():
+                    collected_chunks.append(refusal.strip())
+
+        return "\n".join(collected_chunks).strip()
 
     async def _score_candidate_ollama(
         self,

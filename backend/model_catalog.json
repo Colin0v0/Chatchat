@@ -19,10 +19,6 @@
       "base_url": "${OPENAI_LOCAL_BASE_URL}",
       "upstream_service_base_url": "${OPENAI_LOCAL_UPSTREAM_SERVICE_BASE_URL}",
       "api_key_env": "OPENAI_LOCAL_API_KEY"
-    },
-    "ollama_local": {
-      "provider": "ollama",
-      "base_url": "${OLLAMA_BASE_URL}"
     }
   },
   "models": [
@@ -106,36 +102,6 @@
       "context_window": 200000,
       "native_multimodal": "gemini",
       "enabled": true
-    },
-    {
-      "id": "ollama:gemma4:e4b",
-      "display_name": "Gemma4 e4b",
-      "provider_ref": "ollama_local",
-      "upstream_model": "gemma4:e4b",
-      "thinking_mode": "default_on",
-      "context_window": 32768,
-      "native_multimodal": "false",
-      "enabled": false
-    },
-    {
-      "id": "ollama:huihui-qwen35-9b-opus:latest",
-      "display_name": "Qwen3.5 9b unsensored",
-      "provider_ref": "ollama_local",
-      "upstream_model": "huihui-qwen35-9b-opus:latest",
-      "thinking_mode": "default_on",
-      "context_window": 32768,
-      "native_multimodal": "false",
-      "enabled": false
-    },
-    {
-      "id": "ollama:deepseek-r1:7b",
-      "display_name": "DeepSeek-r1 7b",
-      "provider_ref": "ollama_local",
-      "upstream_model": "deepseek-r1:7b",
-      "thinking_mode": "default_on",
-      "context_window": 32768,
-      "native_multimodal": "false",
-      "enabled": false
     }
   ]
 }

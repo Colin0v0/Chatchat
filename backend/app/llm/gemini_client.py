@@ -261,28 +261,6 @@ async def stream_gemini_chat(
             api_key_override=api_key_override,
             timeout=_gemini_stream_timeout(),
         )
-        if image_count or document_count:
-            logger.info(
-                "stream_gemini_chat mode | model=%s | mode=non_stream_multimodal",
-                model,
-            )
-            response = await client.post(
-                f"/v1beta/models/{model}:generateContent",
-                json=payload,
-            )
-            logger.info(
-                "stream_gemini_chat response | model=%s | status=%s",
-                model,
-                response.status_code,
-            )
-            response.raise_for_status()
-            output = _extract_gemini_output(response.json())
-            if output["reasoning"]:
-                yield {"reasoning": {"content": output["reasoning"]}}
-            if output["message"]:
-                yield {"message": {"content": output["message"]}}
-            yield {"done": True}
-            return
 
         async with client.stream(
             "POST",

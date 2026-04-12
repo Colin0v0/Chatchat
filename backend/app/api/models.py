@@ -8,7 +8,6 @@ from ..llm import (
     build_model_options,
     list_codex_models,
     list_gemini_models,
-    list_ollama_models,
     list_openai_local_models,
     list_openai_models,
     normalize_model,
@@ -33,10 +32,9 @@ async def list_models(_=Depends(require_current_user)):
     else:
         codex_models = await list_codex_models()
         gemini_models = await list_gemini_models()
-        ollama_models = await list_ollama_models()
         openai_models = await list_openai_models()
         openai_local_models = await list_openai_local_models()
-        discovered_models = [*ollama_models, *openai_models, *codex_models, *gemini_models, *openai_local_models]
+        discovered_models = [*openai_models, *codex_models, *gemini_models, *openai_local_models]
 
     return {
         "models": build_model_options(discovered_models),

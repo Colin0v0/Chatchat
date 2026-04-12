@@ -60,7 +60,11 @@ export function stageFromStatusItems(items: string[]): StreamingStage | null {
   if (normalizedItems.has("Waiting for model")) {
     return "waiting_for_model";
   }
-  if (normalizedItems.has("Reading image")) {
+  if (
+    normalizedItems.has("Reading image")
+    || normalizedItems.has("Reading attachments")
+    || normalizedItems.has("Analyzing attachments")
+  ) {
     return "analyzing_attachments";
   }
   if (normalizedItems.has("Reading notes")) {
@@ -87,19 +91,19 @@ export function stageForRetrievalMode(mode: RetrievalMode): StreamingStage | nul
 
 export function labelForStage(stage: StreamingStage | null): string | null {
   if (stage === "waiting_for_model") {
-    return "Waiting for model";
+    return "等待模型响应";
   }
   if (stage === "analyzing_attachments") {
-    return "Analyzing attachments";
+    return "分析附件";
   }
   if (stage === "reading_notes") {
-    return "Reading notes";
+    return "阅读知识库";
   }
   if (stage === "reading_files") {
-    return "Reading files";
+    return "阅读文件";
   }
   if (stage === "searching") {
-    return "Searching";
+    return "联网搜索";
   }
   return null;
 }

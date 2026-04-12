@@ -124,8 +124,8 @@ class KnowledgeServiceTests(unittest.IsolatedAsyncioTestCase):
         file_path.write_text("# Title\n\n## Section\n\nnew content", encoding="utf-8")
 
         settings = make_settings(self.temp_dir.name)
-        with patch("app.knowledge.service.OllamaEmbedder", _FakeEmbedder), patch(
-            "app.knowledge.service.OllamaModelReranker", _FakeReranker
+        with patch("app.knowledge.service.build_knowledge_embedder", return_value=_FakeEmbedder(settings, settings.knowledge_embedding_model)), patch(
+            "app.knowledge.service.ModelReranker", _FakeReranker
         ):
             service = KnowledgeService(settings)
             indexed = await service.reindex_document(
@@ -151,8 +151,8 @@ class KnowledgeServiceTests(unittest.IsolatedAsyncioTestCase):
         self.db.refresh(user)
 
         settings = make_settings(self.temp_dir.name)
-        with patch("app.knowledge.service.OllamaEmbedder", _FakeEmbedder), patch(
-            "app.knowledge.service.OllamaModelReranker", _FakeReranker
+        with patch("app.knowledge.service.build_knowledge_embedder", return_value=_FakeEmbedder(settings, settings.knowledge_embedding_model)), patch(
+            "app.knowledge.service.ModelReranker", _FakeReranker
         ):
             service = KnowledgeService(settings)
             documents = await service.create_documents(

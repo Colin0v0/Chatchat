@@ -18,6 +18,8 @@ class ModelRerankerPayloadTests(unittest.TestCase):
 
         self.assertEqual(payload["reasoning"], {"effort": "none"})
         self.assertIn("input", payload)
+        self.assertEqual(payload["max_output_tokens"], 64)
+        self.assertEqual(payload["text"], {"format": {"type": "json_object"}})
 
     def test_openai_local_reranker_payload_disables_thinking_with_local_flag(self):
         reranker = ModelReranker(
@@ -37,6 +39,21 @@ class ModelRerankerPayloadTests(unittest.TestCase):
 
         self.assertNotIn("thinking", payload)
         self.assertNotIn("reasoning_effort", payload)
+
+    def test_extract_codex_content_falls_back_to_output_text(self):
+        reranker = ModelReranker(_build_settings(knowledge_rerank_model="codex:gpt-5.2"), rerank_window=2)
+        payload = {
+            "output": [],
+            "output_text": '{"score": 0.73}',
+        }
+        self.assertEqual(reranker._extract_codex_content(payload), '{"score": 0.73}')
+
+    def test_parse_score_accepts_serialized_payload_fallback(self):
+        reranker = ModelReranker(_build_settings(knowledge_rerank_model="codex:gpt-5.2"), rerank_window=2)
+        self.assertAlmostEqual(
+            reranker._parse_score('{"output":[{"content":[{"text":"{\\"score\\":0.41}"}]}]}'),
+            0.41,
+        )
 
 
 if __name__ == "__main__":

@@ -7,8 +7,6 @@ services:
       - ./backend/.env
       - ./backend/.env.deploy.wsl
     environment:
-      # Ollama在WSL2本地运行，通过host访问
-      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host:11434}
       RAG_VAULT_PATH: ${RAG_VAULT_PATH:-/data/obsidian}
       RAG_INDEX_PATH: ${RAG_INDEX_PATH:-/app/storage/rag/index.json}
       RAG_EMBEDDING_MODEL: ${RAG_EMBEDDING_MODEL:-nomic-embed-text}
@@ -25,8 +23,8 @@ services:
       - backend-storage:/app/storage
       # Windows路径挂载到WSL2（/mnt/驱动器/路径）
       - ${OBSIDIAN_VAULT_HOST_PATH:-/mnt/e/360MoveData/Users/29220/Documents/COLIN_all_in_one_note}:/data/obsidian:ro
-      # 模型目录挂载（只读）
-      - ${MODELS_HOST_PATH:-/mnt/f/AI/Models}:/models:ro
+      # 项目内模型目录挂载（只读）
+      - ${MODELS_HOST_PATH:-./models}:/models:ro
       # HuggingFace缓存目录（使用Docker卷持久化）
       - huggingface-cache:/root/.cache/huggingface
       - modelscope-cache:/root/.cache/modelscope

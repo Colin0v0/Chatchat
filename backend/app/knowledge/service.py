@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session, selectinload
 from ..core.config import Settings
 from ..retrieval.language import prefers_simplified_chinese
 from ..retrieval.rag.chunking import build_chunk_specs_for_document
-from ..retrieval.rag.embedder import OllamaEmbedder
+from ..retrieval.rag.embedder import build_knowledge_embedder
 from ..retrieval.rag.model_reranker import ModelReranker
 from ..retrieval.rag.neighbors import expand_neighbor_chunks
 from ..retrieval.rag.retriever import HybridRetriever
@@ -57,7 +57,7 @@ class KnowledgeService:
         self._rerank_window = max(self._top_k, settings.knowledge_rerank_window)
         self._neighbor_window = max(0, settings.knowledge_neighbor_window)
         self._min_score = max(0.0, settings.knowledge_min_score)
-        self._embedder = OllamaEmbedder(settings, settings.knowledge_embedding_model)
+        self._embedder = build_knowledge_embedder(settings, settings.knowledge_embedding_model)
         self._retriever = HybridRetriever()
         self._reranker = ModelReranker(settings, rerank_window=self._rerank_window)
         self._reindex_tasks: dict[int, asyncio.Task[None]] = {}

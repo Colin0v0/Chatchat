@@ -9,7 +9,7 @@ class QueryRewriteTests(unittest.IsolatedAsyncioTestCase):
     async def test_rewriter_uses_recent_context_and_applies_normalized_query(self):
         settings = SimpleNamespace(
             rag_query_rewrite_enabled=True,
-            rag_query_rewrite_model="ollama:qwen3:4b",
+            rag_query_rewrite_model="codex:gpt-5.2",
             rag_query_rewrite_history_messages=4,
         )
         rewriter = RagQueryRewriter(settings)
@@ -30,7 +30,7 @@ class QueryRewriteTests(unittest.IsolatedAsyncioTestCase):
     async def test_invalid_rewrite_keeps_original_query(self):
         settings = SimpleNamespace(
             rag_query_rewrite_enabled=True,
-            rag_query_rewrite_model="ollama:qwen3:4b",
+            rag_query_rewrite_model="codex:gpt-5.2",
             rag_query_rewrite_history_messages=4,
         )
         rewriter = RagQueryRewriter(settings)

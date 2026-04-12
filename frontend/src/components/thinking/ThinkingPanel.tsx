@@ -65,21 +65,21 @@ export function ThinkingPanel({ trace, streaming = false }: ThinkingPanelProps) 
     <div className="mb-3 w-full min-w-0">
       <button
         aria-expanded={expanded}
-        className="inline-flex min-h-[34px] max-w-full items-center gap-2.5 py-[2px] text-app-muted/80 transition hover:text-app-muted"
+        className="inline-flex min-h-[34px] w-full max-w-full flex-wrap items-center gap-2.5 py-[2px] text-app-muted/80 transition hover:text-app-muted"
         onClick={() => setExpanded((current) => !current)}
         type="button"
       >
         <span
           className={
             streaming
-              ? "app-streaming-label text-[15px] italic tracking-[0.01em]"
-              : "text-[15px] italic tracking-[0.01em] text-app-muted/80"
+              ? "app-streaming-label inline-flex shrink-0 whitespace-nowrap text-[15px] leading-[1.4] tracking-[0.01em]"
+              : "inline-flex shrink-0 whitespace-nowrap text-[15px] leading-[1.4] tracking-[0.01em] text-app-muted/80"
           }
         >
-          {streaming ? "Thinking" : "Think"}
+          {streaming ? "思考中" : "已思考"}
         </span>
         {streaming ? (
-          <span aria-hidden="true" className="inline-flex items-center gap-1.25 self-center">
+          <span aria-hidden="true" className="inline-flex shrink-0 items-center gap-1.25 self-center">
             <span className="size-[4px] rounded-full bg-current animate-[thinking-dot_1.8s_ease-in-out_0.15s_infinite]" />
             <span className="size-[4px] rounded-full bg-current animate-[thinking-dot_1.8s_ease-in-out_0.3s_infinite]" />
             <span className="size-[4px] rounded-full bg-current animate-[thinking-dot_1.8s_ease-in-out_0.45s_infinite]" />

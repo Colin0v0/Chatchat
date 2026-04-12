@@ -22,8 +22,10 @@ interface MessageListProps {
 function StreamingLabel({ label }: { label: string }) {
   return (
     <div className="mb-3 flex min-h-[34px] items-center py-[2px]">
-      <div className="inline-flex items-center gap-2.5 text-app-muted/80">
-        <span className="app-streaming-label text-[15px] italic tracking-[0.01em]">{label}</span>
+      <div className="inline-flex max-w-full flex-wrap items-center gap-2.5 text-app-muted/80">
+        <span className="app-streaming-label inline-flex shrink-0 whitespace-nowrap text-[15px] leading-[1.4] tracking-[0.01em]">
+          {label}
+        </span>
         <div aria-hidden="true" className="inline-flex items-center gap-1.25 self-center">
           <span className="size-[4px] rounded-full bg-current animate-[thinking-dot_1.8s_ease-in-out_0.15s_infinite]" />
           <span className="size-[4px] rounded-full bg-current animate-[thinking-dot_1.8s_ease-in-out_0.3s_infinite]" />
