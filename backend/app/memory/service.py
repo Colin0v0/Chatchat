@@ -13,7 +13,7 @@ from ..storage.database import SessionLocal
 from ..storage.models import Conversation, MemoryDocument, MemoryItem, Message
 from .extractor import MemoryExtractor
 from .normalizer import normalize_candidate, normalize_memory_fields
-from .store import MemoryCollection, MemoryStore
+from .store import MemoryCollection, MemoryStore, utcnow
 from .types import MemoryCandidate, MemoryPromptPayload, MemoryTurnPolicy, MemoryWorkspaceCollection
 
 logger = logging.getLogger("chatchat.memory")
