@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from sqlalchemy import and_, desc, or_, select, text
+from sqlalchemy.exc import DatabaseError
 from sqlalchemy.orm import Session
 
 from ..storage.models import MemoryDocument, MemoryItem
@@ -475,41 +476,24 @@ class MemoryStore:
             return [MemoryMatch(memory_id=item, score=0.0) for item in items]
 
         match_query = " OR ".join(tokens)
-        rows = self._db.execute(
-            text(
-                """
-                SELECT
-                  m.id AS memory_id,
-                  (
-                    CASE WHEN m.pinned = 1 THEN 100.0 ELSE 0.0 END
-                    + CASE WHEN m.scope = 'working' THEN 18.0
-                           WHEN m.scope = 'conversation' THEN 9.0
-                           ELSE 0.0 END
-                    - bm25(memory_search, 8.0, 2.0)
-                  ) AS score
-                FROM memory_search
-                JOIN memory_items AS m ON m.id = memory_search.memory_id
-                WHERE memory_search MATCH :match_query
-                  AND m.user_id = :user_id
-                  AND m.status = 'active'
-                  AND m.active = 1
-                  AND (
-                    m.scope = 'global'
-                    OR (m.scope = 'conversation' AND m.conversation_id = :conversation_id)
-                    OR (m.scope = 'working' AND m.conversation_id = :conversation_id)
-                  )
-                  AND (m.expires_at IS NULL OR m.expires_at > CURRENT_TIMESTAMP)
-                ORDER BY score DESC, m.updated_at DESC, m.id DESC
-                LIMIT :limit
-                """
-            ),
-            {
-                "match_query": match_query,
-                "user_id": user_id,
-                "conversation_id": conversation_id,
-                "limit": limit,
-            },
-        ).mappings().all()
+        try:
+            rows = self._run_recall_query(
+                match_query=match_query,
+                user_id=user_id,
+                conversation_id=conversation_id,
+                limit=limit,
+            )
+        except DatabaseError as exc:
+            if "database disk image is malformed" not in str(exc).lower():
+                raise
+            self._db.rollback()
+            self._rebuild_search_index()
+            rows = self._run_recall_query(
+                match_query=match_query,
+                user_id=user_id,
+                conversation_id=conversation_id,
+                limit=limit,
+            )
         return [MemoryMatch(memory_id=int(row["memory_id"]), score=float(row["score"] or 0.0)) for row in rows]
 
     def touch(self, memory_ids: list[int], *, user_id: int) -> None:
@@ -617,6 +601,74 @@ class MemoryStore:
             if token not in seen and token not in MEMORY_STOPWORDS:
                 seen.append(token)
         return seen[:8]
+
+    def _run_recall_query(
+        self,
+        *,
+        match_query: str,
+        user_id: int,
+        conversation_id: int,
+        limit: int,
+    ) -> list[dict[str, object]]:
+        return self._db.execute(
+            text(
+                """
+                SELECT
+                  m.id AS memory_id,
+                  (
+                    CASE WHEN m.pinned = 1 THEN 100.0 ELSE 0.0 END
+                    + CASE WHEN m.scope = 'working' THEN 18.0
+                           WHEN m.scope = 'conversation' THEN 9.0
+                           ELSE 0.0 END
+                    - bm25(memory_search, 8.0, 2.0)
+                  ) AS score
+                FROM memory_search
+                JOIN memory_items AS m ON m.id = memory_search.memory_id
+                WHERE memory_search MATCH :match_query
+                  AND m.user_id = :user_id
+                  AND m.status = 'active'
+                  AND m.active = 1
+                  AND (
+                    m.scope = 'global'
+                    OR (m.scope = 'conversation' AND m.conversation_id = :conversation_id)
+                    OR (m.scope = 'working' AND m.conversation_id = :conversation_id)
+                  )
+                  AND (m.expires_at IS NULL OR m.expires_at > CURRENT_TIMESTAMP)
+                ORDER BY score DESC, m.updated_at DESC, m.id DESC
+                LIMIT :limit
+                """
+            ),
+            {
+                "match_query": match_query,
+                "user_id": user_id,
+                "conversation_id": conversation_id,
+                "limit": limit,
+            },
+        ).mappings().all()
+
+    def _rebuild_search_index(self) -> None:
+        self._db.execute(text("DROP TABLE IF EXISTS memory_search"))
+        self._db.execute(
+            text(
+                """
+                CREATE VIRTUAL TABLE IF NOT EXISTS memory_search
+                USING fts5(memory_id UNINDEXED, content, tokenize='unicode61')
+                """
+            )
+        )
+        self._db.execute(
+            text(
+                """
+                INSERT INTO memory_search(rowid, memory_id, content)
+                SELECT
+                  id,
+                  id,
+                  coalesce(title, '') || ' ' || coalesce(detail, '') || ' ' || coalesce(tags_json, '')
+                FROM memory_items
+                """
+            )
+        )
+        self._db.flush()
 
     def _list_items(
         self,
