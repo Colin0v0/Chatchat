@@ -1,5 +1,5 @@
-import { LoaderCircle, MessageSquarePlus, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { LoaderCircle, MessageSquarePlus, MoreHorizontal, Pencil, Scale, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   MobileSidebarFooter,
@@ -18,24 +18,44 @@ interface SidebarContentProps extends SidebarSharedProps {
   open?: boolean;
 }
 
+type CombinedSidebarItem =
+  | {
+      kind: "chat";
+      id: number;
+      title: string;
+      updatedAt: string | null;
+    }
+  | {
+      kind: "debate";
+      id: number;
+      title: string;
+      updatedAt: string | null;
+    };
+
 export function SidebarContent({
   items,
+  debateItems,
   activity = {},
   activeConversationId,
+  activeDebateId,
   conversationsLoaded,
+  debatesLoaded,
   query,
   onQueryChange,
   onNewChat,
   onRename,
   onDelete,
+  onRenameDebate,
+  onDeleteDebate,
   onLogout,
   onSelect,
+  onSelectDebate,
   onOpenSettings,
   viewerName,
   mode,
   open = true,
 }: SidebarContentProps) {
-  const [menuConversationId, setMenuConversationId] = useState<number | null>(null);
+  const [menuItemKey, setMenuItemKey] = useState<string | null>(null);
   const [dialogState, setDialogState] = useState<SidebarDialogState>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const isDesktop = mode === "desktop";
@@ -46,8 +66,29 @@ export function SidebarContent({
   const contentBottomPadding = isDesktop ? "pb-[48px]" : "pb-4";
   const conversationMenuBufferHeight = isDesktop ? "h-[136px]" : "h-0";
   const emptyText = query.trim()
-    ? "No chats matched your search."
-    : "\u8fd8\u6ca1\u6709\u5bf9\u8bdd\uff0c\u5148\u53d1\u7b2c\u4e00\u6761\u6d88\u606f\u3002";
+    ? "No sessions matched your search."
+    : "还没有任何会话，先新建聊天或发起辩论。";
+
+  const combinedItems = useMemo<CombinedSidebarItem[]>(() => {
+    const chatItems: CombinedSidebarItem[] = items.map((item) => ({
+      kind: "chat",
+      id: item.id,
+      title: item.title,
+      updatedAt: item.updated_at,
+    }));
+    const mergedDebates: CombinedSidebarItem[] = debateItems.map((item) => ({
+      kind: "debate",
+      id: item.id,
+      title: item.topic,
+      updatedAt: item.updated_at,
+    }));
+
+    return [...chatItems, ...mergedDebates].sort((left, right) => {
+      const leftTime = left.updatedAt ? Date.parse(left.updatedAt) : 0;
+      const rightTime = right.updatedAt ? Date.parse(right.updatedAt) : 0;
+      return rightTime - leftTime;
+    });
+  }, [debateItems, items]);
 
   useEffect(() => {
     function handlePointerDown(event: MouseEvent) {
@@ -55,7 +96,7 @@ export function SidebarContent({
         return;
       }
       if (!menuRef.current?.contains(event.target as Node)) {
-        setMenuConversationId(null);
+        setMenuItemKey(null);
       }
     }
 
@@ -109,15 +150,15 @@ export function SidebarContent({
           </div>
 
           <div className="app-scrollbar app-scrollbar-sidebar min-h-0 flex-1 overflow-y-auto">
-            {!conversationsLoaded ? (
+            {!conversationsLoaded || !debatesLoaded ? (
               <div className={sectionPadding}>
                 <SidebarLoadingState />
               </div>
             ) : null}
 
-            {conversationsLoaded ? (
+            {conversationsLoaded && debatesLoaded ? (
               <div className={`flex flex-col gap-1 ${sectionPadding}`}>
-                {items.length === 0 ? (
+                {combinedItems.length === 0 ? (
                   <div
                     className={cn(
                       "overflow-hidden px-3 text-[14px] text-app-muted",
@@ -128,9 +169,13 @@ export function SidebarContent({
                   </div>
                 ) : null}
 
-                {items.map((item) => {
-                  const active = item.id === activeConversationId;
-                  const itemActivity = activity[item.id];
+                {combinedItems.map((item) => {
+                  const active =
+                    item.kind === "chat"
+                      ? item.id === activeConversationId
+                      : item.id === activeDebateId;
+                  const itemActivity = item.kind === "chat" ? activity[item.id] : undefined;
+                  const itemKey = `${item.kind}:${item.id}`;
 
                   return (
                     <div
@@ -140,14 +185,15 @@ export function SidebarContent({
                           ? "bg-app-panel-strong shadow-[0_6px_18px_rgba(34,24,16,0.06)]"
                           : "hover:bg-app-panel-soft",
                       )}
-                      key={item.id}
+                      key={itemKey}
                     >
-                        <button
-                          className="flex w-full min-w-0 items-center rounded-[8px] px-3 py-2.5 pr-12 text-left focus:outline-none focus-visible:outline-none"
-                          onClick={() => onSelect(item.id)}
-                          type="button"
-                        >
+                      <button
+                        className="flex w-full min-w-0 items-center rounded-[8px] px-3 py-2.5 pr-12 text-left focus:outline-none focus-visible:outline-none"
+                        onClick={() => (item.kind === "chat" ? onSelect(item.id) : onSelectDebate(item.id))}
+                        type="button"
+                      >
                         <span className="flex min-w-0 items-center gap-2.5">
+                          {item.kind === "debate" ? <Scale className="size-4 shrink-0 text-app-muted" /> : null}
                           <span className="truncate text-[15px] font-semibold tracking-[-0.02em] text-app-text">
                             {item.title}
                           </span>
@@ -169,36 +215,37 @@ export function SidebarContent({
 
                       <div
                         className="absolute inset-y-0 right-2 flex items-center"
-                        ref={menuConversationId === item.id ? menuRef : null}
+                        ref={menuItemKey === itemKey ? menuRef : null}
                       >
                         {isDesktop ? (
                           <>
                             <button
-                              aria-label="Conversation actions"
+                              aria-label="Session actions"
                               className={cn(
                                 "flex h-8 w-8 items-center justify-center rounded-[8px] text-app-muted transition-colors",
                                 "hover:text-app-text focus:outline-none focus-visible:outline-none",
-                                menuConversationId === item.id ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+                                menuItemKey === itemKey ? "opacity-100" : "opacity-0 group-hover:opacity-100",
                               )}
                               onClick={(event) => {
                                 event.stopPropagation();
-                                setMenuConversationId((current) => (current === item.id ? null : item.id));
+                                setMenuItemKey((current) => (current === itemKey ? null : itemKey));
                               }}
                               type="button"
                             >
                               <MoreHorizontal className="size-4" />
                             </button>
 
-                            {menuConversationId === item.id ? (
+                            {menuItemKey === itemKey ? (
                               <div className={`absolute right-0 top-[calc(100%+6px)] z-30 py-1 ${sidebarMenuPanelClass}`}>
                                 <button
                                   className={`${sidebarMenuItemClass} text-app-text hover:text-app-accent-strong`}
                                   onClick={(event) => {
                                     event.stopPropagation();
-                                    setMenuConversationId(null);
+                                    setMenuItemKey(null);
                                     setDialogState({
                                       type: "rename",
-                                      conversationId: item.id,
+                                      kind: item.kind,
+                                      id: item.id,
                                       title: item.title,
                                       value: item.title,
                                     });
@@ -212,10 +259,11 @@ export function SidebarContent({
                                   className={`${sidebarMenuItemClass} text-[#9d3d32] hover:text-[#8a3329]`}
                                   onClick={(event) => {
                                     event.stopPropagation();
-                                    setMenuConversationId(null);
+                                    setMenuItemKey(null);
                                     setDialogState({
                                       type: "delete",
-                                      conversationId: item.id,
+                                      kind: item.kind,
+                                      id: item.id,
                                       title: item.title,
                                     });
                                   }}
@@ -233,7 +281,7 @@ export function SidebarContent({
                   );
                 })}
 
-                {items.length > 0 ? <div aria-hidden="true" className={conversationMenuBufferHeight} /> : null}
+                {combinedItems.length > 0 ? <div aria-hidden="true" className={conversationMenuBufferHeight} /> : null}
               </div>
             ) : null}
           </div>
@@ -248,25 +296,36 @@ export function SidebarContent({
           if (!dialogState || dialogState.type !== "delete") {
             return;
           }
-          await onDelete(dialogState.conversationId);
+
+          if (dialogState.kind === "debate") {
+            await onDeleteDebate(dialogState.id);
+          } else {
+            await onDelete(dialogState.id);
+          }
           setDialogState(null);
         }}
         onConfirmRename={async () => {
           if (!dialogState || dialogState.type !== "rename") {
             return;
           }
+
           const nextTitle = dialogState.value.trim();
           if (!nextTitle) {
             return;
           }
-          await onRename(dialogState.conversationId, nextTitle);
+
+          if (dialogState.kind === "debate") {
+            await onRenameDebate(dialogState.id, nextTitle);
+          } else {
+            await onRename(dialogState.id, nextTitle);
+          }
           setDialogState(null);
         }}
-        onRenameValueChange={(value) => {
+        onRenameValueChange={(value) =>
           setDialogState((current) =>
             current && current.type === "rename" ? { ...current, value } : current,
-          );
-        }}
+          )
+        }
         state={dialogState}
       />
     </>

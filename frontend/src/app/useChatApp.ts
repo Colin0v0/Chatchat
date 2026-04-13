@@ -12,12 +12,17 @@ import { useComposerAttachments } from "./useComposerAttachments";
 import { useConversationStreams } from "./useConversationStreams";
 import { useLatestRequestGuard } from "./useLatestRequestGuard";
 import {
+  createDebateSession,
+  deleteDebateSession,
   deleteConversation,
+  fetchDebateSession,
+  fetchDebateSessions,
   fetchConversation,
   fetchConversationMessages,
   fetchConversations,
   fetchModels,
   regenerateChat,
+  renameDebateSession,
   renameConversation,
   streamChat,
   transcribeAudio,
@@ -26,6 +31,8 @@ import {
 import type {
   ConversationDetail,
   ConversationSummary,
+  DebateSessionDetail,
+  DebateSessionSummary,
   ModelOption,
   RetrievalMode,
 } from "../types";
@@ -87,6 +94,11 @@ export function useChatApp({
   const [conversationsLoaded, setConversationsLoaded] = useState(false);
   const [activeConversationId, setActiveConversationId] = useState<number | null>(null);
   const [activeConversation, setActiveConversation] = useState<ConversationDetail | null>(null);
+  const [debateSessions, setDebateSessions] = useState<DebateSessionSummary[]>([]);
+  const [debateSessionsLoaded, setDebateSessionsLoaded] = useState(false);
+  const [activeDebateId, setActiveDebateId] = useState<number | null>(null);
+  const [activeDebate, setActiveDebate] = useState<DebateSessionDetail | null>(null);
+  const [debateCreateOpen, setDebateCreateOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState("");
   const [models, setModels] = useState<ModelOption[]>(() => createInitialModelOptions());
@@ -111,8 +123,11 @@ export function useChatApp({
   const transientAttachmentUrlsRef = useRef<string[]>([]);
   const conversationLoadAbortRef = useRef<AbortController | null>(null);
   const earlierMessagesAbortRef = useRef<AbortController | null>(null);
+  const debateLoadAbortRef = useRef<AbortController | null>(null);
   const conversationLoadGuard = useLatestRequestGuard();
   const conversationsRefreshGuard = useLatestRequestGuard();
+  const debatesRefreshGuard = useLatestRequestGuard();
+  const debateLoadGuard = useLatestRequestGuard();
   const modelsLoadGuard = useLatestRequestGuard();
   const deferredQuery = useDeferredValue(query);
 
@@ -192,6 +207,37 @@ export function useChatApp({
     [conversationLoadGuard, getSessionConversation, setError],
   );
 
+  const loadDebateSession = useCallback(
+    async (sessionId: number) => {
+      const requestId = debateLoadGuard.begin();
+      debateLoadAbortRef.current?.abort();
+
+      const controller = new AbortController();
+      debateLoadAbortRef.current = controller;
+
+      try {
+        const session = await fetchDebateSession(sessionId);
+        if (!debateLoadGuard.isCurrent(requestId)) {
+          return;
+        }
+        setActiveDebate(session);
+      } catch (loadError) {
+        if (controller.signal.aborted) {
+          return;
+        }
+        if (!debateLoadGuard.isCurrent(requestId)) {
+          return;
+        }
+        setError(loadError instanceof Error ? loadError.message : "Failed to load debate session.");
+      } finally {
+        if (debateLoadAbortRef.current === controller) {
+          debateLoadAbortRef.current = null;
+        }
+      }
+    },
+    [debateLoadGuard, setError],
+  );
+
   const filteredConversations = useMemo(() => {
     if (!deferredQuery.trim()) {
       return conversations;
@@ -200,6 +246,15 @@ export function useChatApp({
     const keyword = deferredQuery.toLowerCase();
     return conversations.filter((item) => item.title.toLowerCase().includes(keyword));
   }, [conversations, deferredQuery]);
+
+  const filteredDebateSessions = useMemo(() => {
+    if (!deferredQuery.trim()) {
+      return debateSessions;
+    }
+
+    const keyword = deferredQuery.toLowerCase();
+    return debateSessions.filter((item) => item.topic.toLowerCase().includes(keyword));
+  }, [debateSessions, deferredQuery]);
 
   const availableModels = useMemo(
     () => ensureSelectedModel(models, selectedModel),
@@ -225,6 +280,25 @@ export function useChatApp({
     }
   }, [conversationsRefreshGuard, mergeConversationSummariesWithSessions, setError]);
 
+  const refreshDebateSessions = useCallback(async () => {
+    const requestId = debatesRefreshGuard.begin();
+    try {
+      const items = await fetchDebateSessions();
+      if (!debatesRefreshGuard.isCurrent(requestId)) {
+        return;
+      }
+      setDebateSessions(items);
+    } catch (refreshError) {
+      if (debatesRefreshGuard.isCurrent(requestId)) {
+        setError(refreshError instanceof Error ? refreshError.message : "Failed to refresh debates.");
+      }
+    } finally {
+      if (debatesRefreshGuard.isCurrent(requestId)) {
+        setDebateSessionsLoaded(true);
+      }
+    }
+  }, [debatesRefreshGuard, setError]);
+
   const loadModels = useCallback(async () => {
     const requestId = modelsLoadGuard.begin();
     try {
@@ -245,8 +319,9 @@ export function useChatApp({
 
   useEffect(() => {
     void refreshConversations();
+    void refreshDebateSessions();
     void loadModels();
-  }, [loadModels, refreshConversations]);
+  }, [loadModels, refreshConversations, refreshDebateSessions]);
 
   useEffect(() => {
     if (activeConversationId === null) {
@@ -257,9 +332,18 @@ export function useChatApp({
   }, [activeConversationId, loadConversation]);
 
   useEffect(() => {
+    if (activeDebateId === null) {
+      return;
+    }
+
+    void loadDebateSession(activeDebateId);
+  }, [activeDebateId, loadDebateSession]);
+
+  useEffect(() => {
     return () => {
       conversationLoadAbortRef.current?.abort();
       earlierMessagesAbortRef.current?.abort();
+      debateLoadAbortRef.current?.abort();
       clearTransientAttachmentUrls();
     };
   }, [clearTransientAttachmentUrls]);
@@ -341,10 +425,14 @@ export function useChatApp({
     cancelRecording();
     conversationLoadAbortRef.current?.abort();
     earlierMessagesAbortRef.current?.abort();
+    debateLoadAbortRef.current?.abort();
     clearAttachments();
     startTransition(() => {
       setActiveConversationId(null);
       setActiveConversation(null);
+      setActiveDebateId(null);
+      setActiveDebate(null);
+      setDebateCreateOpen(false);
       setCollapsedMessageIds(new Set());
       setDraft("");
       setError(null);
@@ -358,8 +446,12 @@ export function useChatApp({
     (conversationId: number) => {
       cancelRecording();
       earlierMessagesAbortRef.current?.abort();
+      debateLoadAbortRef.current?.abort();
       startTransition(() => {
         setActiveConversationId(conversationId);
+        setActiveDebateId(null);
+        setActiveDebate(null);
+        setDebateCreateOpen(false);
         setError(null);
         setCollapsedMessageIds(new Set());
         openSessionConversation(conversationId);
@@ -370,6 +462,74 @@ export function useChatApp({
       });
     },
     [cancelRecording, closeMobileSidebar, isDesktop, openSessionConversation],
+  );
+
+  const handleNewDebate = useCallback(() => {
+    cancelRecording();
+    conversationLoadAbortRef.current?.abort();
+    earlierMessagesAbortRef.current?.abort();
+    debateLoadAbortRef.current?.abort();
+    clearAttachments();
+    startTransition(() => {
+      setActiveConversationId(null);
+      setActiveConversation(null);
+      setActiveDebateId(null);
+      setActiveDebate(null);
+      setDebateCreateOpen(true);
+      setCollapsedMessageIds(new Set());
+      setDraft("");
+      setError(null);
+      if (!isDesktop) {
+        closeMobileSidebar();
+      }
+    });
+  }, [cancelRecording, clearAttachments, closeMobileSidebar, isDesktop]);
+
+  const handleSelectDebate = useCallback(
+    (sessionId: number) => {
+      cancelRecording();
+      earlierMessagesAbortRef.current?.abort();
+      conversationLoadAbortRef.current?.abort();
+      startTransition(() => {
+        setActiveConversationId(null);
+        setActiveConversation(null);
+        setActiveDebateId(sessionId);
+        setActiveDebate(null);
+        setDebateCreateOpen(false);
+        setError(null);
+        setCollapsedMessageIds(new Set());
+
+        if (!isDesktop) {
+          closeMobileSidebar();
+        }
+      });
+    },
+    [cancelRecording, closeMobileSidebar, isDesktop],
+  );
+
+  const handleCreateDebate = useCallback(
+    async (payload: { topic: string; proModelId: string; conModelId: string }) => {
+      try {
+        const created = await createDebateSession({
+          topic: payload.topic,
+          pro_model_id: payload.proModelId,
+          con_model_id: payload.conModelId,
+          retrieval_mode: "none",
+          word_limit_level: "standard",
+          style: "",
+        });
+        setDebateCreateOpen(false);
+        setActiveDebateId(created.id);
+        setActiveDebate(created);
+        void refreshDebateSessions();
+        if (!isDesktop) {
+          closeMobileSidebar();
+        }
+      } catch (createError) {
+        setError(createError instanceof Error ? createError.message : "Failed to create debate.");
+      }
+    },
+    [closeMobileSidebar, isDesktop, refreshDebateSessions],
   );
 
   const handleRenameConversation = useCallback(
@@ -400,6 +560,48 @@ export function useChatApp({
       }
     },
     [abortAndRemoveSession, activeConversationId, cancelRecording, clearAttachments, refreshConversations],
+  );
+
+  const handleRenameDebate = useCallback(
+    async (sessionId: number, topic: string) => {
+      await renameDebateSession(sessionId, topic);
+      setActiveDebate((current) =>
+        current && current.id === sessionId ? { ...current, topic } : current,
+      );
+      await refreshDebateSessions();
+    },
+    [refreshDebateSessions],
+  );
+
+  const handleDeleteDebate = useCallback(
+    async (sessionId: number) => {
+      await deleteDebateSession(sessionId);
+      await refreshDebateSessions();
+
+      if (activeDebateId === sessionId) {
+        setActiveDebateId(null);
+        setActiveDebate(null);
+      }
+    },
+    [activeDebateId, refreshDebateSessions],
+  );
+
+  const handleRefreshDebate = useCallback(
+    async (sessionId: number) => {
+      const refreshed = await fetchDebateSession(sessionId);
+      setActiveDebate((current) => (current && current.id === sessionId ? refreshed : current));
+      await refreshDebateSessions();
+      return refreshed;
+    },
+    [refreshDebateSessions],
+  );
+
+  const handleSyncDebate = useCallback(
+    (session: DebateSessionDetail) => {
+      setActiveDebate((current) => (current && current.id === session.id ? session : current));
+      void refreshDebateSessions();
+    },
+    [refreshDebateSessions],
   );
 
   const handleLoadEarlierMessages = useCallback(async () => {
@@ -676,10 +878,30 @@ export function useChatApp({
     setLandingHeroAnimated(true);
   }, []);
 
-  const showLanding = !activeConversation || activeConversation.messages.length === 0;
+  const showLanding =
+    !debateCreateOpen &&
+    activeDebateId === null &&
+    (!activeConversation || activeConversation.messages.length === 0);
 
   return {
     error,
+    debateCreateProps: debateCreateOpen
+      ? {
+          defaultProModelId: selectedModel,
+          defaultConModelId: selectedModel,
+          models: availableModels,
+          onCancel: () => setDebateCreateOpen(false),
+          onCreate: handleCreateDebate,
+        }
+      : null,
+    debateRoomProps: activeDebate
+      ? {
+          session: activeDebate,
+          onBack: handleNewChat,
+          onRefresh: handleRefreshDebate,
+          onSessionChange: handleSyncDebate,
+        }
+      : null,
     conversationProps: activeConversation
       ? {
           canLoadEarlierMessages: activeConversation.remaining_message_count > 0,
@@ -716,11 +938,27 @@ export function useChatApp({
         }
       : null,
     headerProps: {
-      conversationId: activeConversationId,
-      conversationTitle: activeConversation?.title ?? "",
+      activeItemId: activeDebateId ?? activeConversationId,
+      activeItemKind:
+        activeDebateId !== null ? ("debate" as const) : activeConversationId !== null ? ("chat" as const) : null,
+      activeItemTitle: activeDebate?.topic ?? activeConversation?.title ?? "",
       isDesktop,
-      onDeleteConversation: handleDeleteConversation,
-      onRenameConversation: handleRenameConversation,
+      onNewChat: handleNewChat,
+      onNewDebate: handleNewDebate,
+      onDeleteItem: async (itemId: number, kind: "chat" | "debate") => {
+        if (kind === "debate") {
+          await handleDeleteDebate(itemId);
+          return;
+        }
+        await handleDeleteConversation(itemId);
+      },
+      onRenameItem: async (itemId: number, title: string, kind: "chat" | "debate") => {
+        if (kind === "debate") {
+          await handleRenameDebate(itemId, title);
+          return;
+        }
+        await handleRenameConversation(itemId, title);
+      },
       onToggleSidebar: toggleSidebar,
       showTitle: true,
       sidebarOpen,
@@ -762,16 +1000,22 @@ export function useChatApp({
     showLanding,
     sidebarProps: {
       activeConversationId,
+      activeDebateId,
       activity: conversationActivity,
       conversationsLoaded,
+      debatesLoaded: debateSessionsLoaded,
       isDesktop,
       items: filteredConversations,
+      debateItems: filteredDebateSessions,
       onDelete: handleDeleteConversation,
+      onDeleteDebate: handleDeleteDebate,
       onNewChat: handleNewChat,
       onOpenSettings: () => setSettingsOpen(true),
       onQueryChange: setQuery,
       onRename: handleRenameConversation,
+      onRenameDebate: handleRenameDebate,
       onSelect: handleSelectConversation,
+      onSelectDebate: handleSelectDebate,
       onToggleSidebar: toggleSidebar,
       open: sidebarOpen,
       query,

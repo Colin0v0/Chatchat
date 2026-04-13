@@ -21,6 +21,7 @@ export function SidebarDialog({
   }
 
   const isRename = state.type === "rename";
+  const label = state.kind === "debate" ? "debate" : "chat";
 
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-[rgba(22,19,16,0.18)] px-4" onClick={onCancel}>
@@ -29,12 +30,12 @@ export function SidebarDialog({
         onClick={(event) => event.stopPropagation()}
       >
         <div className="text-[30px] font-semibold tracking-[-0.04em] text-app-text">
-          {isRename ? "Rename chat" : "Delete chat"}
+          {isRename ? `Rename ${label}` : `Delete ${label}`}
         </div>
 
         {isRename ? (
           <>
-            <div className="mt-5 text-[14px] leading-7 text-app-muted">Give this chat a clearer title.</div>
+            <div className="mt-5 text-[14px] leading-7 text-app-muted">Give this {label} a clearer title.</div>
             <input
               autoFocus
               className="mt-5 w-full rounded-2xl border border-app-border bg-app-panel-strong px-4 py-3 text-[16px] text-app-text outline-none transition focus:border-app-border-strong"

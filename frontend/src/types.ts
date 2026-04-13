@@ -90,6 +90,63 @@ export interface ConversationMessagePage {
   remaining_message_count: number;
 }
 
+export type DebateSide = "pro" | "con";
+export type DebateStatus = "created" | "running" | "waiting_judge" | "finished";
+export type DebateStage = "opening" | "rebuttal" | "closing" | "judge_decision";
+export type DebateAskTarget = "all" | "pro" | "con";
+export type DebateWinner = "pro" | "con" | "draw";
+export type WordLimitLevel = "short" | "standard" | "deep";
+
+export interface DebateParticipant {
+  id: number;
+  model_id: string;
+  side: DebateSide;
+  style: string;
+  order_index: number;
+}
+
+export interface DebateSessionSummary {
+  id: number;
+  topic: string;
+  status: DebateStatus;
+  stage: DebateStage;
+  updated_at: string | null;
+  last_turn_preview: string;
+}
+
+export interface DebateSessionDetail {
+  id: number;
+  topic: string;
+  status: DebateStatus;
+  stage: DebateStage;
+  created_at: string | null;
+  updated_at: string | null;
+  finished_at: string | null;
+  participants: DebateParticipant[];
+  turns: DebateTurn[];
+  judge_decision: DebateJudgeDecision | null;
+  summary: string;
+}
+
+export interface DebateTurn {
+  id: number | string;
+  kind: "speaker_turn" | "judge_question" | "system_note";
+  stage: DebateStage;
+  turn_index: number;
+  speaker_participant_id: number | null;
+  target_turn_id: number | null;
+  content: string;
+  reasoning?: string | null;
+  created_at: string | null;
+}
+
+export interface DebateJudgeDecision {
+  winner_side: DebateWinner;
+  scoring_json: Record<string, unknown>;
+  judge_comment: string;
+  created_at: string | null;
+}
+
 export interface ModelOption {
   id: string;
   label: string;
@@ -114,6 +171,26 @@ export interface ChatStreamRequest {
   model?: string | null;
   retrieval_mode: RetrievalMode;
   thinking_enabled?: boolean | null;
+}
+
+export interface DebateSessionCreateRequest {
+  topic: string;
+  pro_model_id: string;
+  con_model_id: string;
+  word_limit_level?: WordLimitLevel;
+  style?: string;
+  retrieval_mode?: RetrievalMode;
+}
+
+export interface DebateAskRequest {
+  question: string;
+  ask_to: DebateAskTarget;
+}
+
+export interface DebateDecisionRequest {
+  winner_side: DebateWinner;
+  judge_comment?: string;
+  scoring_json?: Record<string, unknown>;
 }
 
 export interface RegenerateChatRequest {
@@ -279,6 +356,44 @@ export type ChatStreamEvent =
       assistant_message_id?: number;
       conversation_title?: string;
       content?: string;
+    }
+  | {
+      type: "error";
+      message: string;
+    };
+
+export type DebateStreamEvent =
+  | {
+      type: "stage_changed";
+      stage: DebateStage;
+      status: DebateStatus;
+    }
+  | {
+      type: "judge_question";
+      turn: DebateTurn;
+    }
+  | {
+      type: "meta";
+      turn: DebateTurn;
+    }
+  | {
+      type: "token";
+      turn_id: number;
+      content: string;
+    }
+  | {
+      type: "reasoning";
+      turn_id: number;
+      content: string;
+    }
+  | {
+      type: "turn_done";
+      turn: DebateTurn;
+    }
+  | {
+      type: "done";
+      stage: DebateStage;
+      status: DebateStatus;
     }
   | {
       type: "error";

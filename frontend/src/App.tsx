@@ -5,6 +5,8 @@ import { useChatApp } from "./app/useChatApp";
 import { useResponsiveSidebar } from "./app/useResponsiveSidebar";
 import { LoginView } from "./components/LoginView";
 import { ConversationView } from "./components/ConversationView";
+import { DebateCreateView } from "./components/DebateCreateView";
+import { DebateRoomView } from "./components/DebateRoomView";
 import { LandingView } from "./components/LandingView";
 import { MainHeader } from "./components/MainHeader";
 import { SettingsDialog } from "./components/SettingsDialog";
@@ -75,7 +77,11 @@ function WorkspaceApp({
       <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-app-panel">
         <MainHeader {...app.headerProps} />
 
-        {app.showLanding || !app.conversationProps ? (
+        {app.debateCreateProps ? (
+          <DebateCreateView {...app.debateCreateProps} />
+        ) : app.debateRoomProps ? (
+          <DebateRoomView {...app.debateRoomProps} />
+        ) : app.showLanding || !app.conversationProps ? (
           <LandingView {...app.landingProps} />
         ) : (
           <ConversationView {...app.conversationProps} />

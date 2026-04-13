@@ -13,6 +13,12 @@ MemoryKind = Literal["profile", "preference", "goal", "project", "fact", "constr
 MemoryStatus = Literal["candidate", "active", "archived"]
 MemoryDocumentType = Literal["user_profile", "workspace_profile", "conversation_brief"]
 KnowledgeDocumentStatus = Literal["pending", "indexing", "ready", "failed"]
+DebateStatus = Literal["created", "running", "waiting_judge", "finished"]
+DebateStage = Literal["opening", "rebuttal", "closing", "judge_decision"]
+DebateSide = Literal["pro", "con"]
+DebateAskTarget = Literal["all", "pro", "con"]
+DecisionWinner = Literal["pro", "con", "draw"]
+WordLimitLevel = Literal["short", "standard", "deep"]
 
 
 class ConversationSummary(BaseModel):
@@ -137,6 +143,88 @@ class ConversationMessagePage(BaseModel):
     messages: list[MessageOut]
     loaded_message_count: int = 0
     remaining_message_count: int = 0
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class DebateParticipantOut(BaseModel):
+    id: int
+    model_id: str
+    side: DebateSide
+    style: str = ""
+    order_index: int = 0
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class DebateSessionSummaryOut(BaseModel):
+    id: int
+    topic: str
+    status: DebateStatus
+    stage: DebateStage
+    updated_at: Optional[datetime] = None
+    last_turn_preview: str = ""
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class DebateSessionCreateIn(BaseModel):
+    topic: str = Field(min_length=1, max_length=512)
+    pro_model_id: str = Field(min_length=1, max_length=128)
+    con_model_id: str = Field(min_length=1, max_length=128)
+    word_limit_level: WordLimitLevel = "standard"
+    style: str = ""
+    retrieval_mode: RetrievalMode = "none"
+
+
+class DebateSessionUpdateIn(BaseModel):
+    topic: str = Field(min_length=1, max_length=512)
+
+
+class DebateTurnOut(BaseModel):
+    id: int
+    kind: str
+    stage: DebateStage
+    turn_index: int = 0
+    speaker_participant_id: Optional[int] = None
+    target_turn_id: Optional[int] = None
+    content: str = ""
+    reasoning: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class DebateJudgeDecisionOut(BaseModel):
+    winner_side: DecisionWinner
+    scoring_json: dict[str, object] = Field(default_factory=dict)
+    judge_comment: str = ""
+    created_at: Optional[datetime] = None
+
+
+class DebateJudgeAskIn(BaseModel):
+    question: str = Field(min_length=1, max_length=1000)
+    ask_to: DebateAskTarget = "all"
+
+
+class DebateJudgeDecisionIn(BaseModel):
+    winner_side: DecisionWinner
+    judge_comment: str = ""
+    scoring_json: dict[str, object] = Field(default_factory=dict)
+
+
+class DebateSessionDetailOut(BaseModel):
+    id: int
+    topic: str
+    status: DebateStatus
+    stage: DebateStage
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+    participants: list[DebateParticipantOut] = Field(default_factory=list)
+    turns: list[DebateTurnOut] = Field(default_factory=list)
+    judge_decision: Optional[DebateJudgeDecisionOut] = None
+    summary: str = ""
 
     model_config = ConfigDict(from_attributes=True)
 

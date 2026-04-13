@@ -6,6 +6,15 @@ import type {
   ConversationDetail,
   ConversationMessagePage,
   ConversationSummary,
+  DebateAskRequest,
+  DebateJudgeDecision,
+  DebateParticipant,
+  DebateDecisionRequest,
+  DebateSessionCreateRequest,
+  DebateSessionDetail,
+  DebateSessionSummary,
+  DebateTurn,
+  DebateStreamEvent,
   KnowledgeDocument,
   KnowledgeBatchDeleteResult,
   KnowledgeBatchUploadResult,
@@ -237,8 +246,149 @@ function normalizeMemoryCollection(value: unknown): MemoryCollection {
   };
 }
 
+function normalizeDebateParticipant(value: unknown): DebateParticipant | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const payload = value as Record<string, unknown>;
+  if (typeof payload.id !== "number" || typeof payload.model_id !== "string") {
+    return null;
+  }
+
+  return {
+    id: payload.id,
+    model_id: payload.model_id,
+    side: payload.side === "con" ? "con" : "pro",
+    style: typeof payload.style === "string" ? payload.style : "",
+    order_index: typeof payload.order_index === "number" ? payload.order_index : 0,
+  };
+}
+
+function normalizeDebateTurn(value: unknown): DebateTurn | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const payload = value as Record<string, unknown>;
+  if (typeof payload.id !== "number" || typeof payload.stage !== "string") {
+    return null;
+  }
+
+  const stage =
+    payload.stage === "rebuttal" ||
+    payload.stage === "closing" ||
+    payload.stage === "judge_decision"
+      ? payload.stage
+      : "opening";
+
+  return {
+    id: payload.id,
+    kind:
+      payload.kind === "judge_question" || payload.kind === "system_note" ? payload.kind : "speaker_turn",
+    stage,
+    turn_index: typeof payload.turn_index === "number" ? payload.turn_index : 0,
+    speaker_participant_id:
+      typeof payload.speaker_participant_id === "number" ? payload.speaker_participant_id : null,
+    target_turn_id: typeof payload.target_turn_id === "number" ? payload.target_turn_id : null,
+    content: typeof payload.content === "string" ? payload.content : "",
+    reasoning: typeof payload.reasoning === "string" ? payload.reasoning : null,
+    created_at: typeof payload.created_at === "string" ? payload.created_at : null,
+  };
+}
+
+function normalizeDebateJudgeDecision(value: unknown): DebateJudgeDecision | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const payload = value as Record<string, unknown>;
+  return {
+    winner_side:
+      payload.winner_side === "pro" || payload.winner_side === "con" || payload.winner_side === "draw"
+        ? payload.winner_side
+        : "draw",
+    scoring_json:
+      payload.scoring_json && typeof payload.scoring_json === "object"
+        ? (payload.scoring_json as Record<string, unknown>)
+        : {},
+    judge_comment: typeof payload.judge_comment === "string" ? payload.judge_comment : "",
+    created_at: typeof payload.created_at === "string" ? payload.created_at : null,
+  };
+}
+
+function normalizeDebateSessionDetail(value: unknown): DebateSessionDetail {
+  const payload = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+
+  return {
+    id: typeof payload.id === "number" ? payload.id : 0,
+    topic: typeof payload.topic === "string" ? payload.topic : "",
+    status:
+      payload.status === "running" || payload.status === "waiting_judge" || payload.status === "finished"
+        ? payload.status
+        : "created",
+    stage:
+      payload.stage === "rebuttal" || payload.stage === "closing" || payload.stage === "judge_decision"
+        ? payload.stage
+        : "opening",
+    created_at: typeof payload.created_at === "string" ? payload.created_at : null,
+    updated_at: typeof payload.updated_at === "string" ? payload.updated_at : null,
+    finished_at: typeof payload.finished_at === "string" ? payload.finished_at : null,
+    participants: ensureArray<unknown>(payload.participants)
+      .map(normalizeDebateParticipant)
+      .filter((participant): participant is DebateParticipant => participant != null),
+    turns: ensureArray<unknown>(payload.turns)
+      .map(normalizeDebateTurn)
+      .filter((turn): turn is DebateTurn => turn != null),
+    judge_decision: normalizeDebateJudgeDecision(payload.judge_decision),
+    summary: typeof payload.summary === "string" ? payload.summary : "",
+  };
+}
+
 export function fetchConversations() {
   return apiFetch<ConversationSummary[]>("/api/conversations");
+}
+
+export async function fetchDebateSessions() {
+  const sessions = await apiFetch<DebateSessionSummary[]>("/api/debate/sessions");
+  return sessions.map((session) => ({
+    ...session,
+    last_turn_preview: session.last_turn_preview ?? "",
+  }));
+}
+
+export async function createDebateSession(payload: DebateSessionCreateRequest) {
+  const session = await apiFetch<unknown>("/api/debate/sessions", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  return normalizeDebateSessionDetail(session);
+}
+
+export async function fetchDebateSession(sessionId: number) {
+  const session = await apiFetch<unknown>(`/api/debate/sessions/${sessionId}`);
+  return normalizeDebateSessionDetail(session);
+}
+
+export function renameDebateSession(sessionId: number, topic: string) {
+  return apiFetch<DebateSessionSummary>(`/api/debate/sessions/${sessionId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ topic }),
+  });
+}
+
+export async function deleteDebateSession(sessionId: number) {
+  const response = await fetch(toApiUrl(`/api/debate/sessions/${sessionId}`), {
+    credentials: "include",
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    const { code, message } = await readErrorPayload(response);
+    if (response.status === 401) {
+      unauthorizedHandler?.();
+    }
+    throw new ApiError(message, response.status, code);
+  }
 }
 
 export function fetchSession() {
@@ -460,21 +610,26 @@ interface StreamRequestOptions {
   signal?: AbortSignal;
 }
 
-function parseNdjsonEvent(raw: string): ChatStreamEvent | null {
+interface GenericStreamRequestOptions<TEvent> {
+  onEvent: (event: TEvent) => void;
+  signal?: AbortSignal;
+}
+
+function parseNdjsonEvent<TEvent>(raw: string): TEvent | null {
   const trimmed = raw.trim();
   if (!trimmed) {
     return null;
   }
 
   try {
-    return JSON.parse(trimmed) as ChatStreamEvent;
+    return JSON.parse(trimmed) as TEvent;
   } catch (err) {
     console.warn("[ndjson parse error]", trimmed.substring(0, 100), err);
     return null;
   }
 }
 
-async function consumeNdjsonStream(response: Response, onEvent: (event: ChatStreamEvent) => void) {
+async function consumeNdjsonStream<TEvent>(response: Response, onEvent: (event: TEvent) => void) {
   if (!response.body) {
     throw new Error("Streaming is not supported by this browser.");
   }
@@ -494,7 +649,7 @@ async function consumeNdjsonStream(response: Response, onEvent: (event: ChatStre
     buffer = lines.pop() ?? "";
 
     for (const line of lines) {
-      const event = parseNdjsonEvent(line);
+      const event = parseNdjsonEvent<TEvent>(line);
       if (event) {
         onEvent(event);
       }
@@ -502,7 +657,7 @@ async function consumeNdjsonStream(response: Response, onEvent: (event: ChatStre
   }
 
   buffer += decoder.decode();
-  const tailEvent = parseNdjsonEvent(buffer);
+  const tailEvent = parseNdjsonEvent<TEvent>(buffer);
   if (tailEvent) {
     onEvent(tailEvent);
   }
@@ -607,6 +762,60 @@ export async function regenerateChat(payload: RegenerateChatRequest, options: St
   }
 
   await consumeNdjsonStream(response, options.onEvent);
+}
+
+export async function streamDebateNext(
+  sessionId: number,
+  options: GenericStreamRequestOptions<DebateStreamEvent>,
+) {
+  const response = await fetch(toApiUrl(`/api/debate/sessions/${sessionId}/next`), {
+    credentials: "include",
+    method: "POST",
+    signal: options.signal,
+  });
+
+  if (!response.ok) {
+    const { code, message } = await readErrorPayload(response);
+    if (response.status === 401) {
+      unauthorizedHandler?.();
+    }
+    throw new ApiError(message, response.status, code);
+  }
+
+  await consumeNdjsonStream(response, options.onEvent);
+}
+
+export async function streamDebateAsk(
+  sessionId: number,
+  payload: DebateAskRequest,
+  options: GenericStreamRequestOptions<DebateStreamEvent>,
+) {
+  const response = await fetch(toApiUrl(`/api/debate/sessions/${sessionId}/judge/ask`), {
+    credentials: "include",
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+    signal: options.signal,
+  });
+
+  if (!response.ok) {
+    const { code, message } = await readErrorPayload(response);
+    if (response.status === 401) {
+      unauthorizedHandler?.();
+    }
+    throw new ApiError(message, response.status, code);
+  }
+
+  await consumeNdjsonStream(response, options.onEvent);
+}
+
+export function submitDebateDecision(sessionId: number, payload: DebateDecisionRequest) {
+  return apiFetch<unknown>(`/api/debate/sessions/${sessionId}/judge/decision`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  }).then(normalizeDebateSessionDetail);
 }
 
 export function updateMessageFeedback(messageId: number, value: FeedbackValue | null) {
