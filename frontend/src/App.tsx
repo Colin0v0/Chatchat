@@ -88,7 +88,7 @@ function WorkspaceApp({
         )}
 
         <ErrorToast message={app.error} />
-        <Disclaimer />
+        {!app.debateRoomProps && <Disclaimer />}
       </main>
 
       <SettingsDialog {...app.settingsProps} />

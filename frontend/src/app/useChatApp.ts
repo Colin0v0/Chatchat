@@ -897,7 +897,6 @@ export function useChatApp({
     debateRoomProps: activeDebate
       ? {
           session: activeDebate,
-          onBack: handleNewChat,
           onRefresh: handleRefreshDebate,
           onSessionChange: handleSyncDebate,
         }
