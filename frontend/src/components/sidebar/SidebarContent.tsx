@@ -1,4 +1,4 @@
-import { LoaderCircle, MessageSquarePlus, MoreHorizontal, Pencil, Scale, Trash2 } from "lucide-react";
+import { LoaderCircle, MoreHorizontal, Pencil, Scale, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -6,6 +6,7 @@ import {
   Search,
   SidebarAction,
   SidebarBrand,
+  SidebarCreateMenu,
   SidebarIcon,
   SidebarLoadingState,
 } from "./SidebarActions";
@@ -43,6 +44,7 @@ export function SidebarContent({
   query,
   onQueryChange,
   onNewChat,
+  onNewDebate,
   onRename,
   onDelete,
   onRenameDebate,
@@ -122,11 +124,7 @@ export function SidebarContent({
           <div className="flex min-w-0 flex-col gap-4 px-4">
             <SidebarBrand onIconClick={onOpenSettings} title={viewerName || "Chatchat"} />
             <div className="flex flex-col gap-3">
-              <SidebarAction
-                icon={<MessageSquarePlus className="size-4" />}
-                label="New chat"
-                onClick={onNewChat}
-              />
+              <SidebarCreateMenu compact label="New chat" onNewChat={onNewChat} onNewDebate={onNewDebate} />
               <SidebarAction
                 icon={<SidebarIcon icon={Search} />}
                 isInput

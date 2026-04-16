@@ -165,7 +165,7 @@ export function ChatComposer({
   const voiceDisabled = isStreaming || isTranscribing;
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === "Enter" && !event.shiftKey) {
+    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault();
       if (isStreaming || canSubmit) {
         isStreaming ? onStop() : onSubmit();

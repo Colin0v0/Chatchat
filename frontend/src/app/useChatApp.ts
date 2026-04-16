@@ -28,6 +28,7 @@ import {
   transcribeAudio,
   updateMessageFeedback,
 } from "../lib/api";
+import { buildConversationMarkdown, buildDebateMarkdown, downloadMarkdown } from "../lib/exportMarkdown";
 import type {
   ConversationDetail,
   ConversationSummary,
@@ -65,6 +66,7 @@ type UseChatAppOptions = {
 };
 
 const CONVERSATION_VIEW_MESSAGE_LIMIT = 10;
+const CONVERSATION_EXPORT_MESSAGE_LIMIT = 100;
 
 function toggleRetrievalMode(current: RetrievalMode, next: Exclude<RetrievalMode, "none">): RetrievalMode {
   return current === next ? "none" : next;
@@ -124,6 +126,7 @@ export function useChatApp({
   const conversationLoadAbortRef = useRef<AbortController | null>(null);
   const earlierMessagesAbortRef = useRef<AbortController | null>(null);
   const debateLoadAbortRef = useRef<AbortController | null>(null);
+  const debateSessionCacheRef = useRef<Map<number, DebateSessionDetail>>(new Map());
   const conversationLoadGuard = useLatestRequestGuard();
   const conversationsRefreshGuard = useLatestRequestGuard();
   const debatesRefreshGuard = useLatestRequestGuard();
@@ -211,6 +214,10 @@ export function useChatApp({
     async (sessionId: number) => {
       const requestId = debateLoadGuard.begin();
       debateLoadAbortRef.current?.abort();
+      const cachedSession = debateSessionCacheRef.current.get(sessionId);
+      if (cachedSession) {
+        setActiveDebate(cachedSession);
+      }
 
       const controller = new AbortController();
       debateLoadAbortRef.current = controller;
@@ -220,6 +227,7 @@ export function useChatApp({
         if (!debateLoadGuard.isCurrent(requestId)) {
           return;
         }
+        debateSessionCacheRef.current.set(session.id, session);
         setActiveDebate(session);
       } catch (loadError) {
         if (controller.signal.aborted) {
@@ -490,11 +498,12 @@ export function useChatApp({
       cancelRecording();
       earlierMessagesAbortRef.current?.abort();
       conversationLoadAbortRef.current?.abort();
+      const cachedSession = debateSessionCacheRef.current.get(sessionId) ?? null;
       startTransition(() => {
         setActiveConversationId(null);
         setActiveConversation(null);
         setActiveDebateId(sessionId);
-        setActiveDebate(null);
+        setActiveDebate(cachedSession);
         setDebateCreateOpen(false);
         setError(null);
         setCollapsedMessageIds(new Set());
@@ -508,16 +517,35 @@ export function useChatApp({
   );
 
   const handleCreateDebate = useCallback(
-    async (payload: { topic: string; proModelId: string; conModelId: string }) => {
+    async (payload: {
+      topic: string;
+      proModelId: string;
+      conModelId: string;
+      judgeModelId: string;
+      proStyle: string;
+      conStyle: string;
+      openingDurationSec: number;
+      rebuttalDurationSec: number;
+      freeDebateDurationSec: number;
+      closingDurationSec: number;
+    }) => {
       try {
         const created = await createDebateSession({
           topic: payload.topic,
           pro_model_id: payload.proModelId,
           con_model_id: payload.conModelId,
+          judge_model_id: payload.judgeModelId,
           retrieval_mode: "none",
-          word_limit_level: "standard",
+          pro_style: payload.proStyle,
+          con_style: payload.conStyle,
           style: "",
+          free_debate_enabled: true,
+          opening_duration_sec: payload.openingDurationSec,
+          rebuttal_duration_sec: payload.rebuttalDurationSec,
+          free_debate_duration_sec: payload.freeDebateDurationSec,
+          closing_duration_sec: payload.closingDurationSec,
         });
+        debateSessionCacheRef.current.set(created.id, created);
         setDebateCreateOpen(false);
         setActiveDebateId(created.id);
         setActiveDebate(created);
@@ -576,6 +604,7 @@ export function useChatApp({
   const handleDeleteDebate = useCallback(
     async (sessionId: number) => {
       await deleteDebateSession(sessionId);
+      debateSessionCacheRef.current.delete(sessionId);
       await refreshDebateSessions();
 
       if (activeDebateId === sessionId) {
@@ -589,6 +618,7 @@ export function useChatApp({
   const handleRefreshDebate = useCallback(
     async (sessionId: number) => {
       const refreshed = await fetchDebateSession(sessionId);
+      debateSessionCacheRef.current.set(sessionId, refreshed);
       setActiveDebate((current) => (current && current.id === sessionId ? refreshed : current));
       await refreshDebateSessions();
       return refreshed;
@@ -598,6 +628,7 @@ export function useChatApp({
 
   const handleSyncDebate = useCallback(
     (session: DebateSessionDetail) => {
+      debateSessionCacheRef.current.set(session.id, session);
       setActiveDebate((current) => (current && current.id === session.id ? session : current));
       void refreshDebateSessions();
     },
@@ -665,6 +696,57 @@ export function useChatApp({
       setIsLoadingEarlierMessages(false);
     }
   }, [activeConversation, isLoadingEarlierMessages, setError]);
+
+  const loadFullConversationForExport = useCallback(async (conversationId: number) => {
+    let conversation = await fetchConversation(conversationId, {
+      limit: CONVERSATION_EXPORT_MESSAGE_LIMIT,
+    });
+
+    while (conversation.remaining_message_count > 0) {
+      const firstPersistedMessage = conversation.messages.find(
+        (message) => typeof message.id === "number",
+      );
+      if (!firstPersistedMessage || typeof firstPersistedMessage.id !== "number") {
+        break;
+      }
+
+      const page = await fetchConversationMessages(conversationId, {
+        beforeMessageId: firstPersistedMessage.id,
+        limit: CONVERSATION_EXPORT_MESSAGE_LIMIT,
+      });
+
+      conversation = {
+        ...conversation,
+        messages: [...page.messages, ...conversation.messages],
+        loaded_message_count: conversation.loaded_message_count + page.loaded_message_count,
+        remaining_message_count: page.remaining_message_count,
+      };
+    }
+
+    return conversation;
+  }, []);
+
+  const handleExportItem = useCallback(
+    async (itemId: number, kind: "chat" | "debate") => {
+      try {
+        if (kind === "debate") {
+          const session = await fetchDebateSession(itemId);
+          debateSessionCacheRef.current.set(session.id, session);
+          downloadMarkdown(session.topic || `debate-${itemId}`, buildDebateMarkdown(session));
+          return;
+        }
+
+        const conversation = await loadFullConversationForExport(itemId);
+        downloadMarkdown(
+          conversation.title || `chat-${itemId}`,
+          buildConversationMarkdown(conversation),
+        );
+      } catch (exportError) {
+        setError(exportError instanceof Error ? exportError.message : "Failed to export markdown.");
+      }
+    },
+    [loadFullConversationForExport, setError],
+  );
 
   const handleSend = useCallback(async () => {
     const message = draft.trim();
@@ -755,8 +837,9 @@ export function useChatApp({
       conversationId: activeConversation.id,
       restoreAttachments: replaceAttachments,
       restoreDraft: setDraft,
+      getCurrentDraft: () => draft,
     });
-  }, [activeConversation, replaceAttachments, stopStream]);
+  }, [activeConversation, draft, replaceAttachments, stopStream]);
 
   const handleRetryAssistant = useCallback(
     async (messageId: number | string) => {
@@ -881,6 +964,7 @@ export function useChatApp({
   const showLanding =
     !debateCreateOpen &&
     activeDebateId === null &&
+    activeConversationId === null &&
     (!activeConversation || activeConversation.messages.length === 0);
 
   return {
@@ -951,6 +1035,9 @@ export function useChatApp({
         }
         await handleDeleteConversation(itemId);
       },
+      onExportItem: async (itemId: number, kind: "chat" | "debate") => {
+        await handleExportItem(itemId, kind);
+      },
       onRenameItem: async (itemId: number, title: string, kind: "chat" | "debate") => {
         if (kind === "debate") {
           await handleRenameDebate(itemId, title);
@@ -996,6 +1083,8 @@ export function useChatApp({
       onClose: () => setSettingsOpen(false),
       open: settingsOpen,
     },
+    isConversationLoading: activeConversationId !== null && activeConversation === null,
+    isDebateLoading: activeDebateId !== null && activeDebate === null,
     showLanding,
     sidebarProps: {
       activeConversationId,
@@ -1009,6 +1098,7 @@ export function useChatApp({
       onDelete: handleDeleteConversation,
       onDeleteDebate: handleDeleteDebate,
       onNewChat: handleNewChat,
+      onNewDebate: handleNewDebate,
       onOpenSettings: () => setSettingsOpen(true),
       onQueryChange: setQuery,
       onRename: handleRenameConversation,

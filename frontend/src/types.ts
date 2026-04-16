@@ -92,10 +92,27 @@ export interface ConversationMessagePage {
 
 export type DebateSide = "pro" | "con";
 export type DebateStatus = "created" | "running" | "waiting_judge" | "finished";
-export type DebateStage = "opening" | "rebuttal" | "closing" | "judge_decision";
+export type DebateStage = "opening" | "rebuttal" | "free_debate" | "closing" | "judge_decision";
 export type DebateAskTarget = "all" | "pro" | "con";
 export type DebateWinner = "pro" | "con" | "draw";
 export type WordLimitLevel = "short" | "standard" | "deep";
+export type DebateStageScoreKey = "opening" | "rebuttal" | "free_debate" | "closing";
+export type DebateEndedReason =
+  | "pro_timeout"
+  | "con_timeout"
+  | "both_timeout"
+  | "manual"
+  | null;
+
+export interface DebateFreeDebateState {
+  pro_remaining_ms: number;
+  con_remaining_ms: number;
+  active_side: DebateSide | null;
+  active_turn_id: number | null;
+  active_turn_started_at: string | null;
+  turn_count: number;
+  ended_reason: DebateEndedReason;
+}
 
 export interface DebateParticipant {
   id: number;
@@ -126,6 +143,9 @@ export interface DebateSessionDetail {
   turns: DebateTurn[];
   judge_decision: DebateJudgeDecision | null;
   summary: string;
+  free_debate_enabled: boolean;
+  free_debate_state: DebateFreeDebateState | null;
+  stage_time_limits_ms: Record<string, number>;
 }
 
 export interface DebateTurn {
@@ -138,6 +158,8 @@ export interface DebateTurn {
   content: string;
   reasoning?: string | null;
   created_at: string | null;
+  elapsed_ms?: number | null;
+  truncated?: boolean;
 }
 
 export interface DebateJudgeDecision {
@@ -145,6 +167,22 @@ export interface DebateJudgeDecision {
   scoring_json: Record<string, unknown>;
   judge_comment: string;
   created_at: string | null;
+}
+
+export interface DebateJudgeAnalysis {
+  pro_review: string;
+  con_review: string;
+  shared_feedback: string;
+  key_decision: string;
+  final_vote: string;
+}
+
+export interface DebateAiSuggestion {
+  winner: "pro" | "con" | "draw";
+  pro_score: number | null;
+  con_score: number | null;
+  judge_comment: string;
+  scoring_json?: Record<string, unknown>;
 }
 
 export interface ModelOption {
@@ -177,9 +215,16 @@ export interface DebateSessionCreateRequest {
   topic: string;
   pro_model_id: string;
   con_model_id: string;
-  word_limit_level?: WordLimitLevel;
+  judge_model_id?: string;
   style?: string;
+  pro_style?: string;
+  con_style?: string;
   retrieval_mode?: RetrievalMode;
+  free_debate_enabled?: boolean;
+  opening_duration_sec?: number;
+  rebuttal_duration_sec?: number;
+  free_debate_duration_sec?: number;
+  closing_duration_sec?: number;
 }
 
 export interface DebateAskRequest {
@@ -389,6 +434,28 @@ export type DebateStreamEvent =
   | {
       type: "turn_done";
       turn: DebateTurn;
+    }
+  | {
+      type: "decision_saved";
+      judge_decision: DebateJudgeDecision;
+      status: DebateStatus;
+      stage: DebateStage;
+    }
+  | {
+      type: "summary_token";
+      content: string;
+    }
+  | {
+      type: "judge_analysis_token";
+      content: string;
+    }
+  | {
+      type: "free_debate_clock";
+      state: DebateFreeDebateState;
+    }
+  | {
+      type: "ai_suggestion";
+      suggestion: DebateAiSuggestion;
     }
   | {
       type: "done";

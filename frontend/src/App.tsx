@@ -1,3 +1,4 @@
+import { LoaderCircle } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { useAuthSession } from "./app/useAuthSession";
@@ -55,6 +56,16 @@ function Disclaimer() {
   );
 }
 
+function LoadingView({ title }: { title: string }) {
+  return (
+    <section className="flex min-h-0 flex-1 items-center justify-center px-6">
+      <div className="flex flex-col items-center gap-4 text-center">
+        <LoaderCircle className="size-8 animate-spin text-app-muted" />
+      </div>
+    </section>
+  );
+}
+
 function WorkspaceApp({
   onLogout,
   username,
@@ -81,6 +92,10 @@ function WorkspaceApp({
           <DebateCreateView {...app.debateCreateProps} />
         ) : app.debateRoomProps ? (
           <DebateRoomView {...app.debateRoomProps} />
+        ) : app.isDebateLoading ? (
+          <LoadingView title="" />
+        ) : app.isConversationLoading ? (
+          <LoadingView title="" />
         ) : app.showLanding || !app.conversationProps ? (
           <LandingView {...app.landingProps} />
         ) : (

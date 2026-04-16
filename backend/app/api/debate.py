@@ -12,8 +12,8 @@ from ..core.config import settings
 from ..debate.service import (
     build_debate_session_detail,
     debate_ask_event_stream,
+    debate_decision_event_stream,
     debate_next_event_stream,
-    finalize_debate_decision,
     load_debate_session_for_user,
 )
 from ..llm.catalog import resolve_model_route
@@ -88,6 +88,8 @@ def create_debate_session(
 
     _ensure_model_enabled(payload.pro_model_id)
     _ensure_model_enabled(payload.con_model_id)
+    if payload.judge_model_id:
+        _ensure_model_enabled(payload.judge_model_id)
 
     session = DebateSession(
         user_id=current_user.id,
@@ -96,9 +98,16 @@ def create_debate_session(
         stage="opening",
         config_json=json.dumps(
             {
-                "word_limit_level": payload.word_limit_level,
                 "style": payload.style,
+                "pro_style": payload.pro_style,
+                "con_style": payload.con_style,
                 "retrieval_mode": payload.retrieval_mode,
+                "judge_model_id": payload.judge_model_id,
+                "free_debate_enabled": payload.free_debate_enabled,
+                "opening_budget_ms": payload.opening_duration_sec * 1000,
+                "rebuttal_budget_ms": payload.rebuttal_duration_sec * 1000,
+                "free_debate_budget_ms": payload.free_debate_duration_sec * 1000,
+                "closing_budget_ms": payload.closing_duration_sec * 1000,
             },
             ensure_ascii=False,
         ),
@@ -232,13 +241,16 @@ async def ask_debate_judge_question(
     )
 
 
-@router.post("/sessions/{session_id}/judge/decision", response_model=DebateSessionDetailOut)
+@router.post("/sessions/{session_id}/judge/decision")
 async def create_debate_judge_decision(
     session_id: int,
     payload: DebateJudgeDecisionIn,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_current_user),
 ):
     session = load_debate_session_for_user(db=db, session_id=session_id, user_id=current_user.id)
-    updated = await finalize_debate_decision(db=db, session=session, payload=payload)
-    return build_debate_session_detail(updated)
+    return StreamingResponse(
+        debate_decision_event_stream(db=db, request=request, session=session, payload=payload),
+        media_type="application/x-ndjson",
+    )

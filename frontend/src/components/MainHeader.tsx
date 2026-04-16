@@ -1,4 +1,4 @@
-import { ChevronDown, MessageSquarePlus, MoreHorizontal, PanelLeftOpen, Pencil, Scale, Trash2 } from "lucide-react";
+import { Download, MoreHorizontal, PanelLeftOpen, Pencil, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 interface MainHeaderProps {
@@ -9,11 +9,10 @@ interface MainHeaderProps {
   activeItemId?: number | null;
   activeItemKind?: "chat" | "debate" | null;
   activeItemTitle?: string;
+  onExportItem?: (itemId: number, kind: "chat" | "debate") => void | Promise<void>;
   onRenameItem?: (itemId: number, title: string, kind: "chat" | "debate") => void | Promise<void>;
   onDeleteItem?: (itemId: number, kind: "chat" | "debate") => void | Promise<void>;
   onToggleSidebar: () => void;
-  onNewChat?: () => void;
-  onNewDebate?: () => void;
 }
 
 type HeaderDialogState =
@@ -34,17 +33,14 @@ export function MainHeader({
   activeItemId = null,
   activeItemKind = null,
   activeItemTitle = "",
+  onExportItem,
   onRenameItem,
   onDeleteItem,
   onToggleSidebar,
-  onNewChat,
-  onNewDebate,
 }: MainHeaderProps) {
   const [actionMenuOpen, setActionMenuOpen] = useState(false);
-  const [createMenuOpen, setCreateMenuOpen] = useState(false);
   const [dialogState, setDialogState] = useState<HeaderDialogState>(null);
   const actionMenuRef = useRef<HTMLDivElement | null>(null);
-  const createMenuRef = useRef<HTMLDivElement | null>(null);
   const hasActiveItem = activeItemId !== null && activeItemKind !== null;
   const itemLabel = activeItemKind === "debate" ? "debate" : "chat";
 
@@ -57,9 +53,6 @@ export function MainHeader({
       const target = event.target as Node;
       if (!actionMenuRef.current?.contains(target)) {
         setActionMenuOpen(false);
-      }
-      if (!createMenuRef.current?.contains(target)) {
-        setCreateMenuOpen(false);
       }
     }
 
@@ -78,48 +71,6 @@ export function MainHeader({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  const titleMenu = (
-    <div className="relative min-w-0" ref={createMenuRef}>
-      <button
-        aria-label="Create session"
-        className="inline-flex min-w-0 items-center gap-2 py-1 text-[20px] font-semibold leading-none tracking-[-0.04em] text-app-text focus:outline-none focus-visible:ring-2 focus-visible:ring-app-border-strong md:text-[24px]"
-        onClick={() => setCreateMenuOpen((current) => !current)}
-        type="button"
-      >
-        <span className="truncate">{title}</span>
-        <ChevronDown className={`size-4 shrink-0 text-[#5f564a] transition ${createMenuOpen ? "rotate-180" : ""}`} />
-      </button>
-
-      {createMenuOpen ? (
-        <div className="absolute left-0 top-[calc(100%+8px)] z-30 min-w-[220px] overflow-hidden rounded-lg border border-app-border bg-app-panel-strong shadow-[0_12px_30px_rgba(39,28,18,0.08)]">
-          <button
-            className="flex w-full items-center gap-3 px-4 py-3 text-left text-[15px] font-medium tracking-[-0.02em] text-[#5f564a] transition hover:bg-app-panel-soft"
-            onClick={() => {
-              setCreateMenuOpen(false);
-              onNewChat?.();
-            }}
-            type="button"
-          >
-            <MessageSquarePlus className="size-4 shrink-0 text-[#5f564a]" />
-            <span>新建聊天</span>
-          </button>
-          <div className="border-t border-app-border/80" role="separator" />
-          <button
-            className="flex w-full items-center gap-3 px-4 py-3 text-left text-[15px] font-medium tracking-[-0.02em] text-[#5f564a] transition hover:bg-app-panel-soft"
-            onClick={() => {
-              setCreateMenuOpen(false);
-              onNewDebate?.();
-            }}
-            type="button"
-          >
-            <Scale className="size-4 shrink-0 text-[#5f564a]" />
-            <span>发起辩论</span>
-          </button>
-        </div>
-      ) : null}
-    </div>
-  );
-
   const actionMenu = hasActiveItem ? (
     <div className="relative" ref={actionMenuRef}>
       <button
@@ -133,6 +84,21 @@ export function MainHeader({
 
       {actionMenuOpen ? (
         <div className="absolute right-0 top-[calc(100%+6px)] z-30 min-w-[180px] overflow-hidden rounded-lg border border-app-border bg-app-panel-strong shadow-[0_12px_30px_rgba(39,28,18,0.08)]">
+          <button
+            className="flex w-full items-center gap-3 px-4 py-3 text-left text-[15px] font-medium tracking-[-0.02em] text-[#5f564a] transition hover:bg-app-panel-soft"
+            onClick={async () => {
+              if (activeItemId === null || activeItemKind === null) {
+                return;
+              }
+              setActionMenuOpen(false);
+              await onExportItem?.(activeItemId, activeItemKind);
+            }}
+            type="button"
+          >
+            <Download className="size-4 text-[#5f564a]" />
+            <span>Export Markdown</span>
+          </button>
+          <div className="border-t border-app-border/80" role="separator" />
           <button
             className="flex w-full items-center gap-3 px-4 py-3 text-left text-[15px] font-medium tracking-[-0.02em] text-[#5f564a] transition hover:bg-app-panel-soft"
             onClick={() => {
@@ -167,7 +133,13 @@ export function MainHeader({
   return (
     <>
       <header className="relative flex h-[68px] items-center justify-between px-4 md:px-6">
-        {showTitle ? titleMenu : <div />}
+        {showTitle ? (
+          <div className="min-w-0 py-1 text-[20px] font-semibold leading-none tracking-[-0.04em] text-app-text md:text-[24px]">
+            <span className="truncate">{title}</span>
+          </div>
+        ) : (
+          <div />
+        )}
 
         {isDesktop ? <div className="flex items-center gap-2">{actionMenu}</div> : null}
 

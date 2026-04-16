@@ -9,6 +9,7 @@ import type {
   DebateAskRequest,
   DebateJudgeDecision,
   DebateParticipant,
+  DebateFreeDebateState,
   DebateDecisionRequest,
   DebateSessionCreateRequest,
   DebateSessionDetail,
@@ -277,6 +278,7 @@ function normalizeDebateTurn(value: unknown): DebateTurn | null {
 
   const stage =
     payload.stage === "rebuttal" ||
+    payload.stage === "free_debate" ||
     payload.stage === "closing" ||
     payload.stage === "judge_decision"
       ? payload.stage
@@ -294,6 +296,41 @@ function normalizeDebateTurn(value: unknown): DebateTurn | null {
     content: typeof payload.content === "string" ? payload.content : "",
     reasoning: typeof payload.reasoning === "string" ? payload.reasoning : null,
     created_at: typeof payload.created_at === "string" ? payload.created_at : null,
+    elapsed_ms:
+      typeof payload.elapsed_ms === "number" && Number.isFinite(payload.elapsed_ms)
+        ? payload.elapsed_ms
+        : null,
+    truncated: payload.truncated === true,
+  };
+}
+
+function normalizeDebateFreeDebateState(value: unknown): DebateFreeDebateState | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const payload = value as Record<string, unknown>;
+  return {
+    pro_remaining_ms:
+      typeof payload.pro_remaining_ms === "number" && Number.isFinite(payload.pro_remaining_ms)
+        ? payload.pro_remaining_ms
+        : 0,
+    con_remaining_ms:
+      typeof payload.con_remaining_ms === "number" && Number.isFinite(payload.con_remaining_ms)
+        ? payload.con_remaining_ms
+        : 0,
+    active_side: payload.active_side === "pro" || payload.active_side === "con" ? payload.active_side : null,
+    active_turn_id: typeof payload.active_turn_id === "number" ? payload.active_turn_id : null,
+    active_turn_started_at:
+      typeof payload.active_turn_started_at === "string" ? payload.active_turn_started_at : null,
+    turn_count: typeof payload.turn_count === "number" ? payload.turn_count : 0,
+    ended_reason:
+      payload.ended_reason === "pro_timeout" ||
+      payload.ended_reason === "con_timeout" ||
+      payload.ended_reason === "both_timeout" ||
+      payload.ended_reason === "manual"
+        ? payload.ended_reason
+        : null,
   };
 }
 
@@ -319,6 +356,10 @@ function normalizeDebateJudgeDecision(value: unknown): DebateJudgeDecision | nul
 
 function normalizeDebateSessionDetail(value: unknown): DebateSessionDetail {
   const payload = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  const stageTimeLimits =
+    payload.stage_time_limits_ms && typeof payload.stage_time_limits_ms === "object"
+      ? (payload.stage_time_limits_ms as Record<string, unknown>)
+      : {};
 
   return {
     id: typeof payload.id === "number" ? payload.id : 0,
@@ -328,7 +369,10 @@ function normalizeDebateSessionDetail(value: unknown): DebateSessionDetail {
         ? payload.status
         : "created",
     stage:
-      payload.stage === "rebuttal" || payload.stage === "closing" || payload.stage === "judge_decision"
+      payload.stage === "rebuttal" ||
+      payload.stage === "free_debate" ||
+      payload.stage === "closing" ||
+      payload.stage === "judge_decision"
         ? payload.stage
         : "opening",
     created_at: typeof payload.created_at === "string" ? payload.created_at : null,
@@ -342,6 +386,13 @@ function normalizeDebateSessionDetail(value: unknown): DebateSessionDetail {
       .filter((turn): turn is DebateTurn => turn != null),
     judge_decision: normalizeDebateJudgeDecision(payload.judge_decision),
     summary: typeof payload.summary === "string" ? payload.summary : "",
+    free_debate_enabled: payload.free_debate_enabled === true,
+    free_debate_state: normalizeDebateFreeDebateState(payload.free_debate_state),
+    stage_time_limits_ms: Object.fromEntries(
+      Object.entries(stageTimeLimits)
+        .filter(([, value]) => typeof value === "number" && Number.isFinite(value))
+        .map(([key, value]) => [key, value as number]),
+    ),
   };
 }
 
@@ -811,11 +862,30 @@ export async function streamDebateAsk(
   await consumeNdjsonStream(response, options.onEvent);
 }
 
-export function submitDebateDecision(sessionId: number, payload: DebateDecisionRequest) {
-  return apiFetch<unknown>(`/api/debate/sessions/${sessionId}/judge/decision`, {
+export async function streamDebateDecision(
+  sessionId: number,
+  payload: DebateDecisionRequest,
+  options: GenericStreamRequestOptions<DebateStreamEvent>,
+) {
+  const response = await fetch(toApiUrl(`/api/debate/sessions/${sessionId}/judge/decision`), {
+    credentials: "include",
     method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
     body: JSON.stringify(payload),
-  }).then(normalizeDebateSessionDetail);
+    signal: options.signal,
+  });
+
+  if (!response.ok) {
+    const { code, message } = await readErrorPayload(response);
+    if (response.status === 401) {
+      unauthorizedHandler?.();
+    }
+    throw new ApiError(message, response.status, code);
+  }
+
+  await consumeNdjsonStream(response, options.onEvent);
 }
 
 export function updateMessageFeedback(messageId: number, value: FeedbackValue | null) {

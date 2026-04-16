@@ -14,6 +14,7 @@ export interface SidebarProps {
   viewerName?: string;
   onQueryChange: (value: string) => void;
   onNewChat: () => void;
+  onNewDebate: () => void;
   onRename: (conversationId: number, title: string) => void | Promise<void>;
   onDelete: (conversationId: number) => void | Promise<void>;
   onRenameDebate: (sessionId: number, topic: string) => void | Promise<void>;
