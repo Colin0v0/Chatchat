@@ -28,6 +28,7 @@ export function DesktopSidebar({ open, onToggleSidebar, ...contentProps }: Sideb
       >
         <DesktopPinnedHeader
           onNewChat={contentProps.onNewChat}
+          onNewDebate={contentProps.onNewDebate}
           onOpenSettings={contentProps.onOpenSettings}
           onQueryChange={contentProps.onQueryChange}
           onSearch={handleOpenSearch}

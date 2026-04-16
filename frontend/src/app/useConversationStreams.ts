@@ -103,6 +103,7 @@ type StopStreamOptions = {
   conversationId: number;
   restoreAttachments: (files: File[]) => void;
   restoreDraft: (content: string) => void;
+  getCurrentDraft: () => string;
 };
 
 export type RunStreamResult = "aborted" | "completed" | "error";
@@ -538,7 +539,7 @@ export function useConversationStreams({
   );
 
   const stopStream = useCallback(
-    async ({ conversationId, restoreAttachments, restoreDraft }: StopStreamOptions) => {
+    async ({ conversationId, restoreAttachments, restoreDraft, getCurrentDraft }: StopStreamOptions) => {
       const key = streamSessionKey(conversationId);
       const session = streamSessionsRef.current[key];
       const controller = sessionControllersRef.current[key];
@@ -546,7 +547,10 @@ export function useConversationStreams({
         return;
       }
 
-      restoreDraft(session.restoreInput.content);
+      // Only restore the original draft if the user hasn't started typing new content
+      if (!getCurrentDraft()) {
+        restoreDraft(session.restoreInput.content);
+      }
       updateSessionConversation(conversationId, markAssistantDraftStopped);
       settleStreamSession(conversationId, "stopped");
       controller.abort();

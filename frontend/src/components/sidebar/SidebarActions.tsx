@@ -1,8 +1,8 @@
-import { LogOut, MessageSquarePlus, PanelLeftOpen, Search, type LucideIcon } from "lucide-react";
-import type { ReactNode } from "react";
+import { ChevronDown, LogOut, MessageSquarePlus, PanelLeftOpen, Scale, Search, type LucideIcon } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { AppLogo } from "../AppLogo";
-import { SIDEBAR_MOTION, cn, sidebarIconButtonClass } from "./styles";
+import { SIDEBAR_MOTION, cn, sidebarIconButtonClass, sidebarMenuItemClass, sidebarMenuPanelClass } from "./styles";
 
 interface SidebarActionProps {
   icon: ReactNode;
@@ -165,9 +165,123 @@ export function DesktopPinnedAction({
   );
 }
 
+export function SidebarCreateMenu({
+  compact = false,
+  label = "New chat",
+  menuPlacement = "bottom",
+  onNewChat,
+  onNewDebate,
+}: {
+  compact?: boolean;
+  label?: string;
+  menuPlacement?: "bottom" | "right";
+  onNewChat: () => void;
+  onNewDebate: () => void;
+}) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const menuClassName =
+    menuPlacement === "right"
+      ? cn("absolute left-[calc(100%+10px)] top-0 z-30 min-w-[120px] py-1", sidebarMenuPanelClass)
+      : cn("absolute right-0 top-[calc(100%+8px)] z-30 w-[260px] py-1", sidebarMenuPanelClass);
+
+  useEffect(() => {
+    function handlePointerDown(event: MouseEvent) {
+      if (!menuRef.current?.contains(event.target as Node)) {
+        setMenuOpen(false);
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setMenuOpen(false);
+      }
+    }
+
+    window.addEventListener("mousedown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("mousedown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, []);
+
+  return (
+    <div className="group relative h-12" ref={menuRef}>
+      <button
+        aria-expanded={menuOpen}
+        aria-haspopup="menu"
+        aria-label="Create session"
+        className={cn(
+          sidebarIconButtonClass,
+          "absolute inset-y-0 left-0 z-20 h-12 w-9",
+          SIDEBAR_MOTION,
+          compact ? "pointer-events-none opacity-0" : "opacity-100",
+        )}
+        onClick={() => setMenuOpen((current) => !current)}
+        tabIndex={compact ? -1 : 0}
+        type="button"
+      >
+        <MessageSquarePlus className="size-4" />
+      </button>
+
+      <button
+        aria-expanded={menuOpen}
+        aria-haspopup="menu"
+        aria-hidden={!compact}
+        className={cn(
+          "absolute inset-y-0 left-0 w-full overflow-hidden rounded-[8px] border border-app-border bg-app-panel-strong text-left text-app-muted",
+          "transition-[background-color,color,opacity]",
+          SIDEBAR_MOTION,
+          compact ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0",
+        )}
+        onClick={() => setMenuOpen((current) => !current)}
+        tabIndex={compact ? 0 : -1}
+        type="button"
+      >
+        <span className="flex h-full items-center whitespace-nowrap pl-0 pr-4 text-[15px] tracking-[-0.02em]">
+          <IconSlot alignToRail icon={<MessageSquarePlus className="size-4" />} />
+          <span>{label}</span>
+          <ChevronDown className={`ml-auto size-4 shrink-0 transition ${menuOpen ? "rotate-180" : ""}`} />
+        </span>
+      </button>
+
+      {menuOpen ? (
+        <div className={menuClassName}>
+          <button
+            className={`${sidebarMenuItemClass} w-full px-3 text-app-text hover:text-app-accent-strong`}
+            onClick={() => {
+              setMenuOpen(false);
+              onNewChat();
+            }}
+            type="button"
+          >
+            <MessageSquarePlus className="size-4 text-app-muted" />
+            <span>新建聊天</span>
+          </button>
+          <button
+            className={`${sidebarMenuItemClass} w-full px-3 text-app-text hover:text-app-accent-strong`}
+            onClick={() => {
+              setMenuOpen(false);
+              onNewDebate();
+            }}
+            type="button"
+          >
+            <Scale className="size-4 text-app-muted" />
+            <span>发起辩论</span>
+          </button>
+        </div>
+      ) : null}
+
+      {!compact && menuPlacement === "right" && !menuOpen ? <SidebarTooltip label={label} /> : null}
+    </div>
+  );
+}
+
 export function DesktopPinnedHeader({
   open,
   onNewChat,
+  onNewDebate,
   onSearch,
   onQueryChange,
   onOpenSettings,
@@ -176,6 +290,7 @@ export function DesktopPinnedHeader({
 }: {
   open: boolean;
   onNewChat: () => void;
+  onNewDebate: () => void;
   onSearch: () => void;
   onQueryChange: (value: string) => void;
   onOpenSettings: () => void;
@@ -205,11 +320,12 @@ export function DesktopPinnedHeader({
       </div>
 
       <div className="mt-4 flex flex-col gap-3">
-        <DesktopPinnedAction
-          icon={<MessageSquarePlus className="size-4" />}
+        <SidebarCreateMenu
+          compact={open}
           label="New chat"
-          onClick={onNewChat}
-          open={open}
+          menuPlacement={open ? "bottom" : "right"}
+          onNewChat={onNewChat}
+          onNewDebate={onNewDebate}
         />
         {open ? (
           <SidebarAction

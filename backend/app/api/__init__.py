@@ -5,12 +5,14 @@ from .conversations import router as conversations_router
 from .knowledge import router as knowledge_router
 from .memories import router as memories_router
 from .models import router as models_router
+from .debate import router as debate_router
 
 __all__ = [
     "auth_router",
     "audio_router",
     "chat_router",
     "conversations_router",
+    "debate_router",
     "knowledge_router",
     "memories_router",
     "models_router",

@@ -3,12 +3,16 @@ import { Fragment, useEffect, useRef, useState } from "react";
 
 import { toModelLabel } from "../lib/models";
 import type { ModelOption } from "../types";
+import { cn, sidebarMenuItemClass, sidebarMenuPanelClass } from "./sidebar/styles";
 
 interface ModelSelectProps {
   model: string;
   models: ModelOption[];
   onChange: (value: string) => void;
   compact?: boolean;
+  fullWidth?: boolean;
+  label?: string;
+  menuPlacement?: "top" | "bottom";
 }
 
 function createFallbackOption(id: string): ModelOption {
@@ -32,10 +36,20 @@ function providerOf(modelId: string): string {
   return modelId.slice(0, separatorIndex);
 }
 
-export function ModelSelect({ model, models, onChange, compact = false }: ModelSelectProps) {
+export function ModelSelect({
+  model,
+  models,
+  onChange,
+  compact = false,
+  fullWidth = false,
+  label = "Model",
+  menuPlacement = "top",
+}: ModelSelectProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const currentModel = models.find((item) => item.id === model) ?? createFallbackOption(model);
+  const currentModel =
+    models.find((item) => item.id === model) ??
+    (model ? createFallbackOption(model) : { ...createFallbackOption(""), id: "", label });
   const displayModel = currentModel;
   const visibleModels = models;
 
@@ -46,35 +60,61 @@ export function ModelSelect({ model, models, onChange, compact = false }: ModelS
       }
     }
 
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    }
+
     window.addEventListener("mousedown", handlePointerDown);
-    return () => window.removeEventListener("mousedown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("mousedown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
   }, []);
 
   const buttonClassName = compact
-    ? "inline-flex h-11 min-w-0 items-center gap-1.5 rounded-[14px] border border-app-border bg-white/92 px-3 text-left text-[15px] font-medium tracking-[-0.02em] text-[#5f564a] transition hover:bg-[#f8f3eb]"
-    : "inline-flex h-10 min-w-0 items-center gap-2 rounded-lg border border-app-border bg-app-panel-strong px-3 text-left text-[15px] font-medium tracking-[-0.02em] text-[#5f564a] transition hover:bg-app-panel-soft sm:max-w-[320px]";
+    ? `inline-flex h-11 min-w-0 items-center gap-1.5 rounded-[14px] border border-app-border bg-white/92 px-3 text-left text-[15px] font-medium tracking-[-0.02em] text-[#5f564a] transition hover:bg-[#f8f3eb] ${fullWidth ? "w-full justify-between" : ""}`
+    : `inline-flex h-10 min-w-0 items-center gap-2 rounded-lg border border-app-border bg-app-panel-strong px-3 text-left text-[15px] font-medium tracking-[-0.02em] text-[#5f564a] transition hover:bg-app-panel-soft ${fullWidth ? "w-full justify-between" : "sm:max-w-[320px]"}`;
+  const menuPositionClassName = compact
+    ? menuPlacement === "bottom"
+      ? "top-[calc(100%+10px)]"
+      : "bottom-[calc(100%+10px)]"
+    : menuPlacement === "bottom"
+      ? "top-[calc(100%+8px)]"
+      : "bottom-[calc(100%+8px)]";
   const menuClassName = compact
-    ? "absolute bottom-[calc(100%+10px)] left-0 z-20 w-[min(220px,calc(100vw-5rem))] overflow-hidden rounded-[18px] border border-app-border bg-app-panel-strong shadow-[0_18px_40px_rgba(39,28,18,0.14)]"
-    : "absolute bottom-[calc(100%+8px)] left-0 z-20 min-w-full overflow-hidden rounded-lg border border-app-border bg-app-panel-strong shadow-[0_12px_30px_rgba(39,28,18,0.08)] sm:w-max sm:max-w-[320px]";
+    ? `absolute ${menuPositionClassName} left-0 z-20 w-[min(220px,calc(100vw-5rem))] ${sidebarMenuPanelClass}`
+    : `absolute ${menuPositionClassName} left-0 z-20 min-w-full ${sidebarMenuPanelClass} ${fullWidth ? "w-full" : "sm:w-max sm:max-w-[320px]"}`;
   const itemClassName = (active: boolean) =>
     compact
-      ? "flex w-full items-center justify-between gap-3 bg-app-panel-strong px-4 py-3 text-left text-[15px] font-medium tracking-[-0.02em] text-[#5f564a] transition hover:bg-app-panel-soft"
-      : `flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-[15px] font-medium tracking-[-0.02em] transition ${
+      ? cn(
+          sidebarMenuItemClass,
+          "w-full justify-between bg-app-panel-strong py-3 text-[15px] font-medium tracking-[-0.02em] text-[#5f564a] hover:bg-app-panel-soft",
+        )
+      : cn(
+          sidebarMenuItemClass,
+          "w-full justify-between py-3 text-[15px] font-medium tracking-[-0.02em]",
           active
             ? "bg-app-panel-soft text-[#5f564a]"
-            : "bg-app-panel-strong text-[#5f564a] hover:bg-app-panel-soft"
-        }`;
+            : "bg-app-panel-strong text-[#5f564a] hover:bg-app-panel-soft",
+        );
 
   return (
     <div className="relative min-w-0 shrink-0" ref={rootRef}>
       <button className={buttonClassName} onClick={() => setOpen((value) => !value)} type="button">
-        <span className="flex min-w-0 items-center gap-1.5 sm:gap-2">
-          <span className={`shrink-0 whitespace-nowrap ${compact ? "text-[#5f564a]" : "text-[#5f564a] sm:hidden"}`}>
-            Model
+        {fullWidth ? (
+          <span className="min-w-0 truncate text-[#5f564a]">{displayModel.label}</span>
+        ) : (
+          <span className="flex min-w-0 items-center gap-1.5 sm:gap-2">
+            <span className={`shrink-0 whitespace-nowrap ${compact ? "text-[#5f564a]" : "text-[#5f564a] sm:hidden"}`}>
+              {label}
+            </span>
+            {compact ? null : <span className="hidden shrink-0 whitespace-nowrap text-[#5f564a] sm:inline">{label}:</span>}
+            {compact ? null : <span className="hidden min-w-0 truncate text-[#5f564a] sm:inline">{displayModel.label}</span>}
           </span>
-          {compact ? null : <span className="hidden shrink-0 whitespace-nowrap text-[#5f564a] sm:inline">Model:</span>}
-          {compact ? null : <span className="hidden min-w-0 truncate text-[#5f564a] sm:inline">{displayModel.label}</span>}
-        </span>
+        )}
         <ChevronDown className={`size-4 shrink-0 text-[#5f564a] transition ${open ? "rotate-180" : ""}`} />
       </button>
 
