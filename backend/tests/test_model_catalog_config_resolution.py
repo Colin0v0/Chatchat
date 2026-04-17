@@ -46,6 +46,44 @@ class ModelCatalogConfigResolutionTests(unittest.TestCase):
                 "https://api.openai.com/v1",
             )
 
+    def test_resolve_env_value_reads_trio_base_url_from_settings(self):
+        with patch.dict(os.environ, {}, clear=True), patch(
+            "app.llm.catalog.settings.trio_base_url",
+            "https://pytrio.cn/api/v1",
+        ):
+            self.assertEqual(
+                _resolve_env_value("${TRIO_BASE_URL}"),
+                "https://pytrio.cn/api/v1",
+            )
+
+    def test_parse_routes_supports_trio_provider_preset(self):
+        with patch.dict(os.environ, {}, clear=True), patch(
+            "app.llm.catalog.settings.trio_model_path",
+            "your-model-path",
+        ):
+            routes = _parse_routes(
+                {
+                    "providers": {
+                        "trio_default": {
+                            "provider": "trio",
+                            "base_url": "${TRIO_BASE_URL}",
+                            "api_key_env": "TRIO_API_KEY",
+                        }
+                    },
+                    "models": [
+                        {
+                            "id": "trio:your-model-path",
+                            "provider_ref": "trio_default",
+                            "upstream_model": "${TRIO_MODEL_PATH}",
+                            "native_multimodal": "false",
+                        }
+                    ],
+                }
+            )
+
+        self.assertEqual(routes[0]["provider"], "trio")
+        self.assertEqual(routes[0]["upstream_model"], "your-model-path")
+
     def test_parse_routes_requires_string_native_multimodal_mode(self):
         with self.assertRaisesRegex(RuntimeError, "native_multimodal must be string"):
             _parse_routes(

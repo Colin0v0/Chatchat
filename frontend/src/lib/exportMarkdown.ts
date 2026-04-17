@@ -10,7 +10,7 @@ const DEBATE_STAGE_LABEL: Record<DebateStage, string> = {
   opening: "立论",
   rebuttal: "驳论",
   free_debate: "自由辩论",
-  closing: "总结",
+  closing: "总结陈词",
   judge_decision: "裁判阶段",
 };
 
@@ -200,7 +200,7 @@ export function buildDebateMarkdown(session: DebateSessionDetail) {
     `- 立论时长：${Math.round((stageTimes.opening ?? 0) / 1000)}s`,
     `- 驳论时长：${Math.round((stageTimes.rebuttal ?? 0) / 1000)}s`,
     `- 自由辩论时长：${Math.round((stageTimes.free_debate ?? 0) / 1000)}s`,
-    `- 总结时长：${Math.round((stageTimes.closing ?? 0) / 1000)}s`,
+    `- 总结陈词时长：${Math.round((stageTimes.closing ?? 0) / 1000)}s`,
     session.created_at ? `- 创建时间：${formatDate(session.created_at)}` : "",
     session.finished_at ? `- 结束时间：${formatDate(session.finished_at)}` : "",
     "",

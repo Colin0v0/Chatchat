@@ -4,7 +4,7 @@ from typing import Literal, TypedDict
 
 from ..core.config import settings
 
-Provider = Literal["ollama", "openai", "openai_local", "codex", "gemini"]
+Provider = Literal["ollama", "openai", "openai_local", "codex", "gemini", "trio"]
 NativeMultimodalMode = Literal["false", "local", "codex", "gemini"]
 
 
@@ -63,6 +63,8 @@ def parse_openai_allowlist(provider: Provider = "openai") -> list[str]:
         return parse_csv_allowlist(settings.openai_local_model_allowlist)
     if provider == "codex":
         return parse_csv_allowlist(settings.codex_model_allowlist)
+    if provider == "trio":
+        return parse_csv_allowlist(settings.trio_model_allowlist)
     return parse_csv_allowlist(settings.openai_model_allowlist)
 
 
@@ -90,12 +92,12 @@ def filter_chat_model_names(model_names: list[str]) -> list[str]:
 
 def model_provider_and_name(model: str) -> tuple[Provider, str]:
     parts = model.split(":", 1)
-    if len(parts) == 2 and parts[0] in ("ollama", "openai", "openai_local", "codex", "gemini") and parts[1].strip():
+    if len(parts) == 2 and parts[0] in ("ollama", "openai", "openai_local", "codex", "gemini", "trio") and parts[1].strip():
         return parts[0], parts[1].strip()
-    if len(parts) == 2 and parts[0] not in ("ollama", "openai", "openai_local", "codex", "gemini"):
+    if len(parts) == 2 and parts[0] not in ("ollama", "openai", "openai_local", "codex", "gemini", "trio"):
         return "ollama", model
 
-    if settings.default_provider in ("openai", "openai_local", "codex", "gemini"):
+    if settings.default_provider in ("openai", "openai_local", "codex", "gemini", "trio"):
         return settings.default_provider, model
     return "ollama", model
 
@@ -111,6 +113,6 @@ def normalize_model(model: str) -> str:
 
 def present_model_name(model: str) -> str:
     provider, model_name = model_provider_and_name(model)
-    if provider in ("ollama", "openai", "codex", "gemini"):
+    if provider in ("ollama", "openai", "codex", "gemini", "trio"):
         return model_name
     return model

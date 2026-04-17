@@ -1,5 +1,6 @@
 import type {
   DebateAskTarget,
+  DebateSessionDetail,
   DebateStageScoreKey,
   DebateTurn,
   DebateWinner,
@@ -9,7 +10,7 @@ export const STAGE_LABEL: Record<DebateTurn["stage"], string> = {
   opening: "立论",
   rebuttal: "驳论",
   free_debate: "自由辩论",
-  closing: "总结",
+  closing: "总结陈词",
   judge_decision: "裁判阶段",
 };
 
@@ -29,7 +30,7 @@ export const FLOW_STEPS: Array<{ stage: DebateSessionDetail["stage"]; label: str
   { stage: "opening", label: "立论" },
   { stage: "rebuttal", label: "驳论" },
   { stage: "free_debate", label: "自由辩论" },
-  { stage: "closing", label: "总结" },
+  { stage: "closing", label: "总结陈词" },
   { stage: "judge_decision", label: "裁决" },
 ];
 
@@ -37,7 +38,7 @@ export const JUDGE_STAGE_SCORE_LABEL: Record<DebateStageScoreKey, string> = {
   opening: "立论",
   rebuttal: "驳论",
   free_debate: "自由辩论",
-  closing: "总结",
+  closing: "总结陈词",
 };
 
 export const JUDGE_STAGE_SCORE_KEYS: DebateStageScoreKey[] = [

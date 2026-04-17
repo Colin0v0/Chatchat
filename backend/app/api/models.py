@@ -10,6 +10,7 @@ from ..llm import (
     list_gemini_models,
     list_openai_local_models,
     list_openai_models,
+    list_trio_models,
     normalize_model,
 )
 from ..llm.catalog import list_catalog_discovered_models
@@ -34,7 +35,8 @@ async def list_models(_=Depends(require_current_user)):
         gemini_models = await list_gemini_models()
         openai_models = await list_openai_models()
         openai_local_models = await list_openai_local_models()
-        discovered_models = [*openai_models, *codex_models, *gemini_models, *openai_local_models]
+        trio_models = await list_trio_models()
+        discovered_models = [*openai_models, *trio_models, *codex_models, *gemini_models, *openai_local_models]
 
     return {
         "models": build_model_options(discovered_models),

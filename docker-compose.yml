@@ -4,6 +4,7 @@ services:
       context: ./backend
       args:
         DOCKER_REGISTRY: ${DOCKER_REGISTRY:-docker.io}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
     container_name: chatchat-backend
     env_file:
       - ./backend/.env
@@ -24,6 +25,7 @@ services:
       - ${BACKEND_STORAGE_HOST_PATH:-./storage}:/app/storage
       - ./backend/.env.deploy.wsl:/app/.env.deploy.wsl:ro
       - ${MODELS_HOST_PATH:-./models}:/models:ro
+      - pip-cache:/root/.cache/pip
       - huggingface-cache:/root/.cache/huggingface
       - modelscope-cache:/root/.cache/modelscope
     restart: unless-stopped
@@ -41,5 +43,6 @@ services:
     restart: unless-stopped
 
 volumes:
+  pip-cache:
   huggingface-cache:
   modelscope-cache:

@@ -42,7 +42,7 @@ STAGE_LABEL = {
     "opening": "立论",
     "rebuttal": "驳论",
     "free_debate": "自由辩论",
-    "closing": "总结",
+    "closing": "总结陈词",
     "judge_decision": "裁决",
 }
 SCORE_DIMENSION_KEYS = (
@@ -56,7 +56,7 @@ JUDGE_STAGE_SCORE_LABELS = {
     "opening": "立论",
     "rebuttal": "驳论",
     "free_debate": "自由辩论",
-    "closing": "总结",
+    "closing": "总结陈词",
 }
 JUDGE_COMMON_ISSUES = (
     "循环论证",
@@ -71,7 +71,7 @@ STAGE_TASK_HINT = {
     "opening": "把这场辩论的盘面先搭起来：先让裁判知道你方到底怎样判断这题，再顺势立住 2 到 3 个能支撑该判断的核心理由。",
     "rebuttal": "把对方刚成型的论证链条拆开：优先处理最影响胜负的那个 clash，抓前提、抓跳步、抓比较失衡，再把主动权抢回己方。",
     "free_debate": "以正式自由辩论的方式推进主战场：可以短促追击，也可以顺势展开一小段连续压制；关键是紧贴刚才的交锋，把战点越打越窄、越打越深，逼裁判看到谁真正占优。",
-    "closing": "替裁判把胜负真正算出来：不要再开新战场，而是把整场最关键的 2 到 3 个争点结算清楚，让裁判自然落到我方获胜的判决上。",
+    "closing": "替裁判把胜负真正算出来：不要再沿着最后一句继续缠斗，而是把整场最关键的 2 到 3 个争点结算清楚，归纳我方主张为何成立，再自然升华到这场辩论真正留下的判断。",
     "judge_decision": "回应裁判追问，直接围绕问题作答。",
 }
 
@@ -86,19 +86,19 @@ def _stage_role_hint(stage: str, side: str) -> str:
     if stage == "free_debate":
         return "你在自由辩论位：责任不是重新发表完整陈词，而是顺着场上最新交锋接招、追问、反压、转守为攻，让战场不断收束到最关键的胜负点。"
     if stage == "closing":
-        return "你在总结位，像替裁判落判的人：责任是把散开的攻防压成可判的输赢图景，告诉裁判最后该因为哪几个点判我方赢。"
+        return "你在总结位，像替裁判落判的人：责任是把散开的攻防压成可判的输赢图景，归纳我方已经打成的优势，告诉裁判最后该因为哪几个点判我方赢，而不是继续按自由辩节奏缠斗。"
     return "你需要直接回答裁判问题，并让裁判清楚知道哪一方更占优。"
 
 
 def _stage_structure_hint(stage: str) -> str:
     if stage == "opening":
-        return "可以自然展开，但最好先亮出立场与判断方式，再顺着推出核心理由。重点是先把盘面立住，不必写成教科书提纲。"
+        return "可以自然展开，但最好先亮出立场与判断方式，再顺着推出核心理由。每个核心理由最好都带上观点、逻辑、类比/例子/数字和预置追问。重点是先把盘面立住，不必写成教科书提纲。"
     if stage == "rebuttal":
-        return "最好先点名当前真正决定胜负的战点，再集中拆 1 到 2 条关键链路，最后把话收回到为什么这轮之后仍然是我方占优。"
+        return "最好先点名并回应对方上一轮最伤的一点，再集中拆 1 到 2 条关键链路；每一段都尽量完成观点、逻辑、类比/例子/数字、追问这四件事，最后把话收回到为什么这轮之后仍然是我方占优。"
     if stage == "free_debate":
-        return "建议结构：可以是“先接对方一句 -> 立刻反压 -> 追问或比较收尾”，也可以是“先卡住定义/标准 -> 顺势推出一个更强比较”。不要求每轮固定长度，但必须有明显攻防推进。"
+        return "建议结构：先直接回应对方刚才的攻击或问题，再立刻用观点、逻辑、类比/例子/数字反压，最后抛出新的追问。整轮只咬住一个主战点，不要求固定长度，但必须有明显攻防推进。"
     if stage == "closing":
-        return "最好先给总判定，再把 2 到 3 个最终胜点做成比较和结算，最后把裁判应如何判说干净。可以有结辩力度，但不要像背稿朗诵。"
+        return "建议先亮出最终判断和判准，再归纳我方已经打成的 2 到 3 个胜点，完成最终比较和结算，最后用一句有情绪张力但不空的升华收口。可以顺手点破对方误区，但不要再按自由辩节奏逐点追打。"
     return "建议结构：先直接回答问题，再给出最关键理由。"
 
 
@@ -106,12 +106,57 @@ def _stage_forbidden_hint(stage: str) -> str:
     if stage == "opening":
         return "不要一上来铺情绪、喊口号或讲长故事；也不要把立论写成僵硬提纲。要像真人立盘，不像在交作业。"
     if stage == "rebuttal":
-        return "不要把驳论写成“我方立论重说一遍”，也不要平均回应所有枝节。驳论必须有对象感，像在拆对方，不像在自说自话。"
+        return "不要把驳论写成“我方立论重说一遍”，也不要平均回应所有枝节。驳论必须有对象感，像在拆对方，不像在自说自话，更不要空话、套话和抽象大词连发。"
     if stage == "free_debate":
-        return "不要寒暄，不要背稿式重讲，不要每轮都像一篇完整小作文；也不要机械套模板。自由辩可以短，也可以稍长，但必须像真实交锋，而不是把准备稿切碎重放。"
+        return "不要寒暄，不要背稿式重讲，不要每轮都像一篇完整小作文；也不要机械套模板、跑题翻旧账、跳过对方问题或重复自己上一轮的原话。自由辩可以短，也可以稍长，但必须像真实交锋，而不是把准备稿切碎重放。"
     if stage == "closing":
-        return "不要提出新的独立论点、定义、机制或例子；也不要继续跟对方一来一回纠缠枝节。总结应该像结辩落判，不是把自由辩再打一遍。"
+        return "不要提出新的独立论点、定义、机制或例子；不要把总结写成对对方最后一句的逐句反击，也不要再抛追问。更不要只顾抒情升维却不结算胜负。总结应该像结辩落判，不是把自由辩再打一遍。"
     return "不要回避问题，不要空泛表态。"
+
+
+def _stage_hard_rules(stage: str) -> list[str]:
+    common_rules = [
+        "硬规则：严禁空话、套话、哲学堆砌、抽象大词连发。要锋利、好懂、像赛场攻防，不像公众号鸡汤。",
+        "硬规则：优先使用通俗比喻、具体场景、简单数字、小例子来压实论点，但这些材料必须服务当前战点。",
+    ]
+
+    if stage == "opening":
+        return [
+            "硬规则：开篇要先立清楚我方立场和判断标准，再展开核心理由，不要一上来散点铺陈。",
+            "硬规则：整体上要让裁判听出观点、逻辑、类比/例子/数字，必要时可以顺手埋比较或追问，但不必为了凑格式写成僵硬模板。",
+            *common_rules,
+        ]
+
+    if stage == "rebuttal":
+        return [
+            "硬规则：优先处理对方上一轮最影响胜负的一击，不平均回应所有枝节，不跑题，不翻旧账。",
+            "硬规则：如果对方或裁判上一轮抛了明确问题，要先正面回应，再继续拆链条或反打。",
+            "硬规则：整体上要让裁判听出观点、逻辑、类比/例子/数字和推进动作，但不要求每一段都完全同构。",
+            *common_rules,
+        ]
+
+    if stage == "free_debate":
+        return [
+            "硬规则：除首轮开篇还没有对方发言可回时以外，只针对对方上一轮最关键的一击或问题回应和攻击，不跑题，不翻旧账，不重复自己刚讲过的句式。",
+            "硬规则：正文每一段都要让裁判听出四件事：观点、逻辑、类比/例子/数字、追问。顺序可以灵活，但四件事不能只剩口号。",
+            "硬规则：如果对方或裁判上一轮抛了明确问题，你必须先正面回答，再顺势抛出新的追问；不能跳过回答直接另起炉灶。",
+            "硬规则：严禁空话、套话、哲学堆砌、抽象大词连发。要锋利、好懂、像赛场攻防，不像公众号鸡汤。",
+            "硬规则：优先使用通俗比喻、具体场景、简单数字、小例子来压实论点，但这些材料必须服务当前战点。",
+        ]
+
+    if stage == "closing":
+        return [
+            "硬规则：总结不要再按自由辩节奏逐句缠斗，也不要再抛新的追问；重点是把我方已经打成的优势收束成最终胜点。",
+            "硬规则：请归纳 2 到 3 个最能决定胜负的理由，讲清比较标准、胜负结算和为什么这些点足以判我方赢。",
+            "硬规则：可以简短提到对方失误，但只能作为比较背景，不能把总结写成继续攻击对方的逐点反击。",
+            "硬规则：最后允许有一点情怀和升维，但必须建立在前面已经讲清的胜点和比较上，像收口，不像另开新战场。",
+            *common_rules,
+        ]
+
+    return [
+        "硬规则：先正面回答裁判问题，再给出最关键理由，不要回避。",
+        *common_rules,
+    ]
 
 
 def strip_loose_think_tags(content: str) -> str:
@@ -741,6 +786,7 @@ def _build_turn_messages(
     role_hint = _stage_role_hint(stage, side)
     structure_hint = _stage_structure_hint(stage)
     forbidden_hint = _stage_forbidden_hint(stage)
+    hard_rules = _stage_hard_rules(stage)
     opponent_reference = opponent_last_turn.content if opponent_last_turn else "暂无。"
     stage_persona_hint = {
         "opening": "这轮的气质应该像立论建盘：稳、准、先立标准再推理由。",
@@ -752,7 +798,7 @@ def _build_turn_messages(
     stage_output_hint = {
         "opening": "这轮先把立场和判断方式说稳，再推进核心理由；要像在立盘，不像在列提纲。",
         "rebuttal": "这轮直接抓对方最值得拆的一两处下手，不要平均回应所有点。",
-        "closing": "这轮要像赛场上的正式总结陈词：少复述过程，多做最终比较和落判。",
+        "closing": "这轮要像赛场上的正式总结陈词：归纳我方胜点，做最终比较和落判，再顺势升华，不要继续逐句缠斗。",
         "judge_decision": "这轮先正面答问题，再补最关键理由。",
     }.get(stage, "")
     time_hint = ""
@@ -764,7 +810,7 @@ def _build_turn_messages(
                 f"你当前剩余总时长约 {remaining_ms / 1000:.1f} 秒，包含思考和输出。"
                 "这不是单次发言时长上限，而是本方自由辩论总时长；你可以自行分配每次发言长短，系统只会持续扣减总时间。"
             )
-        opponent_reference = _recent_opponent_turns_text(session, side, limit=2)
+        opponent_reference = _recent_opponent_turns_text(session, side, limit=1)
     else:
         limit_ms = _stage_turn_budget_ms(session, stage)
         target_seconds = _stage_target_seconds(session, stage)
@@ -793,6 +839,7 @@ def _build_turn_messages(
             "非自由辩阶段要明显收束篇幅：立论与驳论说到点上就停，总结要更像结辩而不是长篇复盘。",
             "不要输出任何身份前缀、括号标签、舞台动作或系统痕迹，例如“（正方）”“（Con）”“（裁决结果为 con）”“（拍桌）”“尊敬的裁判，各位好）”等。",
             "默认面向裁判发言，但语言要像赛场陈词，不要像写说明书。",
+            *hard_rules,
             (
                 "自由辩论特别规则：你这一轮必须正面回应对方刚才最新一击，不能完全无视场上最新交锋。"
                 if stage == "free_debate"
@@ -824,8 +871,27 @@ def _build_turn_messages(
                 f"最近对话记录：\n{transcript or '暂无。'}",
                 (
                     "请直接给出本轮自由辩论发言，从正文开始。"
+                    "先直接回答对方或裁判刚刚抛出的攻击/问题，再顺势抛出新的追问。"
                     "你可以短打，也可以顺势多压一步，但必须让裁判感觉到战场被你推进了。"
+                    "每一段都尽量做到：有观点、有逻辑、有类比/例子/数字、有追问。"
                     "不要只是重复你最近两轮已经讲过的话；就算坚持同一核心立场，也要换成新的攻防动作。"
+                ),
+            ]
+        )
+    elif stage == "closing":
+        user_prompt = "\n\n".join(
+            [
+                f"你方已讲过的关键点：\n{own_points}",
+                f"对方最近核心内容：\n{opponent_reference}",
+                f"裁判最新追问：\n{latest_question or '无'}",
+                f"最近对话记录：\n{transcript or '暂无。'}",
+                (
+                    "请直接给出本轮总结陈词，从正文开始，不要解释你的策略。"
+                    "不要再按自由辩节奏逐点缠斗，不要再抛新的追问。"
+                    "请把我方已经打成的 2 到 3 个核心胜点归纳清楚，完成最后比较和结算，让裁判明确知道为什么该判我方赢。"
+                    "若需要提到对方，只作为比较背景顺手带过。"
+                    "结尾可以有一句有情绪、有格局的升华，但前提是前面的账已经算清楚。"
+                    + (f" {stage_output_hint}" if stage_output_hint else "")
                 ),
             ]
         )
@@ -838,6 +904,8 @@ def _build_turn_messages(
                 f"最近对话记录：\n{transcript or '暂无。'}",
                 (
                     "请直接给出本轮发言，从正文开始，不要解释你的策略。"
+                    "如果对方或裁判刚刚抛了明确问题，请先直接回应，再继续推进。"
+                    "每一段都尽量做到：有观点、有逻辑、有类比/例子/数字、有追问。"
                     + (f" {stage_output_hint}" if stage_output_hint else "")
                 ),
             ]
@@ -908,7 +976,63 @@ def _advance_after_generated_turn(session: DebateSession, completed_stage: str) 
     return [session.stage]
 
 
-def _build_ai_evaluation_messages(session: DebateSession) -> list[ChatMessagePayload]:
+def _winner_from_vote_text(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    if not text:
+        return ""
+    if "正方" in text or " pro" in f" {text} ":
+        return "pro"
+    if "反方" in text or " con" in f" {text} ":
+        return "con"
+    return ""
+
+
+def _normalize_decision_scoring(
+    *,
+    winner_side: str | None = None,
+    scoring_json: dict[str, Any] | None = None,
+) -> tuple[str, dict[str, Any]]:
+    base = scoring_json if isinstance(scoring_json, dict) else {}
+    normalized: dict[str, Any] = {**base}
+    stage_scores = _stage_scores_from_payload(base)
+    analysis = _analysis_from_payload(base)
+
+    pro_score = _score_to_int(base.get("pro_score"))
+    con_score = _score_to_int(base.get("con_score"))
+    if stage_scores:
+        pro_score = sum(value["pro"] or 0 for value in stage_scores.values())
+        con_score = sum(value["con"] or 0 for value in stage_scores.values())
+        normalized["stage_scores"] = stage_scores
+
+    if pro_score is not None:
+        normalized["pro_score"] = pro_score
+    else:
+        normalized.pop("pro_score", None)
+    if con_score is not None:
+        normalized["con_score"] = con_score
+    else:
+        normalized.pop("con_score", None)
+
+    explicit_winner = winner_side if winner_side in {"pro", "con"} else ""
+    vote_winner = _winner_from_vote_text(analysis.get("final_vote"))
+
+    if pro_score is not None and con_score is not None and pro_score != con_score:
+        resolved_winner = "pro" if pro_score > con_score else "con"
+    else:
+        resolved_winner = explicit_winner or vote_winner or "pro"
+
+    if any(analysis.values()) or isinstance(base.get("analysis"), dict):
+        analysis["final_vote"] = "本场我投正方一票" if resolved_winner == "pro" else "本场我投反方一票"
+        normalized["analysis"] = analysis
+
+    return resolved_winner, normalized
+
+
+def _build_ai_evaluation_messages(
+    session: DebateSession,
+    *,
+    commentary_markdown: str = "",
+) -> list[ChatMessagePayload]:
     """让 AI 裁判模型对辩论打分并给出胜负建议，输出严格 JSON。"""
     transcript = _recent_transcript(session, limit=999)
     return [
@@ -932,8 +1056,9 @@ def _build_ai_evaluation_messages(session: DebateSession) -> list[ChatMessagePay
                 "10. issues 必须包含 pro、con、shared 三个数组，数组里只放明显成立的问题短语；若没有明显问题就返回空数组。\n"
                 "11. 若辩论记录里出现[超时截断]，应在对应一方的评价和 issues 中体现，并在该阶段分数里合理扣分，但不必直接判负。\n"
                 "12. judge_comment 必须是中文简短裁决摘要，不超过 80 字。\n"
-                "13. 即使证据不足，也必须给出完整六个字段。\n"
-                "14. 你的回复如果不是上述 JSON，会被系统判定为无效。"
+                "13. 如果下面附带了“你刚刚已经给出的讲评”，JSON 裁决必须与该讲评保持一致：winner、judge_comment、analysis.final_vote 的倾向不能和讲评冲突，阶段分与总分也必须支持同一胜方。\n"
+                "14. 即使证据不足，也必须给出完整六个字段。\n"
+                "15. 你的回复如果不是上述 JSON，会被系统判定为无效。"
             ),
         ),
         ChatMessagePayload(
@@ -942,6 +1067,7 @@ def _build_ai_evaluation_messages(session: DebateSession) -> list[ChatMessagePay
                 [
                     f"辩题：{session.topic}",
                     f"辩论记录：\n{transcript or '暂无'}",
+                    f"你刚刚已经给出的讲评：\n{commentary_markdown or '暂无，请直接根据辩论记录完成一致的 JSON 裁决。'}",
                     f"常见问题检测参考：{ '、'.join(JUDGE_COMMON_ISSUES) }。",
                     "现在直接输出一行 JSON，不要解释，不要换行，不要代码块。",
                 ]
@@ -1134,15 +1260,6 @@ def _parse_ai_evaluation(raw: str) -> dict | None:
             analysis.get("final_vote"),
         )[:80]
 
-    if winner not in {"pro", "con"}:
-        if pro_score is not None and con_score is not None:
-            winner = "pro" if pro_score >= con_score else "con"
-        else:
-            winner = "pro"
-
-    if not analysis.get("final_vote"):
-        analysis["final_vote"] = "本场我投正方一票" if winner == "pro" else "本场我投反方一票"
-
     scoring_json: dict[str, Any] = {}
     if pro_score is not None:
         scoring_json["pro_score"] = pro_score
@@ -1155,24 +1272,20 @@ def _parse_ai_evaluation(raw: str) -> dict | None:
     if any(issues.values()):
         scoring_json["issues"] = issues
 
+    winner, scoring_json = _normalize_decision_scoring(winner_side=winner, scoring_json=scoring_json)
+
     return {
         "winner": winner,
-        "pro_score": pro_score,
-        "con_score": con_score,
+        "pro_score": _score_to_int(scoring_json.get("pro_score")),
+        "con_score": _score_to_int(scoring_json.get("con_score")),
         "judge_comment": judge_comment,
         "scoring_json": scoring_json,
     }
 
 
 def _resolve_decision_winner_side(winner_side: str, scoring_json: dict[str, Any] | None = None) -> str:
-    if winner_side in {"pro", "con"}:
-        return winner_side
-    scoring_json = scoring_json or {}
-    pro_score = scoring_json.get("pro_score")
-    con_score = scoring_json.get("con_score")
-    if isinstance(pro_score, (int, float)) and isinstance(con_score, (int, float)):
-        return "pro" if float(pro_score) >= float(con_score) else "con"
-    return "pro"
+    resolved_winner, _ = _normalize_decision_scoring(winner_side=winner_side, scoring_json=scoring_json)
+    return resolved_winner
 
 
 def _build_summary_messages(session: DebateSession) -> list[ChatMessagePayload]:
@@ -1193,13 +1306,16 @@ def _build_summary_messages(session: DebateSession) -> list[ChatMessagePayload]:
                 "1. ...\n"
                 "2. ...\n"
                 "3. ...（若不足三点可省略）\n"
-                "对方最大漏洞\n"
+                "这场辩论说明了什么\n"
                 "...\n"
                 "要求：\n"
                 "1. “为什么我方赢”部分只写 2 到 3 个最终胜点，每点都要像结辩里的胜负结算，而不是罗列过程。\n"
                 "2. 多写比较和判准：说明为什么这些点足以决定胜负，而不只是说我方做了什么。\n"
-                "3. “对方最大漏洞”只写一个最致命漏洞，不要列清单，不要发散。\n"
-                "4. 不要复述全场，不要写成新闻总结，不要输出 Markdown 标题符号。"
+                "3. 每个胜点最好都带上观点、逻辑、类比/例子/数字，让人一听就明白这分为什么算到我方头上。\n"
+                "4. “这场辩论说明了什么”要从我方立场出发，收束成一段有格局的意义升华，可以顺带提到对方为何没能动摇这个判断，但不要把它写成继续攻击对方的清单。\n"
+                "5. 语言要锋利、好懂，少空话，多比喻、场景、数字和例子，但都必须服务胜负判断。\n"
+                "6. 结尾允许有一点情怀和升维，但必须建立在前面已经结算清楚的胜点上，像赛场结辩收口，不能凭空抒情。\n"
+                "7. 不要复述全场，不要写成新闻总结，不要输出 Markdown 标题符号。"
             ),
         ),
         ChatMessagePayload(
@@ -1247,11 +1363,10 @@ __all__ = [
     "_recent_transcript",
     "_decision_payload",
     "_build_ai_evaluation_messages",
+    "_normalize_decision_scoring",
     "_parse_ai_evaluation",
     "_resolve_decision_winner_side",
     "_build_summary_messages",
     "build_debate_session_detail",
     "load_debate_session_for_user",
 ]
-
-

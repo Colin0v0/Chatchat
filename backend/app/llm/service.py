@@ -52,7 +52,7 @@ async def stream_chat(
             yield chunk
         return
 
-    if provider in ("openai", "openai_local", "codex"):
+    if provider in ("openai", "openai_local", "codex", "trio"):
         async for chunk in stream_openai_chat(
             model=model_name,
             messages=messages,

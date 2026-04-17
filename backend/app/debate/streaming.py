@@ -1,7 +1,7 @@
 import asyncio
 import json
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import Request
 from sqlalchemy.orm import Session
@@ -24,13 +24,13 @@ from .common import (
     _is_free_debate_over,
     _latest_opponent_turn,
     _mark_free_debate_ended,
+    _normalize_decision_scoring,
     _next_free_debate_side,
     _next_stage,
     _next_turn_index,
     _parse_ai_evaluation,
     _participant_by_side,
     _recent_transcript,
-    _resolve_decision_winner_side,
     _resolve_next_participant,
     _save_free_debate_state,
     _stage_turn_budget_ms,
@@ -78,7 +78,7 @@ async def _stream_speaker_turn(
     )
     if free_debate_state is not None:
         free_debate_state["active_side"] = participant.side
-        free_debate_state["active_turn_started_at"] = datetime.utcnow().isoformat()
+        free_debate_state["active_turn_started_at"] = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
     session.updated_at = datetime.utcnow()
     db.add(turn)
     db.add(session)
@@ -239,7 +239,7 @@ async def _run_ai_evaluation(
         logger.warning("debate ai commentary stream error: %s", exc, exc_info=True)
 
     analysis_markdown = "".join(analysis_chunks).strip()
-    eval_messages = _build_ai_evaluation_messages(session)
+    eval_messages = _build_ai_evaluation_messages(session, commentary_markdown=analysis_markdown)
     ai_eval_chunks: list[str] = []
     try:
         async for chunk in stream_chat(model=judge_model_id, messages=eval_messages):
@@ -515,8 +515,10 @@ async def debate_decision_event_stream(
     else:
         decision = session.judge_decision
 
-    resolved_scoring = payload.scoring_json or {}
-    decision.winner_side = _resolve_decision_winner_side(payload.winner_side, resolved_scoring)
+    decision.winner_side, resolved_scoring = _normalize_decision_scoring(
+        winner_side=payload.winner_side,
+        scoring_json=payload.scoring_json or {},
+    )
     decision.judge_comment = payload.judge_comment.strip()
     decision.scoring_json = json.dumps(resolved_scoring, ensure_ascii=False)
     db.add(decision)
@@ -572,8 +574,8 @@ async def debate_decision_event_stream(
             "为什么我方赢\n"
             f"1. 裁判最终判定{winner_label}占优。\n"
             f"2. 裁判评语聚焦于：{_judge_note or '本场关键比较已形成胜负结论。'}\n"
-            "对方最大漏洞\n"
-            "未能在关键战场完成反超。"
+            "这场辩论说明了什么\n"
+            "这场比赛最后留下的判断是：我方主张在关键比较上更站得住，也更值得被采纳。"
         )
         summary_chunks = [fallback]
         yield json.dumps({"type": "summary_token", "content": fallback}, ensure_ascii=False) + "\n"

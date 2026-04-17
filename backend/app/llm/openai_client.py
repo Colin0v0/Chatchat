@@ -52,6 +52,8 @@ def _request_gate(provider: Provider) -> tuple[str, int]:
         return ("openai_local", max(1, settings.openai_local_http_max_concurrency))
     if provider == "codex":
         return ("codex", max(1, settings.openai_http_max_concurrency))
+    if provider == "trio":
+        return ("trio", max(1, settings.openai_http_max_concurrency))
     return ("openai", max(1, settings.openai_http_max_concurrency))
 
 
@@ -91,6 +93,8 @@ def openai_base_url(provider: Provider = "openai", base_url_override: str | None
         return settings.openai_local_base_url
     if provider == "codex":
         return settings.codex_base_url
+    if provider == "trio":
+        return settings.trio_base_url
     return settings.openai_base_url
 
 
@@ -111,6 +115,8 @@ def openai_headers(provider: Provider = "openai", api_key_override: str | None =
         configured_api_key = settings.openai_local_api_key
     elif provider == "codex":
         configured_api_key = settings.codex_api_key
+    elif provider == "trio":
+        configured_api_key = settings.trio_api_key
     else:
         configured_api_key = settings.openai_api_key
     api_key = api_key_override or configured_api_key
@@ -141,6 +147,14 @@ def apply_responses_reasoning_controls(payload: dict[str, object], *, thinking_e
     if thinking_enabled:
         reasoning["summary"] = "auto"
     payload["reasoning"] = reasoning
+
+
+def supports_chat_completions_streaming(provider: Provider) -> bool:
+    if provider == "openai_local":
+        return settings.openai_local_stream
+    if provider == "trio":
+        return False
+    return True
 
 
 async def _list_openai_models_for_provider(provider: Provider) -> list[DiscoveredModel]:
@@ -188,6 +202,10 @@ async def list_openai_models() -> list[DiscoveredModel]:
 
 async def list_codex_models() -> list[DiscoveredModel]:
     return await _list_openai_models_for_provider("codex")
+
+
+async def list_trio_models() -> list[DiscoveredModel]:
+    return await _list_openai_models_for_provider("trio")
 
 
 async def list_openai_local_models() -> list[DiscoveredModel]:
@@ -565,7 +583,7 @@ async def stream_openai_chat(
         ):
             yield event
         return
-    use_stream = not (provider == "openai_local" and not settings.openai_local_stream)
+    use_stream = supports_chat_completions_streaming(provider)
     payload = {
         "model": model,
         "messages": [openai_message_payload(message) for message in messages],

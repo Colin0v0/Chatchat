@@ -65,7 +65,7 @@ def _resolve_catalog_path() -> Path:
 
 
 def _normalize_provider(value: str | None, fallback_model_id: str) -> Provider:
-    if value in ("ollama", "openai", "openai_local", "codex", "gemini"):
+    if value in ("ollama", "openai", "openai_local", "codex", "gemini", "trio"):
         return cast(Provider, value)
     provider, _ = model_provider_and_name(fallback_model_id)
     return provider
@@ -214,7 +214,8 @@ def _parse_routes(payload: dict[str, object]) -> list[ModelRoute]:
         upstream_raw = row.get("upstream_model")
         if upstream_raw is not None and not isinstance(upstream_raw, str):
             raise ModelCatalogError(f"{row_path}.upstream_model must be string when provided")
-        upstream_model = upstream_raw.strip() if isinstance(upstream_raw, str) else ""
+        upstream_model = _resolve_env_value(upstream_raw) if isinstance(upstream_raw, str) else None
+        upstream_model = upstream_model.strip() if isinstance(upstream_model, str) else ""
         if not upstream_model:
             upstream_model = model_name
 
@@ -337,6 +338,7 @@ def load_model_routes(*, strict: bool | None = None) -> list[ModelRoute]:
     if routes:
         legacy_values = {
             "OPENAI_MODEL_ALLOWLIST": settings.openai_model_allowlist,
+            "TRIO_MODEL_ALLOWLIST": settings.trio_model_allowlist,
             "OPENAI_LOCAL_MODEL_ALLOWLIST": settings.openai_local_model_allowlist,
             "GEMINI_MODEL_ALLOWLIST": settings.gemini_model_allowlist,
         }

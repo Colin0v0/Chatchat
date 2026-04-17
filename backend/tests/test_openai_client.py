@@ -10,7 +10,10 @@ from app.llm.openai_client import (
     _parse_openai_json_response,
     apply_reasoning_controls,
     apply_responses_reasoning_controls,
+    openai_base_url,
+    openai_headers,
     responses_message_payload,
+    supports_chat_completions_streaming,
 )
 
 
@@ -139,6 +142,31 @@ class OpenAIReasoningControlsTests(unittest.TestCase):
         apply_reasoning_controls(payload, provider="openai", thinking_enabled=True)
 
         self.assertEqual(payload, {})
+
+
+class OpenAICompatibleProviderTests(unittest.TestCase):
+    def test_openai_base_url_reads_trio_settings(self):
+        from app.core.config import settings
+
+        original = settings.trio_base_url
+        settings.trio_base_url = "https://pytrio.cn/api/v1"
+        try:
+            self.assertEqual(openai_base_url("trio"), "https://pytrio.cn/api/v1")
+        finally:
+            settings.trio_base_url = original
+
+    def test_openai_headers_reads_trio_api_key(self):
+        from app.core.config import settings
+
+        original = settings.trio_api_key
+        settings.trio_api_key = "sk-trio"
+        try:
+            self.assertEqual(openai_headers("trio"), {"Authorization": "Bearer sk-trio"})
+        finally:
+            settings.trio_api_key = original
+
+    def test_supports_chat_completions_streaming_disables_trio(self):
+        self.assertFalse(supports_chat_completions_streaming("trio"))
 
     def test_apply_responses_reasoning_controls_enables_summary_for_reasoning_models(self):
         payload: dict[str, object] = {}

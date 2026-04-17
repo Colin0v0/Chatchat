@@ -24,6 +24,24 @@ import {
 } from "./debate/debateRoomUtils";
 import { DebateTurnCard } from "./debate/DebateTurnCard";
 
+const FREE_DEBATE_CLOCK_SKEW_TOLERANCE_MS = 10 * 60 * 1000;
+
+function resolveFreeDebateClockAnchorMs(
+  state: DebateSessionDetail["free_debate_state"] | null | undefined,
+) {
+  if (!state?.active_side || state.active_turn_id == null) {
+    return null;
+  }
+
+  const parsedStartedAt = parseUtcTimestamp(state.active_turn_started_at);
+  const now = Date.now();
+  if (Number.isFinite(parsedStartedAt) && Math.abs(now - parsedStartedAt) <= FREE_DEBATE_CLOCK_SKEW_TOLERANCE_MS) {
+    return parsedStartedAt;
+  }
+
+  return now;
+}
+
 function stageBudgetMs(session: DebateSessionDetail, stage: DebateStage) {
   return typeof session.stage_time_limits_ms?.[stage] === "number"
     ? session.stage_time_limits_ms[stage]
@@ -110,6 +128,14 @@ export function DebateRoomView({
   const [actionError, setActionError] = useState<string | null>(null);
   const [aiSuggestion, setAiSuggestion] = useState<DebateAiSuggestion | null>(null);
   const [activeStreamingTurnId, setActiveStreamingTurnId] = useState<number | null>(null);
+  const [activeStreamingTurnStartedAtMs, setActiveStreamingTurnStartedAtMs] = useState<number | null>(null);
+  const [freeDebateClockAnchor, setFreeDebateClockAnchor] = useState<{
+    turnId: number | null;
+    startedAtMs: number | null;
+  }>(() => ({
+    turnId: session.free_debate_state?.active_turn_id ?? null,
+    startedAtMs: resolveFreeDebateClockAnchorMs(session.free_debate_state),
+  }));
   const [clockNow, setClockNow] = useState(() => Date.now());
   const [judgeExpanded, setJudgeExpanded] = useState(true);
   const [judgeAnalysisStream, setJudgeAnalysisStream] = useState("");
@@ -125,6 +151,11 @@ export function DebateRoomView({
 
     setRoomSession(normalizedSession);
     setActiveStreamingTurnId(null);
+    setActiveStreamingTurnStartedAtMs(null);
+    setFreeDebateClockAnchor({
+      turnId: normalizedSession.free_debate_state?.active_turn_id ?? null,
+      startedAtMs: resolveFreeDebateClockAnchorMs(normalizedSession.free_debate_state),
+    });
     setJudgeAnalysisStream(
       extractJudgeAnalysisMarkdown(normalizedSession.judge_decision?.scoring_json as Record<string, unknown> | undefined),
     );
@@ -156,6 +187,30 @@ export function DebateRoomView({
     setConScore("");
   }, [session]);
 
+  useEffect(() => {
+    setFreeDebateClockAnchor((current) => {
+      const state = roomSession.free_debate_state;
+      if (!state?.active_side || state.active_turn_id == null) {
+        return current.turnId == null && current.startedAtMs == null
+          ? current
+          : { turnId: null, startedAtMs: null };
+      }
+
+      if (current.turnId === state.active_turn_id && current.startedAtMs != null) {
+        return current;
+      }
+
+      return {
+        turnId: state.active_turn_id,
+        startedAtMs: resolveFreeDebateClockAnchorMs(state),
+      };
+    });
+  }, [
+    roomSession.free_debate_state?.active_side,
+    roomSession.free_debate_state?.active_turn_id,
+    roomSession.free_debate_state?.active_turn_started_at,
+  ]);
+
   const participantMap = useMemo(
     () => new Map(roomSession.participants.map((participant) => [participant.id, participant])),
     [roomSession.participants],
@@ -177,6 +232,20 @@ export function DebateRoomView({
       ),
     [roomSession.turns],
   );
+  const freeDebateSequenceByTurnId = useMemo(() => {
+    const sequenceMap = new Map<number | string, number>();
+    let sequence = 0;
+
+    for (const turn of sortedTurns) {
+      if (turn.kind !== "speaker_turn" || turn.stage !== "free_debate") {
+        continue;
+      }
+      sequence += 1;
+      sequenceMap.set(turn.id, sequence);
+    }
+
+    return sequenceMap;
+  }, [sortedTurns]);
 
   const canAdvance =
     runningAction === null &&
@@ -235,7 +304,10 @@ export function DebateRoomView({
           return base;
         }
 
-        const startedAt = parseUtcTimestamp(state.active_turn_started_at);
+        const startedAt =
+          freeDebateClockAnchor.turnId === state.active_turn_id && freeDebateClockAnchor.startedAtMs != null
+            ? freeDebateClockAnchor.startedAtMs
+            : parseUtcTimestamp(state.active_turn_started_at);
         if (!Number.isFinite(startedAt)) {
           return base;
         }
@@ -258,14 +330,23 @@ export function DebateRoomView({
         return stageFixedBudgetMs;
       }
 
-      const startedAt = parseUtcTimestamp(activeTimedTurn.created_at);
-      if (!Number.isFinite(startedAt)) {
+      if (!activeStreamingTurnStartedAtMs) {
         return stageFixedBudgetMs;
       }
 
-      return Math.max(0, stageFixedBudgetMs - Math.max(0, clockNow - startedAt));
+      return Math.max(0, stageFixedBudgetMs - Math.max(0, clockNow - activeStreamingTurnStartedAtMs));
     },
-    [activeTimedTurn, clockNow, freeDebateState, participantMap, roomSession.stage, stageFixedBudgetMs],
+    [
+      activeStreamingTurnStartedAtMs,
+      activeTimedTurn,
+      clockNow,
+      freeDebateClockAnchor.startedAtMs,
+      freeDebateClockAnchor.turnId,
+      freeDebateState,
+      participantMap,
+      roomSession.stage,
+      stageFixedBudgetMs,
+    ],
   );
 
   const syncFromServer = useCallback(async () => {
@@ -297,10 +378,12 @@ export function DebateRoomView({
             return;
           }
           if (event.type === "meta" && event.turn.kind === "speaker_turn") {
-            setActiveStreamingTurnId(event.turn.id);
+            setActiveStreamingTurnId(typeof event.turn.id === "number" ? event.turn.id : null);
+            setActiveStreamingTurnStartedAtMs(Date.now());
           }
           if (event.type === "turn_done" || event.type === "done") {
             setActiveStreamingTurnId(null);
+            setActiveStreamingTurnStartedAtMs(null);
           }
           if (event.type === "judge_analysis_token") {
             setJudgeAnalysisStream((current) => current + event.content);
@@ -335,9 +418,11 @@ export function DebateRoomView({
       await syncFromServer();
     } catch (error) {
       setActiveStreamingTurnId(null);
+      setActiveStreamingTurnStartedAtMs(null);
       handleStreamError(error, "推进下一回合失败。");
     } finally {
       setActiveStreamingTurnId(null);
+      setActiveStreamingTurnStartedAtMs(null);
       runningActionRef.current = null;
       setRunningAction(null);
     }
@@ -362,16 +447,18 @@ export function DebateRoomView({
         },
         {
           onEvent: (event) => {
-            if (event.type === "error") {
-              setActiveStreamingTurnId(null);
-              setActionError(event.message);
-              return;
-            }
-            if (event.type === "meta" && event.turn.kind === "speaker_turn") {
-              setActiveStreamingTurnId(event.turn.id);
-            }
+          if (event.type === "error") {
+            setActiveStreamingTurnId(null);
+            setActionError(event.message);
+            return;
+          }
+          if (event.type === "meta" && event.turn.kind === "speaker_turn") {
+            setActiveStreamingTurnId(typeof event.turn.id === "number" ? event.turn.id : null);
+            setActiveStreamingTurnStartedAtMs(Date.now());
+          }
             if (event.type === "turn_done" || event.type === "done") {
               setActiveStreamingTurnId(null);
+              setActiveStreamingTurnStartedAtMs(null);
             }
             setRoomSession((current) => applyStreamEvent(current, event));
           },
@@ -381,9 +468,11 @@ export function DebateRoomView({
       await syncFromServer();
     } catch (error) {
       setActiveStreamingTurnId(null);
+      setActiveStreamingTurnStartedAtMs(null);
       handleStreamError(error, "裁判追问失败。");
     } finally {
       setActiveStreamingTurnId(null);
+      setActiveStreamingTurnStartedAtMs(null);
       runningActionRef.current = null;
       setRunningAction(null);
     }
@@ -422,6 +511,7 @@ export function DebateRoomView({
             }
             if (event.type === "done") {
               setActiveStreamingTurnId(null);
+              setActiveStreamingTurnStartedAtMs(null);
             }
             if (event.type === "judge_analysis_token") {
               setJudgeAnalysisStream((current) => current + event.content);
@@ -459,9 +549,11 @@ export function DebateRoomView({
       onSessionChange(normalizeRoomSession(refreshed));
     } catch (error) {
       setActiveStreamingTurnId(null);
+      setActiveStreamingTurnStartedAtMs(null);
       handleStreamError(error, "提交裁决失败。");
     } finally {
       setActiveStreamingTurnId(null);
+      setActiveStreamingTurnStartedAtMs(null);
       runningActionRef.current = null;
       setRunningAction(null);
     }
@@ -622,6 +714,7 @@ export function DebateRoomView({
                             isStreaming={activeStreamingTurnId === turn.id}
                             key={`${turn.id}`}
                             participant={participant}
+                            sequenceNumber={freeDebateSequenceByTurnId.get(turn.id) ?? null}
                             turn={turn}
                           />
                         );

@@ -240,12 +240,12 @@ AUDIO_TRANSCRIPTION_EAGER_LOAD=false
 
 ```powershell
 cd backend
-python app.py
+python app.py --reload
 ```
 
 默认后端接口：
 
-- `http://127.0.0.1:8000/api/health`
+- `http://127.0.0.1:8050/api/health`
 
 ### 2. 启动前端
 
@@ -258,6 +258,12 @@ npm run dev
 默认前端地址：
 
 - `http://127.0.0.1:5200`
+- 开发态默认代理后端：`http://127.0.0.1:8050`
+
+开发与部署端口约定：
+
+- 开发：前端 `5200`，后端 `8050`
+- Docker 部署：前端 `3300`，后端 `8000`
 
 ## Docker
 
@@ -289,6 +295,13 @@ docker compose logs -f
 ## WSL2 / SSH Tunnel / 远程模型
 
 如果部署环境在 WSL2，模型路由在 Windows 或远端机器，需要先把地址打通。
+
+开发模式已经预设：
+
+- Vite dev server 固定占用 `5200`
+- Vite 代理默认转发到 `127.0.0.1:8050`
+- 如需改前端开发代理目标，可设置环境变量 `CHATCHAT_DEV_API_ORIGIN`
+- 如需通过你自己的内网穿透 host 访问 Vite，可设置环境变量 `CHATCHAT_DEV_ALLOWED_HOSTS`
 
 ### 场景 1：Windows 上跑本地模型路由，WSL2 后端访问
 

@@ -53,6 +53,12 @@ class LlmCapabilitiesTests(unittest.TestCase):
             ("gemini", "gemini-3-flash"),
         )
 
+    def test_trio_provider_is_recognized_by_model_parser(self):
+        self.assertEqual(
+            model_provider_and_name("trio:my-model-path"),
+            ("trio", "my-model-path"),
+        )
+
     def test_present_model_name_hides_codex_namespace(self):
         self.assertEqual(
             present_model_name("codex:gpt-5.3-codex"),
@@ -63,6 +69,12 @@ class LlmCapabilitiesTests(unittest.TestCase):
         self.assertEqual(
             present_model_name("gemini:gemini-3-flash"),
             "gemini-3-flash",
+        )
+
+    def test_present_model_name_hides_trio_namespace(self):
+        self.assertEqual(
+            present_model_name("trio:my-model-path"),
+            "my-model-path",
         )
 
 

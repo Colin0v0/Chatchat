@@ -10,7 +10,7 @@ from .capabilities import (
 )
 from .gemini_client import list_gemini_models
 from .ollama_client import list_ollama_models
-from .openai_client import list_codex_models, list_openai_local_models, list_openai_models
+from .openai_client import list_codex_models, list_openai_local_models, list_openai_models, list_trio_models
 from .registry import build_model_options
 from .service import complete_chat, stream_chat
 from .catalog import (
@@ -33,6 +33,7 @@ __all__ = [
     "list_ollama_models",
     "list_openai_local_models",
     "list_openai_models",
+    "list_trio_models",
     "model_provider_and_name",
     "namespaced_model",
     "normalize_model",

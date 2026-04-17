@@ -128,7 +128,7 @@ class ModelReranker:
     ) -> float:
         if self._provider == "codex":
             return await self._score_candidate_codex(query=query, candidate=candidate)
-        if self._provider in ("openai", "openai_local"):
+        if self._provider in ("openai", "openai_local", "trio"):
             return await self._score_candidate_openai(query=query, candidate=candidate)
         return await self._score_candidate_ollama(query=query, candidate=candidate)
 
@@ -362,6 +362,11 @@ class ModelReranker:
             )
         if self._provider == "openai":
             return "openai", min(
+                self._max_concurrency,
+                max(1, self._settings.openai_http_max_concurrency),
+            )
+        if self._provider == "trio":
+            return "trio", min(
                 self._max_concurrency,
                 max(1, self._settings.openai_http_max_concurrency),
             )

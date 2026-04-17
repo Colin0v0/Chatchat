@@ -40,6 +40,16 @@ class ModelRerankerPayloadTests(unittest.TestCase):
         self.assertNotIn("thinking", payload)
         self.assertNotIn("reasoning_effort", payload)
 
+    def test_trio_reranker_payload_uses_openai_compatible_flow(self):
+        reranker = ModelReranker(_build_settings(knowledge_rerank_model="trio:your-model-path"), rerank_window=2)
+
+        payload = reranker._build_openai_payload("query")
+
+        self.assertEqual(reranker._provider, "trio")
+        self.assertNotIn("thinking", payload)
+        self.assertNotIn("reasoning_effort", payload)
+        self.assertEqual(reranker._request_gate(), ("trio", 1))
+
     def test_extract_codex_content_falls_back_to_output_text(self):
         reranker = ModelReranker(_build_settings(knowledge_rerank_model="codex:gpt-5.2"), rerank_window=2)
         payload = {

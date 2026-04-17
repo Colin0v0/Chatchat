@@ -4,6 +4,11 @@
       "provider": "openai",
       "api_key_env": "OPENAI_API_KEY"
     },
+    "trio_default": {
+      "provider": "trio",
+      "base_url": "${TRIO_BASE_URL}",
+      "api_key_env": "TRIO_API_KEY"
+    },
     "codex_default": {
       "provider": "codex",
       "base_url": "${CODEX_BASE_URL}",
@@ -39,6 +44,16 @@
       "upstream_model": "deepseek-reasoner",
       "thinking_mode": "force_on",
       "context_window": 200000,
+      "native_multimodal": "false",
+      "enabled": true
+    },
+    {
+      "id": "trio:custom-model",
+      "display_name": "Trio-嬛嬛",
+      "provider_ref": "trio_default",
+      "upstream_model": "${TRIO_MODEL_PATH}",
+      "thinking_mode": "force_off",
+      "context_window": 32000,
       "native_multimodal": "false",
       "enabled": true
     },

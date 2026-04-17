@@ -36,17 +36,52 @@ function ScoreTable({
     return null;
   }
 
+  function toPercent(score: number | null) {
+    if (score == null) {
+      return 0;
+    }
+    return Math.max(0, Math.min(100, (score / 25) * 100));
+  }
+
   return (
     <div className="rounded-[8px] border border-app-border bg-app-panel px-4 py-4">
-      <div className="grid grid-cols-[minmax(0,1fr)_64px_64px] items-center gap-x-2 gap-y-2">
+      <div className="mb-3 flex items-center justify-between gap-3">
         <div className="text-[12px] font-semibold text-app-muted">阶段判分</div>
-        <div className="text-center text-[11px] font-semibold text-app-muted">正</div>
-        <div className="text-center text-[11px] font-semibold text-app-muted">反</div>
+        <div className="text-[11px] font-medium text-app-muted">单阶段满分 25</div>
+      </div>
+      <div className="space-y-3">
         {stageScores.map((item) => (
-          <div className="contents" key={item.key}>
-            <div className="text-[13px] text-app-text">{item.label}</div>
-            <div className="text-center text-[13px] font-semibold text-app-text">{item.pro ?? "-"}</div>
-            <div className="text-center text-[13px] font-semibold text-app-text">{item.con ?? "-"}</div>
+          <div
+            className="rounded-[12px] border border-app-border/80 bg-[#f6f1e8] px-3 py-3"
+            key={item.key}
+          >
+            <div className="text-[13px] font-semibold text-app-text">{item.label}</div>
+            <div className="mt-3 grid gap-2 md:grid-cols-2">
+              <div>
+                <div className="mb-1.5 flex items-center justify-between text-[11px] font-medium text-[#2f8f57]">
+                  <span>正方</span>
+                  <span>{item.pro ?? "-"}</span>
+                </div>
+                <div className="h-2.5 overflow-hidden rounded-full bg-[#dcebdc]">
+                  <div
+                    className="h-full rounded-full bg-[#2f8f57] transition-[width] duration-300 ease-out"
+                    style={{ width: `${toPercent(item.pro)}%` }}
+                  />
+                </div>
+              </div>
+              <div>
+                <div className="mb-1.5 flex items-center justify-between text-[11px] font-medium text-[#9d3d32]">
+                  <span>{item.con ?? "-"}</span>
+                  <span>反方</span>
+                </div>
+                <div className="h-2.5 overflow-hidden rounded-full bg-[#f1ddd9]">
+                  <div
+                    className="ml-auto h-full rounded-full bg-[#c6654d] transition-[width] duration-300 ease-out"
+                    style={{ width: `${toPercent(item.con)}%` }}
+                  />
+                </div>
+              </div>
+            </div>
           </div>
         ))}
       </div>

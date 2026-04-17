@@ -38,7 +38,16 @@ export function parseUtcTimestamp(value: string | null | undefined) {
     return Number.NaN;
   }
 
-  const normalized = /(?:Z|[+-]\d{2}:\d{2})$/.test(value) ? value : `${value}Z`;
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return Number.NaN;
+  }
+
+  const withTimezone = /(?:Z|[+-]\d{2}:\d{2})$/i.test(trimmed) ? trimmed : `${trimmed}Z`;
+  const normalized = withTimezone.replace(
+    /\.(\d{3})\d+(Z|[+-]\d{2}:\d{2})$/i,
+    ".$1$2",
+  );
   return Date.parse(normalized);
 }
 
@@ -46,10 +55,6 @@ export function normalizeWinnerSide(
   winner: DebateWinner | null | undefined,
   scoring?: Record<string, unknown> | null,
 ): DebateWinner {
-  if (winner === "pro" || winner === "con") {
-    return winner;
-  }
-
   const proScore =
     typeof scoring?.pro_score === "number" && Number.isFinite(scoring.pro_score)
       ? scoring.pro_score
@@ -59,8 +64,12 @@ export function normalizeWinnerSide(
       ? scoring.con_score
       : null;
 
-  if (proScore != null && conScore != null) {
-    return proScore >= conScore ? "pro" : "con";
+  if (proScore != null && conScore != null && proScore !== conScore) {
+    return proScore > conScore ? "pro" : "con";
+  }
+
+  if (winner === "pro" || winner === "con") {
+    return winner;
   }
 
   return "pro";
@@ -206,11 +215,26 @@ export function extractJudgeAnalysis(
       ? (scoringJson.analysis as Record<string, unknown>)
       : {};
 
+  const proScore =
+    typeof scoringJson?.pro_score === "number" && Number.isFinite(scoringJson.pro_score)
+      ? scoringJson.pro_score
+      : null;
+  const conScore =
+    typeof scoringJson?.con_score === "number" && Number.isFinite(scoringJson.con_score)
+      ? scoringJson.con_score
+      : null;
+  const resolvedVote =
+    proScore != null && conScore != null && proScore !== conScore
+      ? proScore > conScore
+        ? "本场我投正方一票"
+        : "本场我投反方一票"
+      : "";
+
   return {
     pro_review: readAnalysisText(analysis.pro_review ?? analysis.pro),
     con_review: readAnalysisText(analysis.con_review ?? analysis.con),
     shared_feedback: readAnalysisText(analysis.shared_feedback ?? analysis.both),
     key_decision: readAnalysisText(analysis.key_decision ?? analysis.key_point),
-    final_vote: readAnalysisText(analysis.final_vote ?? analysis.vote),
+    final_vote: resolvedVote || readAnalysisText(analysis.final_vote ?? analysis.vote),
   };
 }

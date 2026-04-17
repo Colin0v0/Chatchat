@@ -1,8 +1,13 @@
 ARG DOCKER_REGISTRY=docker.io
 FROM ${DOCKER_REGISTRY}/library/python:3.11-slim
 
+ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1
+ENV PIP_CACHE_DIR=/root/.cache/pip
+ENV PIP_INDEX_URL=${PIP_INDEX_URL}
 
 WORKDIR /app
 
@@ -19,7 +24,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN --mount=type=cache,target=/root/.cache/pip \
+RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
     pip install -r requirements.txt
 
 COPY app ./app
