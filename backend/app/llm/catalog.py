@@ -65,7 +65,7 @@ def _resolve_catalog_path() -> Path:
 
 
 def _normalize_provider(value: str | None, fallback_model_id: str) -> Provider:
-    if value in ("ollama", "openai", "openai_local", "codex", "gemini", "trio"):
+    if value in ("ollama", "openai", "openai_local", "codex", "gemini", "trio", "claude"):
         return cast(Provider, value)
     provider, _ = model_provider_and_name(fallback_model_id)
     return provider
@@ -82,9 +82,9 @@ def _normalize_thinking_mode(value: str) -> ThinkingMode:
 
 def _normalize_native_multimodal_mode(value: str) -> NativeMultimodalMode:
     normalized = value.strip().lower()
-    if normalized in ("false", "local", "codex", "gemini"):
+    if normalized in ("false", "local", "codex", "gemini", "claude"):
         return cast(NativeMultimodalMode, normalized)
-    raise ModelCatalogError("Invalid native_multimodal. Expected one of: false, local, codex, gemini")
+    raise ModelCatalogError("Invalid native_multimodal. Expected one of: false, local, codex, gemini, claude")
 
 
 def _resolve_api_key(*, api_key: str | None, api_key_env: str | None) -> str | None:
@@ -337,6 +337,7 @@ def load_model_routes(*, strict: bool | None = None) -> list[ModelRoute]:
 
     if routes:
         legacy_values = {
+            "CLAUDE_MODEL_ALLOWLIST": settings.claude_model_allowlist,
             "OPENAI_MODEL_ALLOWLIST": settings.openai_model_allowlist,
             "TRIO_MODEL_ALLOWLIST": settings.trio_model_allowlist,
             "OPENAI_LOCAL_MODEL_ALLOWLIST": settings.openai_local_model_allowlist,
@@ -424,3 +425,7 @@ def uses_codex_native_multimodal(model: str) -> bool:
 
 def uses_gemini_native_multimodal(model: str) -> bool:
     return resolve_native_multimodal_mode(model) == "gemini"
+
+
+def uses_claude_native_multimodal(model: str) -> bool:
+    return resolve_native_multimodal_mode(model) == "claude"

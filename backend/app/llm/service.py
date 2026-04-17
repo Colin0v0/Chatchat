@@ -7,6 +7,7 @@ from ..core.config import settings
 from .capabilities import model_provider_and_name
 from .capabilities import normalize_model as normalize_model_id
 from .catalog import resolve_effective_thinking, resolve_model_route
+from .claude_client import complete_claude_chat, stream_claude_chat
 from .gemini_client import stream_gemini_chat
 from .ollama_client import stream_ollama_chat
 from .openai_client import stream_openai_chat
@@ -52,6 +53,16 @@ async def stream_chat(
             yield chunk
         return
 
+    if provider == "claude":
+        async for chunk in stream_claude_chat(
+            model=model_name,
+            messages=messages,
+            base_url_override=base_url_override,
+            api_key_override=route["api_key"] if route else None,
+        ):
+            yield chunk
+        return
+
     if provider in ("openai", "openai_local", "codex", "trio"):
         async for chunk in stream_openai_chat(
             model=model_name,
@@ -80,6 +91,20 @@ async def complete_chat(
     messages: list[ChatMessagePayload],
     thinking_enabled: bool | None = None,
 ) -> str:
+    route = resolve_model_route(model)
+    if route and route["provider"] == "claude":
+        chunks: list[str] = []
+        async for chunk in complete_claude_chat(
+            model=route["upstream_model"],
+            messages=messages,
+            base_url_override=route["base_url"],
+            api_key_override=route["api_key"],
+        ):
+            delta = chunk.get("message", {}).get("content", "")
+            if delta:
+                chunks.append(delta)
+        return "".join(chunks).strip()
+
     chunks: list[str] = []
     async for chunk in stream_chat(
         model=model,

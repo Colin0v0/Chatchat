@@ -77,6 +77,9 @@ class Settings(BaseSettings):
     trio_api_key: str = ""
     trio_model_path: str = ""
     trio_model_allowlist: str = ""
+    claude_base_url: str = "https://api.anthropic.com"
+    claude_api_key: str = ""
+    claude_model_allowlist: str = ""
     codex_base_url: str = "https://api.openai.com/v1"
     codex_api_key: str = ""
     codex_model_allowlist: str = ""
@@ -90,8 +93,8 @@ class Settings(BaseSettings):
     openai_local_stream: bool = True
     model_catalog_path: str = "./model_catalog.json"
     model_catalog_strict: bool = True
-    default_provider: str = "openai_local"
-    default_model: str = "openai_local:claude-opus-4-6"
+    default_provider: str = "claude"
+    default_model: str = "claude:claude-opus-4-5"
     attachment_max_upload_count: int = 8
     attachment_max_upload_size_bytes: int = 20 * 1024 * 1024
     image_ocr_min_confidence: float = 0.45
@@ -116,6 +119,7 @@ class Settings(BaseSettings):
     openai_connect_timeout_seconds: float = 30.0
     http_pool_max_connections: int = 100
     http_pool_max_keepalive_connections: int = 20
+    claude_http_max_concurrency: int = 8
     openai_http_max_concurrency: int = 8
     openai_local_http_max_concurrency: int = 4
     ollama_http_max_concurrency: int = 1

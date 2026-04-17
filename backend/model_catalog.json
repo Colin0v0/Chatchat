@@ -9,6 +9,11 @@
       "base_url": "${TRIO_BASE_URL}",
       "api_key_env": "TRIO_API_KEY"
     },
+    "claude_default": {
+      "provider": "claude",
+      "base_url": "${CLAUDE_BASE_URL}",
+      "api_key_env": "CLAUDE_API_KEY"
+    },
     "codex_default": {
       "provider": "codex",
       "base_url": "${CODEX_BASE_URL}",
@@ -55,6 +60,16 @@
       "thinking_mode": "force_off",
       "context_window": 32000,
       "native_multimodal": "false",
+      "enabled": false
+    },
+    {
+      "id": "claude:claude-opus-4-6",
+      "display_name": "Claude Opus 4.6",
+      "provider_ref": "claude_default",
+      "upstream_model": "claude-opus-4-6",
+      "thinking_mode": "force_off",
+      "context_window": 200000,
+      "native_multimodal": "claude",
       "enabled": true
     },
     {
@@ -65,7 +80,7 @@
       "thinking_mode": "force_off",
       "context_window": 200000,
       "native_multimodal": "local",
-      "enabled": true
+      "enabled": false
     },
     {
       "id": "openai_local:claude-haiku-4-5",
@@ -75,7 +90,7 @@
       "thinking_mode": "force_on",
       "context_window": 200000,
       "native_multimodal": "false",
-      "enabled": true
+      "enabled": false
 
     },
     {
@@ -86,7 +101,7 @@
       "thinking_mode": "force_on",
       "context_window": 200000,
       "native_multimodal": "false",
-      "enabled": true
+      "enabled": false
     },
     {
       "id": "codex:gpt-5.2",
@@ -109,10 +124,10 @@
       "enabled": true
     },
     {
-      "id": "gemini:gemini-3-flash",
-      "display_name": "Gemini 3 Flash",
+      "id": "gemini:gemini-3.1-pro-high ",
+      "display_name": "Gemini 3.1 Pro High",
       "provider_ref": "gemini_default",
-      "upstream_model": "gemini-3-flash",
+      "upstream_model": "gemini-3.1-pro-high ",
       "thinking_mode": "force_off",
       "context_window": 200000,
       "native_multimodal": "gemini",

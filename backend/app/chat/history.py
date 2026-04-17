@@ -141,7 +141,7 @@ class MessageHistoryService:
                 False,
                 False,
             )
-        if message.role == "user" and message.attachments and include_attachment_context and native_mode in ("codex", "gemini"):
+        if message.role == "user" and message.attachments and include_attachment_context and native_mode in ("codex", "gemini", "claude"):
             content, used_text = await self._native_multimodal_message_content(
                 native_mode=native_mode,
                 message=message,
@@ -184,7 +184,7 @@ class MessageHistoryService:
         if not include_attachment_context:
             return self._resolved_user_prompt(message), False
 
-        if native_mode in ("codex", "gemini"):
+        if native_mode in ("codex", "gemini", "claude"):
             attachment_context, used_text = await self._ensure_selected_file_attachment_context(
                 message=message,
                 attachments=self._local_file_attachments(message, native_mode=native_mode),
@@ -292,7 +292,7 @@ class MessageHistoryService:
         message: Message,
         native_mode: NativeMultimodalMode,
     ) -> list[ChatDocumentPayload]:
-        if native_mode != "gemini":
+        if native_mode not in ("gemini", "claude"):
             return []
         return [
             ChatDocumentPayload(
@@ -322,7 +322,7 @@ class MessageHistoryService:
         *,
         native_mode: NativeMultimodalMode,
     ) -> list[MessageAttachment]:
-        if native_mode not in ("codex", "gemini"):
+        if native_mode not in ("codex", "gemini", "claude"):
             return []
         return [
             attachment
@@ -348,7 +348,7 @@ class MessageHistoryService:
             return False
         if native_mode == "false":
             return not (message.attachment_context or "").strip()
-        if native_mode in ("codex", "gemini"):
+        if native_mode in ("codex", "gemini", "claude"):
             return bool(self._local_file_attachments(message, native_mode=native_mode))
         return False
 

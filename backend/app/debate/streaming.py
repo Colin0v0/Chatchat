@@ -1,11 +1,13 @@
 import asyncio
 import json
 import time
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 from fastapi import Request
 from sqlalchemy.orm import Session
 
+from ..chat.state import get_chat_services
 from ..core.config import settings
 from ..llm import stream_chat
 from ..schemas import DebateJudgeAskIn, DebateJudgeDecisionIn
@@ -41,9 +43,23 @@ from .common import (
     strip_loose_think_tags,
 )
 
+
+@asynccontextmanager
+async def _reserve_model_execution(request: Request, model_id: str):
+    reservation = None
+    try:
+        reservation = await get_chat_services(request).model_execution_coordinator.reserve(model_id)
+        await reservation.wait()
+        yield
+    finally:
+        if reservation is not None:
+            await reservation.release()
+
+
 async def _stream_speaker_turn(
     *,
     db: Session,
+    request: Request,
     session: DebateSession,
     participant: DebateParticipant,
     stage: str,
@@ -110,12 +126,16 @@ async def _stream_speaker_turn(
     reasoning_chunks: list[str] = []
     turn_started = time.monotonic()
     truncated = False
-    stream = stream_chat(model=participant.model_id, messages=prompt_messages)
+    stream = None
 
     async def consume_stream() -> None:
         nonlocal truncated
 
         async for chunk in stream:
+            if await request.is_disconnected():
+                truncated = bool(answer_chunks or reasoning_chunks)
+                break
+
             elapsed_ms = int((time.monotonic() - turn_started) * 1000)
             if time_budget_ms is not None and elapsed_ms >= time_budget_ms:
                 truncated = True
@@ -151,21 +171,27 @@ async def _stream_speaker_turn(
                 ) + "\n"
 
     try:
-        if time_budget_ms is None:
-            async for event in consume_stream():
-                yield event
-        else:
-            iterator = consume_stream().__aiter__()
-            while True:
-                remaining_ms = time_budget_ms - int((time.monotonic() - turn_started) * 1000)
-                if remaining_ms <= 0:
-                    truncated = True
-                    break
-                try:
-                    event = await asyncio.wait_for(iterator.__anext__(), timeout=remaining_ms / 1000)
-                except StopAsyncIteration:
-                    break
-                yield event
+        async with _reserve_model_execution(request, participant.model_id):
+            stream = stream_chat(model=participant.model_id, messages=prompt_messages)
+            if time_budget_ms is None:
+                async for event in consume_stream():
+                    yield event
+            else:
+                iterator = consume_stream().__aiter__()
+                while True:
+                    if await request.is_disconnected():
+                        truncated = bool(answer_chunks or reasoning_chunks)
+                        break
+
+                    remaining_ms = time_budget_ms - int((time.monotonic() - turn_started) * 1000)
+                    if remaining_ms <= 0:
+                        truncated = True
+                        break
+                    try:
+                        event = await asyncio.wait_for(iterator.__anext__(), timeout=remaining_ms / 1000)
+                    except StopAsyncIteration:
+                        break
+                    yield event
     except asyncio.TimeoutError:
         truncated = True
     finally:
@@ -228,13 +254,14 @@ async def _run_ai_evaluation(
     analysis_messages = _build_ai_commentary_messages(session)
     analysis_chunks: list[str] = []
     try:
-        async for chunk in stream_chat(model=judge_model_id, messages=analysis_messages):
-            if await request.is_disconnected():
-                return
-            delta = strip_loose_think_tags(str(chunk.get("message", {}).get("content", "") or ""))
-            if delta:
-                analysis_chunks.append(delta)
-                yield json.dumps({"type": "judge_analysis_token", "content": delta}, ensure_ascii=False) + "\n"
+        async with _reserve_model_execution(request, judge_model_id):
+            async for chunk in stream_chat(model=judge_model_id, messages=analysis_messages):
+                if await request.is_disconnected():
+                    return
+                delta = strip_loose_think_tags(str(chunk.get("message", {}).get("content", "") or ""))
+                if delta:
+                    analysis_chunks.append(delta)
+                    yield json.dumps({"type": "judge_analysis_token", "content": delta}, ensure_ascii=False) + "\n"
     except Exception as exc:
         logger.warning("debate ai commentary stream error: %s", exc, exc_info=True)
 
@@ -242,12 +269,13 @@ async def _run_ai_evaluation(
     eval_messages = _build_ai_evaluation_messages(session, commentary_markdown=analysis_markdown)
     ai_eval_chunks: list[str] = []
     try:
-        async for chunk in stream_chat(model=judge_model_id, messages=eval_messages):
-            if await request.is_disconnected():
-                return
-            delta = strip_loose_think_tags(str(chunk.get("message", {}).get("content", "") or ""))
-            if delta:
-                ai_eval_chunks.append(delta)
+        async with _reserve_model_execution(request, judge_model_id):
+            async for chunk in stream_chat(model=judge_model_id, messages=eval_messages):
+                if await request.is_disconnected():
+                    return
+                delta = strip_loose_think_tags(str(chunk.get("message", {}).get("content", "") or ""))
+                if delta:
+                    ai_eval_chunks.append(delta)
     except Exception as exc:
         logger.warning("debate ai eval stream error: %s", exc, exc_info=True)
         return
@@ -317,6 +345,7 @@ async def debate_next_event_stream(*, db: Session, request: Request, session: De
         active_stage = session.stage
         async for event in _stream_speaker_turn(
             db=db,
+            request=request,
             session=session,
             participant=current_participant,
             stage=active_stage,
@@ -451,6 +480,7 @@ async def debate_ask_event_stream(
         participant = _participant_by_side(session, side)
         async for event in _stream_speaker_turn(
             db=db,
+            request=request,
             session=session,
             participant=participant,
             stage=session.stage,
@@ -558,16 +588,17 @@ async def debate_decision_event_stream(
     messages = _build_summary_messages(session)
     summary_chunks: list[str] = []
     try:
-        async for chunk in stream_chat(model=summary_model, messages=messages):
-            if await request.is_disconnected():
-                break
-            delta = strip_loose_think_tags(str(chunk.get("message", {}).get("content", "") or ""))
-            if delta:
-                summary_chunks.append(delta)
-                yield json.dumps(
-                    {"type": "summary_token", "content": delta},
-                    ensure_ascii=False,
-                ) + "\n"
+        async with _reserve_model_execution(request, summary_model):
+            async for chunk in stream_chat(model=summary_model, messages=messages):
+                if await request.is_disconnected():
+                    break
+                delta = strip_loose_think_tags(str(chunk.get("message", {}).get("content", "") or ""))
+                if delta:
+                    summary_chunks.append(delta)
+                    yield json.dumps(
+                        {"type": "summary_token", "content": delta},
+                        ensure_ascii=False,
+                    ) + "\n"
     except Exception:
         winner_label = {"pro": "正方", "con": "反方"}.get(_winner_side, "正方")
         fallback = (
