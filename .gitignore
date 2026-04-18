@@ -6,10 +6,9 @@ frontend/.env
 frontend/node_modules/
 frontend/dist/
 frontend/vite.config.js
-frontend/vite.config.d.ts
-*.tsbuildinfo
-storage/
-models/
+/models/
 __pycache__/
+/storage/
 *.pyc
 .claude/
+.pytest_cache/
