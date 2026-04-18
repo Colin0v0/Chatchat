@@ -28,8 +28,8 @@ export function ContextPanel({ context }: ContextPanelProps) {
       >
         <span>上下文</span>
         <span className="text-app-muted/70">
-          {`已截取最近 ${Math.max(1, context.recent_message_count)} 轮对话`}
-          {context.older_message_count > 0 ? `，更早 ${context.older_message_count} 轮已压缩` : ""}
+          {`本次回答参考了最近 ${Math.max(1, context.recent_message_count)} 轮聊天`}
+          {context.older_message_count > 0 ? `，更早 ${context.older_message_count} 轮已自动压缩` : ""}
         </span>
         <ChevronRight className={`size-4 transition-transform duration-200 ${expanded ? "rotate-90" : ""}`} />
       </button>
@@ -44,7 +44,7 @@ export function ContextPanel({ context }: ContextPanelProps) {
             <section>
               <div className="flex items-center gap-2 text-[13px] font-medium text-app-muted">
                 <ScrollText className="size-4" />
-                <span>中文总结</span>
+                <span>参考摘要</span>
               </div>
               <div className="mt-2 whitespace-pre-wrap break-words border-l border-app-border pl-3 text-[13px] leading-6 text-app-text/88">
                 {summarySection.body}

@@ -95,11 +95,11 @@ export function SidebarSearchDialog({
               value={query}
             />
             <button
-              className="rounded-[10px] border border-app-border bg-app-panel-strong px-3 py-2 text-[13px] text-app-muted transition hover:text-app-text"
+              className="rounded-[10px] border border-app-border bg-app-panel-strong px-3 py-1.75 text-[13px] text-app-muted transition hover:text-app-text"
               onClick={onClose}
               type="button"
             >
-              ESC
+              退出
             </button>
           </div>
 

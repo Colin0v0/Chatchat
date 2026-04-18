@@ -136,7 +136,7 @@ export function DebateCreateView({
             <div className="mt-4">
               <label className="text-[13px] font-semibold tracking-[0.12em] text-app-muted uppercase">辩题</label>
               <input
-                className="mt-2 w-full rounded-[8px] border border-app-border bg-app-panel-strong px-4 py-3 text-[16px] text-app-text outline-none transition focus:border-app-border-strong"
+                className="mt-2 w-full rounded-[8px] border border-app-border bg-app-panel-strong px-3 py-2.5 text-[15px] text-app-text outline-none transition focus:border-app-border-strong"
                 onChange={(event) => setTopic(event.target.value)}
                 placeholder="例如：上班摸鱼对不对"
                 value={topic}
@@ -197,7 +197,7 @@ export function DebateCreateView({
                   <label className="text-[13px] font-semibold text-app-text">立论</label>
                   <div className="mt-2 flex items-center gap-2">
                     <input
-                      className="w-full rounded-[8px] border border-app-border bg-app-panel-strong px-4 py-3 text-[15px] text-app-text outline-none transition focus:border-app-border-strong"
+                      className="w-full rounded-[8px] border border-app-border bg-app-panel-strong px-3 py-2.5 text-[15px] text-app-text outline-none transition focus:border-app-border-strong"
                       inputMode="numeric"
                       min={5}
                       onBlur={(event) =>
@@ -212,7 +212,7 @@ export function DebateCreateView({
                       type="number"
                       value={openingDurationInput}
                     />
-                    <span className="text-[13px] text-app-muted">s</span>
+                    <span className="text-[15px] text-app-muted">s</span>
                   </div>
                 </div>
 
@@ -220,7 +220,7 @@ export function DebateCreateView({
                   <label className="text-[13px] font-semibold text-app-text">驳论</label>
                   <div className="mt-2 flex items-center gap-2">
                     <input
-                      className="w-full rounded-[8px] border border-app-border bg-app-panel-strong px-4 py-3 text-[15px] text-app-text outline-none transition focus:border-app-border-strong"
+                      className="w-full rounded-[8px] border border-app-border bg-app-panel-strong px-3 py-2.5 text-[15px] text-app-text outline-none transition focus:border-app-border-strong"
                       inputMode="numeric"
                       min={5}
                       onBlur={(event) =>
@@ -235,7 +235,7 @@ export function DebateCreateView({
                       type="number"
                       value={rebuttalDurationInput}
                     />
-                    <span className="text-[13px] text-app-muted">s</span>
+                    <span className="text-[15px] text-app-muted">s</span>
                   </div>
                 </div>
 
@@ -243,7 +243,7 @@ export function DebateCreateView({
                   <label className="text-[13px] font-semibold text-app-text">自由辩论</label>
                   <div className="mt-2 flex items-center gap-2">
                     <input
-                      className="w-full rounded-[8px] border border-app-border bg-app-panel-strong px-4 py-3 text-[15px] text-app-text outline-none transition focus:border-app-border-strong"
+                      className="w-full rounded-[8px] border border-app-border bg-app-panel-strong px-3 py-2.5 text-[15px] text-app-text outline-none transition focus:border-app-border-strong"
                       inputMode="numeric"
                       min={10}
                       onBlur={(event) =>
@@ -258,7 +258,7 @@ export function DebateCreateView({
                       type="number"
                       value={freeDebateDurationInput}
                     />
-                    <span className="text-[13px] text-app-muted">s</span>
+                    <span className="text-[15px] text-app-muted">s</span>
                   </div>
                 </div>
 
@@ -266,7 +266,7 @@ export function DebateCreateView({
                   <label className="text-[13px] font-semibold text-app-text">总结陈词</label>
                   <div className="mt-2 flex items-center gap-2">
                     <input
-                      className="w-full rounded-[8px] border border-app-border bg-app-panel-strong px-4 py-3 text-[15px] text-app-text outline-none transition focus:border-app-border-strong"
+                      className="w-full rounded-[8px] border border-app-border bg-app-panel-strong px-3 py-2.5 text-[15px] text-app-text outline-none transition focus:border-app-border-strong"
                       inputMode="numeric"
                       min={5}
                       onBlur={(event) =>
@@ -281,7 +281,7 @@ export function DebateCreateView({
                       type="number"
                       value={closingDurationInput}
                     />
-                    <span className="text-[13px] text-app-muted">s</span>
+                    <span className="text-[15px] text-app-muted">s</span>
                   </div>
                 </div>
               </div>
@@ -294,7 +294,7 @@ export function DebateCreateView({
                   正方提示词
                 </label>
                 <textarea
-                  className="mt-2 min-h-[120px] w-full resize-none rounded-[8px] border border-app-border bg-app-panel-strong px-4 py-3 text-[14px] leading-[1.6] text-app-text outline-none transition placeholder:text-app-muted focus:border-app-border-strong"
+                  className="mt-2 min-h-[120px] w-full resize-none rounded-[8px] border border-app-border bg-app-panel-strong px-3 py-2.5 text-[15px] leading-[1.6] text-app-text outline-none transition placeholder:text-app-muted focus:border-app-border-strong"
                   onChange={(event) => setProStyle(event.target.value)}
                   placeholder="例如：犀利强硬、逻辑严密，善用数据和类比"
                   value={proStyle}
@@ -306,9 +306,9 @@ export function DebateCreateView({
                   反方提示词
                 </label>
                 <textarea
-                  className="mt-2 min-h-[120px] w-full resize-none rounded-[8px] border border-app-border bg-app-panel-strong px-4 py-3 text-[14px] leading-[1.6] text-app-text outline-none transition placeholder:text-app-muted focus:border-app-border-strong"
+                  className="mt-2 min-h-[120px] w-full resize-none rounded-[8px] border border-app-border bg-app-panel-strong px-3 py-2.5 text-[15px] leading-[1.6] text-app-text outline-none transition placeholder:text-app-muted focus:border-app-border-strong"
                   onChange={(event) => setConStyle(event.target.value)}
-                  placeholder="例如：温和理性、引经据典，擅长揭示对方前提漏洞"
+                  placeholder="例如：理性、引经据典，擅长揭示对方漏洞"
                   value={conStyle}
                 />
               </div>

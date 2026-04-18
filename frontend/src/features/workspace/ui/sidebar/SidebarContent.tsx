@@ -72,7 +72,7 @@ export function SidebarContent({
   const conversationMenuBufferHeight = isDesktop ? "h-[136px]" : "h-0";
   const emptyText = query.trim()
     ? "No sessions matched your search."
-    : "还没有任何会话，先新建聊天或发起辩论。";
+    : "还没有任何会话，快去创建一个吧！";
   const combinedItems = useMemo<CombinedSidebarItem[]>(() => {
     const chatItems: CombinedSidebarItem[] = items.map((item) => ({
       kind: "chat",

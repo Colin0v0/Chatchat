@@ -246,21 +246,6 @@ export function KnowledgePage({
         <StatChip>{`空间 ${formatBytes(knowledge.status.total_size_bytes)}`}</StatChip>
       </div>
 
-      <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-4">
-        <div className="rounded-xl border border-app-border bg-app-panel-strong px-4 py-4">
-          <div className="text-[14px] font-medium text-app-text">支持格式</div>
-          <div className="mt-2 text-[14px] leading-6 text-app-muted">当前接入的是 Markdown 文档上传和索引。</div>
-        </div>
-        <div className="rounded-xl border border-app-border bg-app-panel-strong px-4 py-4">
-          <div className="text-[14px] font-medium text-app-text">单文件上限</div>
-          <div className="mt-2 text-[14px] leading-6 text-app-muted">{formatBytes(knowledge.status.max_file_size_bytes)}</div>
-        </div>
-        <div className="rounded-xl border border-app-border bg-app-panel-strong px-4 py-4">
-          <div className="text-[14px] font-medium text-app-text">总空间上限</div>
-          <div className="mt-2 text-[14px] leading-6 text-app-muted">{formatBytes(knowledge.status.max_total_size_bytes)}</div>
-        </div>
-      </div>
-
       {knowledgeProgress != null ? (
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex min-w-[180px] items-center gap-3">

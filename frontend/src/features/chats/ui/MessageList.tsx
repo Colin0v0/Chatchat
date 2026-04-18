@@ -214,7 +214,7 @@ function UserActions({
   }
 
   return (
-    <div className="mt-1 mb-3 flex items-center justify-end gap-1 opacity-0 transition duration-150 group-hover:opacity-100">
+    <div className="mt-1 mb-3 flex items-center justify-end gap-1 text-app-muted">
       <button
         aria-label="Edit message"
         className="flex h-9 w-9 items-center justify-center rounded-xl text-app-muted transition hover:text-app-text"
@@ -284,7 +284,7 @@ function InlineUserMessageEditor({
   }
 
   return (
-    <div className="min-w-0 rounded-[20px] bg-app-panel-soft px-4 py-1 text-left text-app-accent-strong">
+    <div className="min-w-0 rounded-[20px] bg-app-panel-soft px-6 py-4 text-left text-app-accent-strong">
       <textarea
         aria-label="Edit message"
         className="min-h-[96px] w-full resize-none overflow-hidden border-none bg-transparent text-[15px] leading-7 text-app-accent-strong outline-none placeholder:text-app-muted/60"

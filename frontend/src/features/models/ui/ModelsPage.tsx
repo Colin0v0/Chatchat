@@ -6,7 +6,7 @@ import type { ModelOption } from "../../../types";
 import { ModelProviderIcon } from "./model-icons/ModelProviderIcon";
 import { WorkspacePage } from "../../../shared/ui/WorkspacePage";
 
-const MODEL_TABLE_COLUMNS = "grid-cols-[minmax(320px,2.8fr)_150px_220px_140px_120px]";
+const MODEL_TABLE_COLUMNS = "grid-cols-[minmax(210px,2.8fr)_150px_220px_150px_120px]";
 
 function providerLabel(model: ModelOption): string {
   return providerBadgeLabel(model) || model.provider_name || model.provider_family || "未知";
@@ -97,6 +97,7 @@ export function ModelsPage({
   return (
     <WorkspacePage
       headerPlacement="content"
+      maxWidthClassName="max-w-[1320px]"
       title="Models"
     >
       {sortedModels.length === 0 ? <EmptyState /> : null}
@@ -105,7 +106,7 @@ export function ModelsPage({
         <section>
           <div className="app-scrollbar overflow-x-auto">
             <div className="min-w-[900px]">
-              <div className={`grid ${MODEL_TABLE_COLUMNS} gap-4 border-b border-app-border pb-3 text-[13px] text-app-muted`}>
+              <div className={`grid ${MODEL_TABLE_COLUMNS} gap-4 border-b border-app-border pb-3 text-[14px] text-app-muted`}>
                 <div>模型</div>
                 <div>厂商</div>
                 <div>输入</div>
