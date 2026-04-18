@@ -1,0 +1,1368 @@
+import {
+  startTransition,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+
+import { useLatestRequestGuard } from "../../../shared/hooks/useLatestRequestGuard";
+import { deriveConversationTitle, INITIAL_CHAT_MODEL, pickLandingTitle } from "../../chats/lib/constants";
+import {
+  appendRetryDraft,
+  createAssistantDraftMessageForModel,
+  createTransientAttachments,
+  createUserDraftMessage,
+  labelForStage,
+  restoreAttachmentFiles,
+  stageForToolMode,
+} from "../../chats/lib/chatSessionUtils";
+import { useAudioRecorder } from "../../chats/model/useAudioRecorder";
+import { useComposerAttachments } from "../../chats/model/useComposerAttachments";
+import { useConversationStreams } from "../../chats/model/useConversationStreams";
+import { useKnowledgeManager } from "../../knowledge/model/useKnowledgeManager";
+import { useMemoryManager } from "../../memories/model/useMemoryManager";
+import { fetchModels } from "../../models/api/models";
+import {
+  createInitialModelOptions,
+  createModelOption,
+  ensureSelectedModel,
+  findModelOption,
+  resolveInitialSelectedModel,
+} from "../../models/lib/modelOptions";
+import {
+  normalizeReasoningProfileForModel,
+  reasoningRequestValueForModel,
+  resolveModelDefaultReasoningProfile,
+  resolveModelReasoningControl,
+} from "../../models/lib/reasoningProfiles";
+import type { WorkspaceSection } from "./workspaceSections";
+import {
+  createDebateSession,
+  deleteDebateSession,
+  deleteConversation,
+  fetchDebateSession,
+  fetchDebateSessions,
+  fetchConversation,
+  fetchConversationMessages,
+  fetchConversations,
+  regenerateChat,
+  renameDebateSession,
+  renameConversation,
+  streamChat,
+  transcribeAudio,
+  updateMessageFeedback,
+} from "../../../lib/api";
+import { buildConversationMarkdown, buildDebateMarkdown, downloadMarkdown } from "../../../lib/exportMarkdown";
+import type {
+  ChatMessage,
+  ConversationDetail,
+  ConversationSummary,
+  DebateSessionDetail,
+  DebateSessionSummary,
+  ModelOption,
+  ReasoningProfileValue,
+  ToolMode,
+} from "../../../types";
+
+type UseChatAppOptions = {
+  closeMobileSidebar: () => void;
+  isDesktop: boolean;
+  sidebarOpen: boolean;
+  toggleSidebar: () => void;
+};
+
+const CONVERSATION_VIEW_MESSAGE_LIMIT = 24;
+const CONVERSATION_EXPORT_MESSAGE_LIMIT = 100;
+
+function toggleToolMode(current: ToolMode, next: Exclude<ToolMode, "none">): ToolMode {
+  return current === next ? "none" : next;
+}
+
+function mergeDraftWithTranscript(current: string, transcript: string): string {
+  const normalizedTranscript = transcript.trim();
+  if (!normalizedTranscript) {
+    return current;
+  }
+
+  if (!current.trim()) {
+    return normalizedTranscript;
+  }
+
+  const suffix = current.endsWith("\n") ? "" : "\n";
+  return `${current}${suffix}${normalizedTranscript}`;
+}
+
+function findNextAssistantMessage(messages: ChatMessage[], startIndex: number): ChatMessage | null {
+  for (let index = startIndex + 1; index < messages.length; index += 1) {
+    const candidate = messages[index];
+    if (candidate.role === "assistant") {
+      return candidate;
+    }
+    if (candidate.role === "user") {
+      break;
+    }
+  }
+
+  return null;
+}
+
+export function useChatApp({
+  closeMobileSidebar,
+  isDesktop,
+  sidebarOpen,
+  toggleSidebar,
+}: UseChatAppOptions) {
+  const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const [conversationsLoaded, setConversationsLoaded] = useState(false);
+  const [activeConversationId, setActiveConversationId] = useState<number | null>(null);
+  const [activeConversation, setActiveConversation] = useState<ConversationDetail | null>(null);
+  const [debateSessions, setDebateSessions] = useState<DebateSessionSummary[]>([]);
+  const [debateSessionsLoaded, setDebateSessionsLoaded] = useState(false);
+  const [activeDebateId, setActiveDebateId] = useState<number | null>(null);
+  const [activeDebate, setActiveDebate] = useState<DebateSessionDetail | null>(null);
+  const [debateCreateOpen, setDebateCreateOpen] = useState(false);
+  const [activeSection, setActiveSection] = useState<WorkspaceSection>("chats");
+  const [query, setQuery] = useState("");
+  const [draft, setDraft] = useState("");
+  const [editingUserMessageId, setEditingUserMessageId] = useState<number | string | null>(null);
+  const [editingUserMessageContent, setEditingUserMessageContent] = useState("");
+  const [earlierMessagesError, setEarlierMessagesError] = useState<string | null>(null);
+  const [models, setModels] = useState<ModelOption[]>(() => createInitialModelOptions());
+  const [selectedModel, setSelectedModel] = useState(INITIAL_CHAT_MODEL);
+  const [reasoningProfile, setReasoningProfile] = useState<ReasoningProfileValue>("off");
+  const [collapsedMessageIds, setCollapsedMessageIds] = useState<Set<number | string>>(new Set());
+  const [toolMode, setToolMode] = useState<ToolMode>("none");
+  const [landingHeroAnimated, setLandingHeroAnimated] = useState(false);
+  const [landingTitle] = useState(() => pickLandingTitle());
+  const [error, setError] = useState<string | null>(null);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [isLoadingEarlierMessages, setIsLoadingEarlierMessages] = useState(false);
+  const memoryManager = useMemoryManager({
+    activeConversationId: activeConversationId && activeConversationId > 0 ? activeConversationId : null,
+    enabled: activeSection === "memories",
+  });
+  const knowledgeManager = useKnowledgeManager({ enabled: activeSection === "knowledge" });
+  const { addAttachments, clearAttachments, draftAttachments, removeAttachment, replaceAttachments } =
+    useComposerAttachments();
+  const { cancelRecording, isRecording, recordingError, startRecording, stopRecording } =
+    useAudioRecorder();
+  const transientAttachmentUrlsRef = useRef<string[]>([]);
+  const conversationLoadAbortRef = useRef<AbortController | null>(null);
+  const earlierMessagesAbortRef = useRef<AbortController | null>(null);
+  const debateLoadAbortRef = useRef<AbortController | null>(null);
+  const debateSessionCacheRef = useRef<Map<number, DebateSessionDetail>>(new Map());
+  const conversationLoadGuard = useLatestRequestGuard();
+  const conversationsRefreshGuard = useLatestRequestGuard();
+  const debatesRefreshGuard = useLatestRequestGuard();
+  const debateLoadGuard = useLatestRequestGuard();
+  const modelsLoadGuard = useLatestRequestGuard();
+  const deferredQuery = useDeferredValue(query);
+  const reasoningSyncKeyRef = useRef<string | null>(null);
+
+  const selectedModelOption = useMemo(
+    () => findModelOption(models, selectedModel),
+    [models, selectedModel],
+  );
+  const attachmentUploadAvailable = selectedModelOption.supports_attachment_upload;
+  const selectedModelReasoningKey = useMemo(
+    () =>
+      [
+        selectedModelOption.id,
+        resolveModelReasoningControl(selectedModelOption),
+        resolveModelDefaultReasoningProfile(selectedModelOption),
+      ].join(":"),
+    [selectedModelOption],
+  );
+  const activeReasoningRequest = useMemo(
+    () => reasoningRequestValueForModel(selectedModelOption, reasoningProfile),
+    [reasoningProfile, selectedModelOption],
+  );
+
+  const clearTransientAttachmentUrls = useCallback(() => {
+    transientAttachmentUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+    transientAttachmentUrlsRef.current = [];
+  }, []);
+
+  const {
+    abortAndRemoveSession,
+    activeSession,
+    conversationActivity,
+    getSessionConversation,
+    isStreaming,
+    mergeConversationSummariesWithSessions,
+    openSessionConversation,
+    renameSession,
+    runStream,
+    stopStream,
+    visibleStreaming,
+  } = useConversationStreams({
+    activeConversation,
+    activeConversationId,
+    setActiveConversation,
+    setActiveConversationId,
+    setConversations,
+    setError,
+    setSelectedModel,
+  });
+  const submitBlocked = false;
+  const submitBlockedReason = null;
+
+  useEffect(() => {
+    setEditingUserMessageId(null);
+    setEditingUserMessageContent("");
+    setEarlierMessagesError(null);
+  }, [activeConversationId]);
+
+  const loadConversation = useCallback(
+    async (conversationId: number) => {
+      const requestId = conversationLoadGuard.begin();
+      conversationLoadAbortRef.current?.abort();
+      const sessionConversation = getSessionConversation(conversationId);
+      if (sessionConversation) {
+        setActiveConversation(sessionConversation);
+        setSelectedModel(sessionConversation.model);
+        return;
+      }
+
+      const controller = new AbortController();
+      conversationLoadAbortRef.current = controller;
+
+      try {
+        const conversation = await fetchConversation(conversationId, {
+          limit: CONVERSATION_VIEW_MESSAGE_LIMIT,
+          signal: controller.signal,
+        });
+        if (!conversationLoadGuard.isCurrent(requestId)) {
+          return;
+        }
+        setActiveConversation(conversation);
+        setSelectedModel(conversation.model);
+      } catch (loadError) {
+        if (controller.signal.aborted) {
+          return;
+        }
+        if (!conversationLoadGuard.isCurrent(requestId)) {
+          return;
+        }
+        setError(loadError instanceof Error ? loadError.message : "Failed to load conversation.");
+      } finally {
+        if (conversationLoadAbortRef.current === controller) {
+          conversationLoadAbortRef.current = null;
+        }
+      }
+    },
+    [conversationLoadGuard, getSessionConversation, setError],
+  );
+
+  const loadDebateSession = useCallback(
+    async (sessionId: number) => {
+      const requestId = debateLoadGuard.begin();
+      debateLoadAbortRef.current?.abort();
+      const cachedSession = debateSessionCacheRef.current.get(sessionId);
+      if (cachedSession) {
+        setActiveDebate(cachedSession);
+      }
+
+      const controller = new AbortController();
+      debateLoadAbortRef.current = controller;
+
+      try {
+        const session = await fetchDebateSession(sessionId);
+        if (!debateLoadGuard.isCurrent(requestId)) {
+          return;
+        }
+        debateSessionCacheRef.current.set(session.id, session);
+        setActiveDebate(session);
+      } catch (loadError) {
+        if (controller.signal.aborted) {
+          return;
+        }
+        if (!debateLoadGuard.isCurrent(requestId)) {
+          return;
+        }
+        setError(loadError instanceof Error ? loadError.message : "Failed to load debate session.");
+      } finally {
+        if (debateLoadAbortRef.current === controller) {
+          debateLoadAbortRef.current = null;
+        }
+      }
+    },
+    [debateLoadGuard, setError],
+  );
+
+  const filteredConversations = useMemo(() => {
+    if (!deferredQuery.trim()) {
+      return conversations;
+    }
+
+    const keyword = deferredQuery.toLowerCase();
+    return conversations.filter((item) => item.title.toLowerCase().includes(keyword));
+  }, [conversations, deferredQuery]);
+
+  const filteredDebateSessions = useMemo(() => {
+    if (!deferredQuery.trim()) {
+      return debateSessions;
+    }
+
+    const keyword = deferredQuery.toLowerCase();
+    return debateSessions.filter((item) => item.topic.toLowerCase().includes(keyword));
+  }, [debateSessions, deferredQuery]);
+
+  const availableModels = useMemo(
+    () => ensureSelectedModel(models, selectedModel),
+    [models, selectedModel],
+  );
+
+  const refreshConversations = useCallback(async () => {
+    const requestId = conversationsRefreshGuard.begin();
+    try {
+      const items = await fetchConversations();
+      if (!conversationsRefreshGuard.isCurrent(requestId)) {
+        return;
+      }
+      setConversations(mergeConversationSummariesWithSessions(items));
+    } catch (refreshError) {
+      if (conversationsRefreshGuard.isCurrent(requestId)) {
+        setError(refreshError instanceof Error ? refreshError.message : "Failed to refresh conversations.");
+      }
+    } finally {
+      if (conversationsRefreshGuard.isCurrent(requestId)) {
+        setConversationsLoaded(true);
+      }
+    }
+  }, [conversationsRefreshGuard, mergeConversationSummariesWithSessions, setError]);
+
+  const refreshDebateSessions = useCallback(async () => {
+    const requestId = debatesRefreshGuard.begin();
+    try {
+      const items = await fetchDebateSessions();
+      if (!debatesRefreshGuard.isCurrent(requestId)) {
+        return;
+      }
+      setDebateSessions(items);
+    } catch (refreshError) {
+      if (debatesRefreshGuard.isCurrent(requestId)) {
+        setError(refreshError instanceof Error ? refreshError.message : "Failed to refresh debates.");
+      }
+    } finally {
+      if (debatesRefreshGuard.isCurrent(requestId)) {
+        setDebateSessionsLoaded(true);
+      }
+    }
+  }, [debatesRefreshGuard, setError]);
+
+  const loadModels = useCallback(async () => {
+    const requestId = modelsLoadGuard.begin();
+    try {
+      const payload = await fetchModels();
+      if (!modelsLoadGuard.isCurrent(requestId)) {
+        return;
+      }
+      const nextModels =
+        payload.models.length > 0 ? payload.models : [createModelOption(payload.default_model)];
+      setModels(nextModels);
+      setSelectedModel(resolveInitialSelectedModel(nextModels, payload.default_model));
+    } catch (loadError) {
+      if (modelsLoadGuard.isCurrent(requestId)) {
+        setError(loadError instanceof Error ? loadError.message : "Failed to load models.");
+      }
+    }
+  }, [modelsLoadGuard, setError]);
+
+  useEffect(() => {
+    void refreshConversations();
+    void refreshDebateSessions();
+    void loadModels();
+  }, [loadModels, refreshConversations, refreshDebateSessions]);
+
+  useEffect(() => {
+    if (activeConversationId === null) {
+      return;
+    }
+
+    void loadConversation(activeConversationId);
+  }, [activeConversationId, loadConversation]);
+
+  useEffect(() => {
+    if (activeDebateId === null) {
+      return;
+    }
+
+    void loadDebateSession(activeDebateId);
+  }, [activeDebateId, loadDebateSession]);
+
+  useEffect(() => {
+    return () => {
+      conversationLoadAbortRef.current?.abort();
+      earlierMessagesAbortRef.current?.abort();
+      debateLoadAbortRef.current?.abort();
+      clearTransientAttachmentUrls();
+    };
+  }, [clearTransientAttachmentUrls]);
+
+  useEffect(() => {
+    if (reasoningSyncKeyRef.current === selectedModelReasoningKey) {
+      return;
+    }
+    reasoningSyncKeyRef.current = selectedModelReasoningKey;
+    setReasoningProfile(
+      normalizeReasoningProfileForModel(
+        selectedModelOption,
+        resolveModelDefaultReasoningProfile(selectedModelOption),
+      ),
+    );
+  }, [selectedModelOption, selectedModelReasoningKey]);
+
+  useEffect(() => {
+    if (!error) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => setError(null), 5000);
+    return () => window.clearTimeout(timeoutId);
+  }, [error]);
+
+  useEffect(() => {
+    if (!recordingError) {
+      return;
+    }
+    setError(recordingError);
+  }, [recordingError]);
+
+  const handleModelChange = useCallback((model: string) => {
+    setSelectedModel(model);
+  }, []);
+
+  const handleReasoningProfileChange = useCallback((value: ReasoningProfileValue) => {
+    setReasoningProfile(normalizeReasoningProfileForModel(selectedModelOption, value));
+  }, [selectedModelOption]);
+
+  const handleStartRecording = useCallback(async () => {
+    if (isStreaming || isTranscribing) {
+      return;
+    }
+
+    try {
+      await startRecording();
+    } catch (recordingStartError) {
+      setError(
+        recordingStartError instanceof Error
+          ? recordingStartError.message
+          : "Failed to start audio recording.",
+      );
+    }
+  }, [isStreaming, isTranscribing, setError, startRecording]);
+
+  const handleStopRecording = useCallback(async () => {
+    if (!isRecording || isTranscribing) {
+      return;
+    }
+
+    setIsTranscribing(true);
+    try {
+      const capture = await stopRecording();
+      if (!capture.audioBlob) {
+        setError("未捕获到有效音频，请检查 Edge 麦克风权限后重试。");
+        return;
+      }
+
+      const result = await transcribeAudio(capture.audioBlob);
+      if (!result.text.trim()) {
+        return;
+      }
+      setDraft((current) => mergeDraftWithTranscript(current, result.text));
+    } catch (transcriptionError) {
+      setError(
+        transcriptionError instanceof Error
+          ? transcriptionError.message
+          : "Failed to transcribe audio.",
+      );
+    } finally {
+      setIsTranscribing(false);
+    }
+  }, [isRecording, isTranscribing, setError, stopRecording]);
+
+  const handleToggleRecording = useCallback(() => {
+    if (isRecording) {
+      void handleStopRecording();
+      return;
+    }
+    void handleStartRecording();
+  }, [handleStartRecording, handleStopRecording, isRecording]);
+
+  const handleNewChat = useCallback(() => {
+    cancelRecording();
+    conversationLoadAbortRef.current?.abort();
+    earlierMessagesAbortRef.current?.abort();
+    debateLoadAbortRef.current?.abort();
+    clearAttachments();
+    startTransition(() => {
+      setActiveSection("chats");
+      setActiveConversationId(null);
+      setActiveConversation(null);
+      setActiveDebateId(null);
+      setActiveDebate(null);
+      setDebateCreateOpen(false);
+      setCollapsedMessageIds(new Set());
+      setDraft("");
+      setError(null);
+      if (!isDesktop) {
+        closeMobileSidebar();
+      }
+    });
+  }, [cancelRecording, clearAttachments, closeMobileSidebar, isDesktop]);
+
+  const handleSelectConversation = useCallback(
+    (conversationId: number) => {
+      cancelRecording();
+      earlierMessagesAbortRef.current?.abort();
+      debateLoadAbortRef.current?.abort();
+      startTransition(() => {
+        setActiveSection("chats");
+        setActiveConversationId(conversationId);
+        setActiveDebateId(null);
+        setActiveDebate(null);
+        setDebateCreateOpen(false);
+        setError(null);
+        setCollapsedMessageIds(new Set());
+        openSessionConversation(conversationId);
+
+        if (!isDesktop) {
+          closeMobileSidebar();
+        }
+      });
+    },
+    [cancelRecording, closeMobileSidebar, isDesktop, openSessionConversation],
+  );
+
+  const handleNewDebate = useCallback(() => {
+    cancelRecording();
+    conversationLoadAbortRef.current?.abort();
+    earlierMessagesAbortRef.current?.abort();
+    debateLoadAbortRef.current?.abort();
+    clearAttachments();
+    startTransition(() => {
+      setActiveSection("debates");
+      setActiveConversationId(null);
+      setActiveConversation(null);
+      setActiveDebateId(null);
+      setActiveDebate(null);
+      setDebateCreateOpen(true);
+      setCollapsedMessageIds(new Set());
+      setDraft("");
+      setError(null);
+      if (!isDesktop) {
+        closeMobileSidebar();
+      }
+    });
+  }, [cancelRecording, clearAttachments, closeMobileSidebar, isDesktop]);
+
+  const handleSelectDebate = useCallback(
+    (sessionId: number) => {
+      cancelRecording();
+      earlierMessagesAbortRef.current?.abort();
+      conversationLoadAbortRef.current?.abort();
+      const cachedSession = debateSessionCacheRef.current.get(sessionId) ?? null;
+      startTransition(() => {
+        setActiveSection("debates");
+        setActiveConversationId(null);
+        setActiveConversation(null);
+        setActiveDebateId(sessionId);
+        setActiveDebate(cachedSession);
+        setDebateCreateOpen(false);
+        setError(null);
+        setCollapsedMessageIds(new Set());
+
+        if (!isDesktop) {
+          closeMobileSidebar();
+        }
+      });
+    },
+    [cancelRecording, closeMobileSidebar, isDesktop],
+  );
+
+  const handleCreateDebate = useCallback(
+    async (payload: {
+      topic: string;
+      proModelId: string;
+      conModelId: string;
+      judgeModelId: string;
+      proStyle: string;
+      conStyle: string;
+      openingDurationSec: number;
+      rebuttalDurationSec: number;
+      freeDebateDurationSec: number;
+      closingDurationSec: number;
+    }) => {
+      try {
+        const created = await createDebateSession({
+          topic: payload.topic,
+          pro_model_id: payload.proModelId,
+          con_model_id: payload.conModelId,
+          judge_model_id: payload.judgeModelId,
+          tool_mode: "none",
+          pro_style: payload.proStyle,
+          con_style: payload.conStyle,
+          style: "",
+          free_debate_enabled: true,
+          opening_duration_sec: payload.openingDurationSec,
+          rebuttal_duration_sec: payload.rebuttalDurationSec,
+          free_debate_duration_sec: payload.freeDebateDurationSec,
+          closing_duration_sec: payload.closingDurationSec,
+        });
+        debateSessionCacheRef.current.set(created.id, created);
+        setActiveSection("debates");
+        setDebateCreateOpen(false);
+        setActiveDebateId(created.id);
+        setActiveDebate(created);
+        void refreshDebateSessions();
+        if (!isDesktop) {
+          closeMobileSidebar();
+        }
+      } catch (createError) {
+        setError(createError instanceof Error ? createError.message : "Failed to create debate.");
+      }
+    },
+    [closeMobileSidebar, isDesktop, refreshDebateSessions],
+  );
+
+  const handleSelectSection = useCallback(
+    (section: WorkspaceSection) => {
+      startTransition(() => {
+        setActiveSection(section);
+        if (section === "chats") {
+          setActiveConversationId(null);
+          setActiveConversation(null);
+          setActiveDebateId(null);
+          setActiveDebate(null);
+          setDebateCreateOpen(false);
+          setCollapsedMessageIds(new Set());
+          return;
+        }
+        if (section === "debates") {
+          setActiveConversationId(null);
+          setActiveConversation(null);
+          setActiveDebateId(null);
+          setActiveDebate(null);
+          setDebateCreateOpen(true);
+          setCollapsedMessageIds(new Set());
+        }
+      });
+      if (!isDesktop) {
+        closeMobileSidebar();
+      }
+    },
+    [closeMobileSidebar, isDesktop],
+  );
+
+  const handleRenameConversation = useCallback(
+    async (conversationId: number, title: string) => {
+      await renameConversation(conversationId, title);
+      setActiveConversation((current) =>
+        current && current.id === conversationId ? { ...current, title } : current,
+      );
+      renameSession(conversationId, title);
+      await refreshConversations();
+    },
+    [refreshConversations, renameSession],
+  );
+
+  const handleDeleteConversation = useCallback(
+    async (conversationId: number) => {
+      try {
+        cancelRecording();
+        abortAndRemoveSession(conversationId);
+        await deleteConversation(conversationId);
+        await refreshConversations();
+
+        if (activeConversationId === conversationId) {
+          setActiveConversationId(null);
+          setActiveConversation(null);
+          setCollapsedMessageIds(new Set());
+          setDraft("");
+          clearAttachments();
+        }
+      } catch (deleteError) {
+        setError(deleteError instanceof Error ? deleteError.message : "Failed to delete conversation.");
+      }
+    },
+    [abortAndRemoveSession, activeConversationId, cancelRecording, clearAttachments, refreshConversations, setError],
+  );
+
+  const handleRenameDebate = useCallback(
+    async (sessionId: number, topic: string) => {
+      await renameDebateSession(sessionId, topic);
+      setActiveDebate((current) =>
+        current && current.id === sessionId ? { ...current, topic } : current,
+      );
+      await refreshDebateSessions();
+    },
+    [refreshDebateSessions],
+  );
+
+  const handleDeleteDebate = useCallback(
+    async (sessionId: number) => {
+      try {
+        await deleteDebateSession(sessionId);
+        debateSessionCacheRef.current.delete(sessionId);
+        await refreshDebateSessions();
+
+        if (activeDebateId === sessionId) {
+          setActiveDebateId(null);
+          setActiveDebate(null);
+        }
+      } catch (deleteError) {
+        setError(deleteError instanceof Error ? deleteError.message : "Failed to delete debate.");
+      }
+    },
+    [activeDebateId, refreshDebateSessions, setError],
+  );
+
+  const handleRefreshDebate = useCallback(
+    async (sessionId: number) => {
+      const refreshed = await fetchDebateSession(sessionId);
+      debateSessionCacheRef.current.set(sessionId, refreshed);
+      setActiveDebate((current) => (current && current.id === sessionId ? refreshed : current));
+      await refreshDebateSessions();
+      return refreshed;
+    },
+    [refreshDebateSessions],
+  );
+
+  const handleSyncDebate = useCallback(
+    (session: DebateSessionDetail) => {
+      debateSessionCacheRef.current.set(session.id, session);
+      setActiveDebate((current) => (current && current.id === session.id ? session : current));
+      void refreshDebateSessions();
+    },
+    [refreshDebateSessions],
+  );
+
+  const handleLoadEarlierMessages = useCallback(async () => {
+    if (!activeConversation || activeConversation.id <= 0 || isLoadingEarlierMessages) {
+      return;
+    }
+
+    const firstPersistedMessage = activeConversation.messages.find(
+      (message) => typeof message.id === "number",
+    );
+    if (
+      !firstPersistedMessage ||
+      typeof firstPersistedMessage.id !== "number" ||
+      activeConversation.remaining_message_count <= 0
+    ) {
+      return;
+    }
+
+    earlierMessagesAbortRef.current?.abort();
+    const controller = new AbortController();
+    earlierMessagesAbortRef.current = controller;
+    setIsLoadingEarlierMessages(true);
+    setEarlierMessagesError(null);
+
+    try {
+      const page = await fetchConversationMessages(activeConversation.id, {
+        beforeMessageId: firstPersistedMessage.id,
+        limit: CONVERSATION_VIEW_MESSAGE_LIMIT,
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted) {
+        return;
+      }
+
+      setActiveConversation((current) => {
+        if (!current || current.id !== activeConversation.id) {
+          return current;
+        }
+        const currentFirstPersistedMessage = current.messages.find(
+          (message) => typeof message.id === "number",
+        );
+        if (currentFirstPersistedMessage?.id !== firstPersistedMessage.id) {
+          return current;
+        }
+
+        return {
+          ...current,
+          messages: [...page.messages, ...current.messages],
+          loaded_message_count: current.loaded_message_count + page.loaded_message_count,
+          remaining_message_count: page.remaining_message_count,
+        };
+      });
+    } catch (loadError) {
+      if (controller.signal.aborted) {
+        return;
+      }
+      setEarlierMessagesError(
+        loadError instanceof Error ? loadError.message : "Failed to load earlier messages.",
+      );
+    } finally {
+      if (earlierMessagesAbortRef.current === controller) {
+        earlierMessagesAbortRef.current = null;
+      }
+      setIsLoadingEarlierMessages(false);
+    }
+  }, [activeConversation, isLoadingEarlierMessages, setError]);
+
+  const loadFullConversationForExport = useCallback(async (conversationId: number) => {
+    let conversation = await fetchConversation(conversationId, {
+      limit: CONVERSATION_EXPORT_MESSAGE_LIMIT,
+    });
+
+    while (conversation.remaining_message_count > 0) {
+      const firstPersistedMessage = conversation.messages.find(
+        (message) => typeof message.id === "number",
+      );
+      if (!firstPersistedMessage || typeof firstPersistedMessage.id !== "number") {
+        break;
+      }
+
+      const page = await fetchConversationMessages(conversationId, {
+        beforeMessageId: firstPersistedMessage.id,
+        limit: CONVERSATION_EXPORT_MESSAGE_LIMIT,
+      });
+
+      conversation = {
+        ...conversation,
+        messages: [...page.messages, ...conversation.messages],
+        loaded_message_count: conversation.loaded_message_count + page.loaded_message_count,
+        remaining_message_count: page.remaining_message_count,
+      };
+    }
+
+    return conversation;
+  }, []);
+
+  const handleExportItem = useCallback(
+    async (itemId: number, kind: "chat" | "debate") => {
+      try {
+        if (kind === "debate") {
+          const session = await fetchDebateSession(itemId);
+          debateSessionCacheRef.current.set(session.id, session);
+          downloadMarkdown(session.topic || `debate-${itemId}`, buildDebateMarkdown(session));
+          return;
+        }
+
+        const conversation = await loadFullConversationForExport(itemId);
+        downloadMarkdown(
+          conversation.title || `chat-${itemId}`,
+          buildConversationMarkdown(conversation),
+        );
+      } catch (exportError) {
+        setError(exportError instanceof Error ? exportError.message : "Failed to export markdown.");
+      }
+    },
+    [loadFullConversationForExport, setError],
+  );
+
+  const handleSend = useCallback(async () => {
+    const message = draft.trim();
+    const pendingFiles = draftAttachments.map((attachment) => attachment.file);
+    if ((!message && pendingFiles.length === 0) || isRecording || isStreaming || isTranscribing) {
+      return;
+    }
+
+    const effectiveModel = selectedModel;
+    const effectiveReasoningProfile = activeReasoningRequest;
+    const tempConversationId =
+      activeConversation?.id != null ? activeConversation.id : -Date.now();
+    const initialStage =
+      pendingFiles.length > 0 ? "analyzing_attachments" : (stageForToolMode(toolMode) ?? "waiting_for_model");
+    const tempAttachments = createTransientAttachments(pendingFiles);
+    transientAttachmentUrlsRef.current.push(...tempAttachments.map((item) => item.url));
+    const tempUserMessageId = `user-${Date.now()}`;
+    const tempUserMessage = createUserDraftMessage(tempUserMessageId, message, tempAttachments);
+    const nextConversation: ConversationDetail = activeConversation
+      ? {
+          ...activeConversation,
+          model: effectiveModel,
+          total_message_count: activeConversation.total_message_count + 2,
+          loaded_message_count: activeConversation.loaded_message_count + 2,
+          messages: [...activeConversation.messages, tempUserMessage, createAssistantDraftMessageForModel(effectiveModel)],
+        }
+      : {
+          id: tempConversationId,
+          title: deriveConversationTitle(message, tempAttachments.length),
+          model: effectiveModel,
+          total_message_count: 2,
+          loaded_message_count: 2,
+          remaining_message_count: 0,
+          messages: [tempUserMessage, createAssistantDraftMessageForModel(effectiveModel)],
+        };
+
+    setDraft("");
+    clearAttachments();
+    setActiveConversationId(tempConversationId);
+    setActiveConversation(nextConversation);
+
+    const result = await runStream({
+      conversation: nextConversation,
+      errorMessage: "Failed to send message.",
+      initialStage,
+      restoreInput: {
+        content: message,
+        loadFiles: async () => pendingFiles,
+      },
+      tempUserMessageId,
+      request: ({ onEvent, signal }) =>
+        streamChat(
+          {
+            conversation_id:
+              activeConversation && activeConversation.id > 0 ? activeConversation.id : null,
+            message,
+            files: pendingFiles,
+            model: effectiveModel,
+            reasoning_profile: effectiveReasoningProfile,
+            tool_mode: toolMode,
+          },
+          { onEvent, signal },
+        ),
+    });
+
+    if (result === "completed") {
+      await refreshConversations();
+    }
+  }, [
+    activeConversation,
+    activeReasoningRequest,
+    clearAttachments,
+    draft,
+    draftAttachments,
+    isRecording,
+    isStreaming,
+    isTranscribing,
+    refreshConversations,
+    toolMode,
+    runStream,
+    selectedModel,
+  ]);
+
+  const handleStop = useCallback(async () => {
+    if (!activeConversation) {
+      return;
+    }
+
+    await stopStream({
+      conversationId: activeConversation.id,
+      restoreAttachments: replaceAttachments,
+      restoreDraft: setDraft,
+      getCurrentDraft: () => draft,
+    });
+  }, [activeConversation, draft, replaceAttachments, stopStream]);
+
+  const startRegeneratedBranch = useCallback(
+    async ({
+      content,
+      errorMessage,
+      restoreToComposerOnStop = true,
+      sourceAssistantId,
+      sourceUser,
+    }: {
+      content: string;
+      errorMessage: string;
+      restoreToComposerOnStop?: boolean;
+      sourceAssistantId: number | string | null;
+      sourceUser: ChatMessage;
+    }) => {
+      if (!activeConversation || isStreaming) {
+        return;
+      }
+
+      const nextContent = content.trim();
+      if (!nextContent) {
+        return;
+      }
+
+      const effectiveModel = selectedModel;
+      const effectiveReasoningProfile = activeReasoningRequest;
+      const retryUserDraftId = `retry-user-${sourceUser.id}-${Date.now()}`;
+      const nextConversation = appendRetryDraft(
+        activeConversation,
+        retryUserDraftId,
+        nextContent,
+        effectiveModel,
+        sourceUser.attachments ?? [],
+      );
+      const retryConversation: ConversationDetail = {
+        ...nextConversation,
+        total_message_count: nextConversation.total_message_count + 2,
+        loaded_message_count: nextConversation.loaded_message_count + 2,
+      };
+      const collapsedIds = sourceAssistantId == null ? [sourceUser.id] : [sourceUser.id, sourceAssistantId];
+
+      setCollapsedMessageIds((current) => new Set([...current, ...collapsedIds]));
+      setActiveConversation(retryConversation);
+
+      const result = await runStream({
+        conversation: retryConversation,
+        errorMessage,
+        initialStage: stageForToolMode(toolMode) ?? "waiting_for_model",
+        restoreInput: {
+          content: nextContent,
+          loadFiles: () => restoreAttachmentFiles(sourceUser.attachments ?? []),
+          restoreToComposerOnStop,
+        },
+        tempUserMessageId: retryUserDraftId,
+        request: async ({ onEvent, signal }) => {
+          if (typeof sourceAssistantId === "number") {
+            return regenerateChat(
+              {
+                conversation_id: activeConversation.id,
+                assistant_message_id: sourceAssistantId,
+                edited_content: nextContent,
+                model: effectiveModel,
+                reasoning_profile: effectiveReasoningProfile,
+                tool_mode: toolMode,
+              },
+              { onEvent, signal },
+            );
+          }
+
+          const restoredFiles = await restoreAttachmentFiles(sourceUser.attachments ?? []);
+          return streamChat(
+            {
+              conversation_id: activeConversation.id > 0 ? activeConversation.id : null,
+              message: nextContent,
+              files: restoredFiles,
+              model: effectiveModel,
+              reasoning_profile: effectiveReasoningProfile,
+              tool_mode: toolMode,
+            },
+            { onEvent, signal },
+          );
+        },
+      });
+
+      if (result === "completed") {
+        await refreshConversations();
+      }
+    },
+    [
+      activeConversation,
+      activeReasoningRequest,
+      isStreaming,
+      refreshConversations,
+      runStream,
+      selectedModel,
+      toolMode,
+    ],
+  );
+
+  const handleRetryAssistant = useCallback(
+    async (messageId: number | string) => {
+      if (!activeConversation || isStreaming) {
+        return;
+      }
+
+      const targetIndex = activeConversation.messages.findIndex((item) => item.id === messageId);
+      if (targetIndex < 0) {
+        return;
+      }
+
+      const sourceUser = [...activeConversation.messages.slice(0, targetIndex)]
+        .reverse()
+        .find((item) => item.role === "user");
+      if (!sourceUser) {
+        return;
+      }
+
+      await startRegeneratedBranch({
+        content: sourceUser.content,
+        errorMessage: "Failed to regenerate response.",
+        sourceAssistantId: messageId,
+        sourceUser,
+      });
+    },
+    [
+      activeConversation,
+      isStreaming,
+      startRegeneratedBranch,
+    ],
+  );
+
+  const handleStartEditingUserMessage = useCallback(
+    (messageId: number | string) => {
+      if (!activeConversation || isStreaming) {
+        return;
+      }
+
+      const targetMessage = activeConversation.messages.find(
+        (item) => item.id === messageId && item.role === "user",
+      );
+      if (!targetMessage) {
+        return;
+      }
+
+      setEditingUserMessageId(messageId);
+      setEditingUserMessageContent(targetMessage.content);
+    },
+    [activeConversation, isStreaming],
+  );
+
+  const handleCancelEditingUserMessage = useCallback(() => {
+    setEditingUserMessageId(null);
+    setEditingUserMessageContent("");
+  }, []);
+
+  const handleSubmitEditedUserMessage = useCallback(
+    async (messageId: number | string) => {
+      if (!activeConversation || isStreaming) {
+        return;
+      }
+
+      const targetIndex = activeConversation.messages.findIndex(
+        (item) => item.id === messageId && item.role === "user",
+      );
+      if (targetIndex < 0) {
+        return;
+      }
+
+      const sourceUser = activeConversation.messages[targetIndex];
+      const sourceAssistant = findNextAssistantMessage(activeConversation.messages, targetIndex);
+      if (!sourceAssistant && targetIndex !== activeConversation.messages.length - 1) {
+        return;
+      }
+
+      const nextContent = editingUserMessageContent.trim();
+      if (!nextContent) {
+        return;
+      }
+
+      setEditingUserMessageId(null);
+      setEditingUserMessageContent("");
+
+      await startRegeneratedBranch({
+        content: nextContent,
+        errorMessage: "Failed to regenerate response.",
+        restoreToComposerOnStop: false,
+        sourceAssistantId: sourceAssistant?.id ?? null,
+        sourceUser,
+      });
+    },
+    [
+      activeConversation,
+      editingUserMessageContent,
+      isStreaming,
+      startRegeneratedBranch,
+    ],
+  );
+
+  const handleMessageFeedback = useCallback(async (messageId: number, value: "up" | "down" | null) => {
+    try {
+      await updateMessageFeedback(messageId, value);
+      setActiveConversation((current) =>
+        current
+          ? {
+              ...current,
+              messages: current.messages.map((message) =>
+                message.id === messageId ? { ...message, feedback: value } : message,
+              ),
+            }
+          : current,
+      );
+    } catch (feedbackError) {
+      setError(feedbackError instanceof Error ? feedbackError.message : "Failed to save feedback.");
+    }
+  }, [setError]);
+
+  const handleSelectRag = useCallback(() => {
+    setToolMode((current) => toggleToolMode(current, "knowledge"));
+  }, []);
+
+  const handleSelectWeb = useCallback(() => {
+    setToolMode((current) => toggleToolMode(current, "search"));
+  }, []);
+
+  const handleLandingAnimationComplete = useCallback(() => {
+    setLandingHeroAnimated(true);
+  }, []);
+
+  const showLanding =
+    activeSection === "chats" &&
+    !debateCreateOpen &&
+    activeDebateId === null &&
+    activeConversationId === null &&
+    (!activeConversation || activeConversation.messages.length === 0);
+  const showSessionHeaderActions =
+    activeSection === "chats" || activeSection === "debates";
+  const showChatModelSelector = activeSection === "chats";
+
+  return {
+    activeSection,
+    error,
+    debateCreateProps: debateCreateOpen
+      ? {
+          defaultProModelId: selectedModel,
+          defaultConModelId: selectedModel,
+          models: availableModels,
+          onCancel: () => setDebateCreateOpen(false),
+          onCreate: handleCreateDebate,
+        }
+      : null,
+    debateRoomProps: activeDebate
+      ? {
+          session: activeDebate,
+          onRefresh: handleRefreshDebate,
+          onSessionChange: handleSyncDebate,
+        }
+      : null,
+    conversationProps: activeConversation
+      ? {
+          canLoadEarlierMessages: activeConversation.remaining_message_count > 0,
+          collapsedMessageIds,
+          conversation: activeConversation,
+          draft,
+          draftAttachments,
+          editingUserMessageContent,
+          editingUserMessageId,
+          attachmentUploadAvailable,
+          earlierMessagesError,
+          isLoadingEarlierMessages,
+          isRecording,
+          isReasoningStreaming: activeSession?.reasoningStreaming ?? false,
+          isStreaming: visibleStreaming,
+          isTranscribing,
+          model: selectedModel,
+          models: availableModels,
+          reserveThinkingSpace: activeReasoningRequest !== null && activeReasoningRequest !== "off",
+          reasoningProfile,
+          onChangeDraft: setDraft,
+          onFeedback: (messageId: number, value: "up" | "down" | null) =>
+            void handleMessageFeedback(messageId, value),
+          onLoadEarlierMessages: () => void handleLoadEarlierMessages(),
+          onModelChange: handleModelChange,
+          onReasoningProfileChange: handleReasoningProfileChange,
+          onCancelEditingUserMessage: handleCancelEditingUserMessage,
+          onChangeEditingUserMessage: setEditingUserMessageContent,
+          onRemoveDraftAttachment: removeAttachment,
+          onRetry: handleRetryAssistant,
+          onStartEditingUserMessage: handleStartEditingUserMessage,
+          onSubmitEditingUserMessage: (messageId: number | string) => void handleSubmitEditedUserMessage(messageId),
+          onSelectAttachments: addAttachments,
+          onSend: () => void handleSend(),
+          onStop: handleStop,
+          onToggleRecording: handleToggleRecording,
+          onToggleRag: handleSelectRag,
+          onToggleWeb: handleSelectWeb,
+          toolMode,
+          submitBlocked,
+          submitBlockedReason,
+          streamingStatusLabel: visibleStreaming ? labelForStage(activeSession?.stage ?? null) : null,
+        }
+      : null,
+    headerProps: {
+      activeItemId: showSessionHeaderActions
+        ? activeSection === "debates"
+          ? activeDebateId
+          : activeConversationId
+        : null,
+      activeItemKind:
+        showSessionHeaderActions
+          ? activeSection === "debates"
+            ? activeDebateId !== null
+              ? ("debate" as const)
+              : null
+            : activeConversationId !== null
+              ? ("chat" as const)
+              : null
+          : null,
+      activeItemTitle: activeDebate?.topic ?? activeConversation?.title ?? "",
+      isDesktop,
+      mobileModel: showChatModelSelector ? selectedModel : "",
+      mobileModels: showChatModelSelector ? availableModels : [],
+      onNewChat: handleNewChat,
+      onNewDebate: handleNewDebate,
+      onDeleteItem: async (itemId: number, kind: "chat" | "debate") => {
+        if (kind === "debate") {
+          await handleDeleteDebate(itemId);
+          return;
+        }
+        await handleDeleteConversation(itemId);
+      },
+      onExportItem: async (itemId: number, kind: "chat" | "debate") => {
+        await handleExportItem(itemId, kind);
+      },
+      onRenameItem: async (itemId: number, title: string, kind: "chat" | "debate") => {
+        if (kind === "debate") {
+          await handleRenameDebate(itemId, title);
+          return;
+        }
+        await handleRenameConversation(itemId, title);
+      },
+      onMobileModelChange: showChatModelSelector ? handleModelChange : undefined,
+      onToggleSidebar: toggleSidebar,
+      showTitle: true,
+      sidebarOpen,
+      title: "Chatchat",
+    },
+    landingProps: {
+      draft,
+      draftAttachments,
+      attachmentUploadAvailable,
+      isRecording,
+      isStreaming,
+      isTranscribing,
+      model: selectedModel,
+      models: availableModels,
+      reasoningProfile,
+      onAnimationComplete: handleLandingAnimationComplete,
+      onChangeDraft: setDraft,
+      onModelChange: handleModelChange,
+      onReasoningProfileChange: handleReasoningProfileChange,
+      onRemoveDraftAttachment: removeAttachment,
+      onSelectAttachments: addAttachments,
+      onSend: () => void handleSend(),
+      onStop: handleStop,
+      onToggleRecording: handleToggleRecording,
+      onToggleRag: handleSelectRag,
+      onToggleWeb: handleSelectWeb,
+      toolMode,
+      submitBlocked,
+      submitBlockedReason,
+      shouldAnimate: !landingHeroAnimated,
+      title: landingTitle,
+    },
+    knowledgePageProps: {
+      knowledge: knowledgeManager,
+    },
+    memoriesPageProps: {
+      activeConversationId: activeConversationId && activeConversationId > 0 ? activeConversationId : null,
+      activeConversationTitle: activeConversation?.title ?? "",
+      memories: memoryManager,
+    },
+    modelsPageProps: {
+      models: availableModels,
+      onSelectModel: handleModelChange,
+      selectedModel,
+    },
+    isConversationLoading: activeConversationId !== null && activeConversation === null,
+    isDebateLoading: activeDebateId !== null && activeDebate === null,
+    showLanding,
+    sidebarProps: {
+      activeSection,
+      activeConversationId,
+      activeDebateId,
+      activity: conversationActivity,
+      conversationsLoaded,
+      debatesLoaded: debateSessionsLoaded,
+      isDesktop,
+      items: filteredConversations,
+      debateItems: filteredDebateSessions,
+      onSelectSection: handleSelectSection,
+      onDelete: handleDeleteConversation,
+      onDeleteDebate: handleDeleteDebate,
+      onNewChat: handleNewChat,
+      onNewDebate: handleNewDebate,
+      onQueryChange: setQuery,
+      onRename: handleRenameConversation,
+      onRenameDebate: handleRenameDebate,
+      onSelect: handleSelectConversation,
+      onSelectDebate: handleSelectDebate,
+      onToggleSidebar: toggleSidebar,
+      open: sidebarOpen,
+      query,
+    },
+  };
+}

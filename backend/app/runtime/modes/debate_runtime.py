@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Iterable
 
 from fastapi import Request
 from sqlalchemy.orm import Session
 
-from ...storage.models import DebateSession
+from ...storage.models import DebateParticipant, DebateSession, DebateTurn
+from .debate_persistence import DebatePersistenceAdapter
 
 
 @dataclass(slots=True)
@@ -14,6 +15,31 @@ class DebateRuntimeContext:
     db: Session
     request: Request
     session: DebateSession
+    persistence: DebatePersistenceAdapter = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        self.persistence = DebatePersistenceAdapter(self.db)
+
+    def replace_session(self, session: DebateSession) -> DebateSession:
+        self.session = session
+        return session
+
+
+@dataclass(frozen=True, slots=True)
+class DebateSpeakerTurnRequest:
+    participant: DebateParticipant
+    stage: str
+    next_turn_index: int
+    target_turn_id: int | None = None
+    judge_question: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class DebateJudgeQuestionContext:
+    question_turn: DebateTurn
+    question: str
+    target_sides: tuple[str, ...]
+    previous_status: str
 
 
 @dataclass(frozen=True, slots=True)

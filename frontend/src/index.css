@@ -47,6 +47,17 @@
     @apply cursor-pointer;
   }
 
+  a,
+  button,
+  [role="button"],
+  input[type="button"],
+  input[type="submit"],
+  input[type="reset"],
+  label {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+
   input,
   textarea {
     @apply outline-none;

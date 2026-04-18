@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { useAuthSession } from "./app/useAuthSession";
-import { useChatApp } from "./app/useChatApp";
-import { useResponsiveSidebar } from "./app/useResponsiveSidebar";
-import { LoginView } from "./components/LoginView";
-import { MainHeader } from "./components/MainHeader";
-import { Sidebar } from "./components/Sidebar";
-import { WorkspaceMainView } from "./components/WorkspaceMainView";
-import { setUnauthorizedHandler } from "./lib/api";
+import { useChatApp } from "./features/workspace/model/useChatApp";
+import { useResponsiveSidebar } from "./features/workspace/model/useResponsiveSidebar";
+import { MainHeader } from "./features/workspace/ui/MainHeader";
+import { Sidebar } from "./features/workspace/ui/Sidebar";
+import { WorkspaceMainView } from "./features/workspace/ui/WorkspaceMainView";
+import { useAuthSession } from "./features/auth/model/useAuthSession";
+import { LoginView } from "./features/auth/ui/LoginView";
+import { setUnauthorizedHandler } from "./shared/api/http";
 import { LoaderCircle } from "lucide-react";
 
 type AppRoute = "/" | "/login";

@@ -2,7 +2,11 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from app.runtime.modes.debate_runtime import DebateRuntimeContext, DebateStageTransition
+from app.runtime.modes.debate_runtime import (
+    DebateJudgeQuestionContext,
+    DebateRuntimeContext,
+    DebateStageTransition,
+)
 from app.runtime.modes.debate_stage_handlers import (
     stream_decision_summary_flow,
     stream_stage_followup_events,
@@ -115,9 +119,15 @@ class DebateRuntimeTurnHandlerTests(unittest.IsolatedAsyncioTestCase):
         session = SimpleNamespace(stage="free_debate", turns=[])
         question_turn = SimpleNamespace(id=7)
         context = DebateRuntimeContext(db=SimpleNamespace(), request=SimpleNamespace(), session=session)
+        question_context = DebateJudgeQuestionContext(
+            question_turn=question_turn,
+            question="请双方回答",
+            target_sides=("pro", "con"),
+            previous_status="running",
+        )
 
-        async def _fake_turn_events(*, participant, **kwargs):
-            yield f"{participant.side}\n"
+        async def _fake_turn_events(*, turn_request, **kwargs):
+            yield f"{turn_request.participant.side}\n"
 
         async def _fake_stage_followups(**kwargs):
             if False:
@@ -142,9 +152,7 @@ class DebateRuntimeTurnHandlerTests(unittest.IsolatedAsyncioTestCase):
             events = await _drain(
                 stream_question_reply_rounds(
                     context=context,
-                    target_sides=("pro", "con"),
-                    question_turn=question_turn,
-                    judge_question="请双方回答",
+                    question_context=question_context,
                 )
             )
 

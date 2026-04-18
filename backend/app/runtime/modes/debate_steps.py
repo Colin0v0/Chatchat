@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
 from typing import AsyncIterator
 
 from fastapi import Request
 from sqlalchemy.orm import Session
 
-from ...storage.models import DebateParticipant, DebateSession
+from ...storage.models import DebateSession
 from .debate_execution import run_ai_evaluation, stream_decision_summary_text, stream_speaker_turn
+from .debate_runtime import DebateSpeakerTurnRequest
 
 
 class DebateStreamInterrupted(Exception):
@@ -31,21 +31,17 @@ async def stream_participant_turn_events(
     db: Session,
     request: Request,
     session: DebateSession,
-    participant: DebateParticipant,
-    stage: str,
-    next_turn_index: int,
-    target_turn_id: int | None = None,
-    judge_question: str | None = None,
+    turn_request: DebateSpeakerTurnRequest,
 ) -> AsyncIterator[str]:
     async for event in stream_speaker_turn(
         db=db,
         request=request,
         session=session,
-        participant=participant,
-        stage=stage,
-        next_turn_index=next_turn_index,
-        target_turn_id=target_turn_id,
-        judge_question=judge_question,
+        participant=turn_request.participant,
+        stage=turn_request.stage,
+        next_turn_index=turn_request.next_turn_index,
+        target_turn_id=turn_request.target_turn_id,
+        judge_question=turn_request.judge_question,
     ):
         if await request.is_disconnected():
             raise DebateStreamInterrupted()
@@ -70,15 +66,3 @@ async def stream_decision_summary_events(
             raise DebateStreamInterrupted()
         summary_chunks.append(delta)
         yield json.dumps({"type": "summary_token", "content": delta}, ensure_ascii=False) + "\n"
-
-
-def persist_decision_summary(
-    *,
-    db: Session,
-    session: DebateSession,
-    summary_chunks: list[str],
-) -> None:
-    session.summary_json = json.dumps({"content": "".join(summary_chunks).strip()}, ensure_ascii=False)
-    session.updated_at = datetime.utcnow()
-    db.add(session)
-    db.commit()

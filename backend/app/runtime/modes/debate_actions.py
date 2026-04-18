@@ -16,17 +16,12 @@ from .debate_policies import (
     resolve_question_target_sides,
     should_restore_pre_question_status,
 )
-from .debate_runtime import DebateRuntimeContext
+from .debate_runtime import DebateJudgeQuestionContext, DebateRuntimeContext
 from .debate_stage_handlers import stream_decision_summary_flow, stream_stage_followup_events
 from .debate_steps import DebateStreamInterrupted
 from .debate_state import (
     build_decision_saved_event,
     build_judge_question_event,
-    commit_session_state,
-    create_judge_question_turn,
-    finalize_debate_decision,
-    maybe_advance_free_debate_after_question,
-    resolve_next_debate_participant,
 )
 from .debate_turn_handlers import stream_next_turn_rounds, stream_question_reply_rounds
 
@@ -77,7 +72,7 @@ async def debate_next_event_stream(*, db: Session, request: Request, session: De
             yield line
         return
 
-    participant, transition = resolve_next_debate_participant(db, session)
+    participant, transition = context.persistence.resolve_next_participant(session)
 
     try:
         async for event in stream_stage_followup_events(
@@ -142,15 +137,17 @@ async def debate_ask_event_stream(
     if session.status == "created":
         session.status = "running"
 
-    question_turn = create_judge_question_turn(db, session, payload.question)
+    question_context = DebateJudgeQuestionContext(
+        question_turn=context.persistence.create_judge_question_turn(session, payload.question),
+        question=payload.question.strip(),
+        target_sides=resolve_question_target_sides(payload.ask_to),
+        previous_status=session.status,
+    )
 
-    yield trace.emit_ndjson_line(build_judge_question_event(question_turn))
-
-    target_sides = resolve_question_target_sides(payload.ask_to)
-    previous_status = session.status
+    yield trace.emit_ndjson_line(build_judge_question_event(question_context.question_turn))
 
     if session.stage == "free_debate":
-        transition = maybe_advance_free_debate_after_question(db, session)
+        transition = context.persistence.maybe_advance_free_debate_after_question(session)
         if transition:
             try:
                 async for event in stream_stage_followup_events(
@@ -174,9 +171,7 @@ async def debate_ask_event_stream(
     try:
         async for event in stream_question_reply_rounds(
             context=context,
-            target_sides=target_sides,
-            question_turn=question_turn,
-            judge_question=payload.question.strip(),
+            question_context=question_context,
         ):
             yield trace.emit_ndjson_line(event)
     except DebateStreamInterrupted:
@@ -186,9 +181,12 @@ async def debate_ask_event_stream(
         )
         return
 
-    if should_restore_pre_question_status(session=session, question_stage=question_turn.stage):
-        session.status = previous_status
-    commit_session_state(db, session)
+    if should_restore_pre_question_status(
+        session=session,
+        question_stage=question_context.question_turn.stage,
+    ):
+        session.status = question_context.previous_status
+    context.replace_session(context.persistence.commit_session(session))
 
     for line in trace.persist_completion_payloads(
         response_message_id=None,
@@ -215,8 +213,9 @@ async def debate_decision_event_stream(
         judge_comment=payload.judge_comment,
         scoring_json=resolved_scoring,
     )
-    session = finalize_debate_decision(db, session, resolved_payload)
-    context.session = session
+    session = context.replace_session(
+        context.persistence.finalize_debate_decision(session, resolved_payload)
+    )
 
     yield trace.emit_ndjson_line(build_decision_saved_event(session))
 

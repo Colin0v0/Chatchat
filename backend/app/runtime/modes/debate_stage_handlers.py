@@ -6,7 +6,6 @@ from .debate_policies import decision_summary_context
 from .debate_runtime import DebateRuntimeContext, DebateStageTransition
 from .debate_state import emit_stage_events
 from .debate_steps import (
-    persist_decision_summary,
     stream_decision_summary_events,
     stream_judge_evaluation_events,
 )
@@ -24,7 +23,7 @@ async def stream_stage_followup_events(
         return
 
     if transition.refresh_relations:
-        context.db.refresh(context.session, attribute_names=["turns", "participants"])
+        context.persistence.refresh_session_relations(context.session)
     async for event in stream_judge_evaluation_events(
         request=context.request,
         session=context.session,
@@ -47,8 +46,4 @@ async def stream_decision_summary_flow(
     ):
         yield event
 
-    persist_decision_summary(
-        db=context.db,
-        session=context.session,
-        summary_chunks=summary_chunks,
-    )
+    context.persistence.persist_decision_summary(context.session, summary_chunks)
