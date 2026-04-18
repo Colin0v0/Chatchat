@@ -11,8 +11,7 @@ const stageHeadingPattern = /((?:\u7b2c[\u4e00\u4e8c\u4e09\u56db\u4e94\u516d\u4e
 const accidentalInlineCodePattern = /`([^`\n]{12,})`/g;
 const codeLikeTokenPattern = /\b(?:const|let|var|function|return|import|export|class|if|else|for|while|async|await|<\w+|<\/\w+|=>)\b|[{}[\];]/;
 const proseLikeCodePattern = /[\u3400-\u9fff]|[ρστυλμΣΠΩαβγδθ∈→≤≥≠≻≺]/;
-const rawStrongPattern = /\*\*([^*\n]+?)\*\*/gu;
-const symbolLikeBoundaryPattern = /^[\p{P}\p{S}]$/u;
+const symbolLikeCharacterPattern = /[\p{P}\p{S}]/u;
 
 type MarkdownAstNode = {
   type: string;
@@ -20,29 +19,54 @@ type MarkdownAstNode = {
   children?: MarkdownAstNode[];
 };
 
-function hasSymbolBoundary(content: string) {
-  const normalized = content.trim();
-  if (!normalized) {
+function containsSymbolLikeCharacter(content: string) {
+  if (!content.trim()) {
     return false;
   }
-  const first = normalized[0];
-  const last = normalized[normalized.length - 1];
-  return symbolLikeBoundaryPattern.test(first) || symbolLikeBoundaryPattern.test(last);
+  return symbolLikeCharacterPattern.test(content);
+}
+
+function findUnescapedStrongDelimiter(value: string, fromIndex: number) {
+  for (let index = fromIndex; index < value.length - 1; index += 1) {
+    if (value[index] !== "*" || value[index + 1] !== "*") {
+      continue;
+    }
+
+    let slashCount = 0;
+    for (let cursor = index - 1; cursor >= 0 && value[cursor] === "\\"; cursor -= 1) {
+      slashCount += 1;
+    }
+
+    if (slashCount % 2 === 1) {
+      continue;
+    }
+
+    return index;
+  }
+
+  return -1;
 }
 
 function splitRawStrongText(value: string): MarkdownAstNode[] | null {
   let matchCount = 0;
   let cursor = 0;
+  let searchCursor = 0;
   const nodes: MarkdownAstNode[] = [];
 
-  for (const match of value.matchAll(rawStrongPattern)) {
-    const start = match.index ?? -1;
+  while (searchCursor < value.length) {
+    const start = findUnescapedStrongDelimiter(value, searchCursor);
     if (start < 0) {
-      continue;
+      break;
     }
-    const full = match[0];
-    const inner = match[1];
-    if (!hasSymbolBoundary(inner)) {
+
+    const end = findUnescapedStrongDelimiter(value, start + 2);
+    if (end < 0) {
+      break;
+    }
+
+    const inner = value.slice(start + 2, end);
+    if (inner.includes("\n") || !containsSymbolLikeCharacter(inner)) {
+      searchCursor = start + 2;
       continue;
     }
 
@@ -53,7 +77,8 @@ function splitRawStrongText(value: string): MarkdownAstNode[] | null {
       type: "strong",
       children: [{ type: "text", value: inner }],
     });
-    cursor = start + full.length;
+    cursor = end + 2;
+    searchCursor = cursor;
     matchCount += 1;
   }
 

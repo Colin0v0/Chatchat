@@ -11,6 +11,7 @@ import {
 import { useComposerAttachments } from "./useComposerAttachments";
 import { useConversationStreams } from "./useConversationStreams";
 import { useLatestRequestGuard } from "./useLatestRequestGuard";
+import type { WorkspaceSection } from "./workspaceSections";
 import {
   createDebateSession,
   deleteDebateSession,
@@ -30,6 +31,7 @@ import {
 } from "../lib/api";
 import { buildConversationMarkdown, buildDebateMarkdown, downloadMarkdown } from "../lib/exportMarkdown";
 import type {
+  ChatMessage,
   ConversationDetail,
   ConversationSummary,
   DebateSessionDetail,
@@ -72,7 +74,7 @@ type UseChatAppOptions = {
   toggleSidebar: () => void;
 };
 
-const CONVERSATION_VIEW_MESSAGE_LIMIT = 10;
+const CONVERSATION_VIEW_MESSAGE_LIMIT = 24;
 const CONVERSATION_EXPORT_MESSAGE_LIMIT = 100;
 
 function toggleToolMode(current: ToolMode, next: Exclude<ToolMode, "none">): ToolMode {
@@ -93,6 +95,20 @@ function mergeDraftWithTranscript(current: string, transcript: string): string {
   return `${current}${suffix}${normalizedTranscript}`;
 }
 
+function findNextAssistantMessage(messages: ChatMessage[], startIndex: number): ChatMessage | null {
+  for (let index = startIndex + 1; index < messages.length; index += 1) {
+    const candidate = messages[index];
+    if (candidate.role === "assistant") {
+      return candidate;
+    }
+    if (candidate.role === "user") {
+      break;
+    }
+  }
+
+  return null;
+}
+
 export function useChatApp({
   closeMobileSidebar,
   isDesktop,
@@ -108,8 +124,12 @@ export function useChatApp({
   const [activeDebateId, setActiveDebateId] = useState<number | null>(null);
   const [activeDebate, setActiveDebate] = useState<DebateSessionDetail | null>(null);
   const [debateCreateOpen, setDebateCreateOpen] = useState(false);
+  const [activeSection, setActiveSection] = useState<WorkspaceSection>("chats");
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState("");
+  const [editingUserMessageId, setEditingUserMessageId] = useState<number | string | null>(null);
+  const [editingUserMessageContent, setEditingUserMessageContent] = useState("");
+  const [earlierMessagesError, setEarlierMessagesError] = useState<string | null>(null);
   const [models, setModels] = useState<ModelOption[]>(() => createInitialModelOptions());
   const [selectedModel, setSelectedModel] = useState(INITIAL_CHAT_MODEL);
   const [reasoningProfile, setReasoningProfile] = useState<ReasoningProfileValue>("off");
@@ -118,14 +138,13 @@ export function useChatApp({
   const [landingHeroAnimated, setLandingHeroAnimated] = useState(false);
   const [landingTitle] = useState(() => pickLandingTitle());
   const [error, setError] = useState<string | null>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [isLoadingEarlierMessages, setIsLoadingEarlierMessages] = useState(false);
   const memoryManager = useMemoryManager({
     activeConversationId: activeConversationId && activeConversationId > 0 ? activeConversationId : null,
-    open: settingsOpen,
+    enabled: activeSection === "memories",
   });
-  const knowledgeManager = useKnowledgeManager({ open: settingsOpen });
+  const knowledgeManager = useKnowledgeManager({ enabled: activeSection === "knowledge" });
   const { addAttachments, clearAttachments, draftAttachments, removeAttachment, replaceAttachments } =
     useComposerAttachments();
   const { cancelRecording, isRecording, recordingError, startRecording, stopRecording } =
@@ -190,6 +209,12 @@ export function useChatApp({
   });
   const submitBlocked = false;
   const submitBlockedReason = null;
+
+  useEffect(() => {
+    setEditingUserMessageId(null);
+    setEditingUserMessageContent("");
+    setEarlierMessagesError(null);
+  }, [activeConversationId]);
 
   const loadConversation = useCallback(
     async (conversationId: number) => {
@@ -475,6 +500,7 @@ export function useChatApp({
     debateLoadAbortRef.current?.abort();
     clearAttachments();
     startTransition(() => {
+      setActiveSection("chats");
       setActiveConversationId(null);
       setActiveConversation(null);
       setActiveDebateId(null);
@@ -495,6 +521,7 @@ export function useChatApp({
       earlierMessagesAbortRef.current?.abort();
       debateLoadAbortRef.current?.abort();
       startTransition(() => {
+        setActiveSection("chats");
         setActiveConversationId(conversationId);
         setActiveDebateId(null);
         setActiveDebate(null);
@@ -518,6 +545,7 @@ export function useChatApp({
     debateLoadAbortRef.current?.abort();
     clearAttachments();
     startTransition(() => {
+      setActiveSection("debates");
       setActiveConversationId(null);
       setActiveConversation(null);
       setActiveDebateId(null);
@@ -539,6 +567,7 @@ export function useChatApp({
       conversationLoadAbortRef.current?.abort();
       const cachedSession = debateSessionCacheRef.current.get(sessionId) ?? null;
       startTransition(() => {
+        setActiveSection("debates");
         setActiveConversationId(null);
         setActiveConversation(null);
         setActiveDebateId(sessionId);
@@ -585,6 +614,7 @@ export function useChatApp({
           closing_duration_sec: payload.closingDurationSec,
         });
         debateSessionCacheRef.current.set(created.id, created);
+        setActiveSection("debates");
         setDebateCreateOpen(false);
         setActiveDebateId(created.id);
         setActiveDebate(created);
@@ -597,6 +627,35 @@ export function useChatApp({
       }
     },
     [closeMobileSidebar, isDesktop, refreshDebateSessions],
+  );
+
+  const handleSelectSection = useCallback(
+    (section: WorkspaceSection) => {
+      startTransition(() => {
+        setActiveSection(section);
+        if (section === "chats") {
+          setActiveConversationId(null);
+          setActiveConversation(null);
+          setActiveDebateId(null);
+          setActiveDebate(null);
+          setDebateCreateOpen(false);
+          setCollapsedMessageIds(new Set());
+          return;
+        }
+        if (section === "debates") {
+          setActiveConversationId(null);
+          setActiveConversation(null);
+          setActiveDebateId(null);
+          setActiveDebate(null);
+          setDebateCreateOpen(true);
+          setCollapsedMessageIds(new Set());
+        }
+      });
+      if (!isDesktop) {
+        closeMobileSidebar();
+      }
+    },
+    [closeMobileSidebar, isDesktop],
   );
 
   const handleRenameConversation = useCallback(
@@ -702,6 +761,7 @@ export function useChatApp({
     const controller = new AbortController();
     earlierMessagesAbortRef.current = controller;
     setIsLoadingEarlierMessages(true);
+    setEarlierMessagesError(null);
 
     try {
       const page = await fetchConversationMessages(activeConversation.id, {
@@ -735,7 +795,9 @@ export function useChatApp({
       if (controller.signal.aborted) {
         return;
       }
-      setError(loadError instanceof Error ? loadError.message : "Failed to load earlier messages.");
+      setEarlierMessagesError(
+        loadError instanceof Error ? loadError.message : "Failed to load earlier messages.",
+      );
     } finally {
       if (earlierMessagesAbortRef.current === controller) {
         earlierMessagesAbortRef.current = null;
@@ -890,31 +952,36 @@ export function useChatApp({
     });
   }, [activeConversation, draft, replaceAttachments, stopStream]);
 
-  const handleRetryAssistant = useCallback(
-    async (messageId: number | string) => {
+  const startRegeneratedBranch = useCallback(
+    async ({
+      content,
+      errorMessage,
+      restoreToComposerOnStop = true,
+      sourceAssistantId,
+      sourceUser,
+    }: {
+      content: string;
+      errorMessage: string;
+      restoreToComposerOnStop?: boolean;
+      sourceAssistantId: number | string | null;
+      sourceUser: ChatMessage;
+    }) => {
       if (!activeConversation || isStreaming) {
         return;
       }
 
-      const targetIndex = activeConversation.messages.findIndex((item) => item.id === messageId);
-      if (targetIndex < 0) {
-        return;
-      }
-
-      const sourceUser = [...activeConversation.messages.slice(0, targetIndex)]
-        .reverse()
-        .find((item) => item.role === "user");
-      if (!sourceUser) {
+      const nextContent = content.trim();
+      if (!nextContent) {
         return;
       }
 
       const effectiveModel = selectedModel;
       const effectiveReasoningProfile = activeReasoningRequest;
-      const retryUserDraftId = `retry-user-${messageId}-${Date.now()}`;
+      const retryUserDraftId = `retry-user-${sourceUser.id}-${Date.now()}`;
       const nextConversation = appendRetryDraft(
         activeConversation,
         retryUserDraftId,
-        sourceUser.content,
+        nextContent,
         effectiveModel,
         sourceUser.attachments ?? [],
       );
@@ -923,25 +990,28 @@ export function useChatApp({
         total_message_count: nextConversation.total_message_count + 2,
         loaded_message_count: nextConversation.loaded_message_count + 2,
       };
+      const collapsedIds = sourceAssistantId == null ? [sourceUser.id] : [sourceUser.id, sourceAssistantId];
 
-      setCollapsedMessageIds((current) => new Set([...current, sourceUser.id, messageId]));
+      setCollapsedMessageIds((current) => new Set([...current, ...collapsedIds]));
       setActiveConversation(retryConversation);
 
       const result = await runStream({
         conversation: retryConversation,
-        errorMessage: "Failed to regenerate response.",
+        errorMessage,
         initialStage: stageForToolMode(toolMode) ?? "waiting_for_model",
         restoreInput: {
-          content: sourceUser.content,
+          content: nextContent,
           loadFiles: () => restoreAttachmentFiles(sourceUser.attachments ?? []),
+          restoreToComposerOnStop,
         },
         tempUserMessageId: retryUserDraftId,
         request: async ({ onEvent, signal }) => {
-          if (typeof messageId === "number") {
+          if (typeof sourceAssistantId === "number") {
             return regenerateChat(
               {
                 conversation_id: activeConversation.id,
-                assistant_message_id: messageId,
+                assistant_message_id: sourceAssistantId,
+                edited_content: nextContent,
                 model: effectiveModel,
                 reasoning_profile: effectiveReasoningProfile,
                 tool_mode: toolMode,
@@ -953,8 +1023,8 @@ export function useChatApp({
           const restoredFiles = await restoreAttachmentFiles(sourceUser.attachments ?? []);
           return streamChat(
             {
-              conversation_id: activeConversation.id,
-              message: sourceUser.content,
+              conversation_id: activeConversation.id > 0 ? activeConversation.id : null,
+              message: nextContent,
               files: restoredFiles,
               model: effectiveModel,
               reasoning_profile: effectiveReasoningProfile,
@@ -974,15 +1044,110 @@ export function useChatApp({
       activeReasoningRequest,
       isStreaming,
       refreshConversations,
-      toolMode,
       runStream,
       selectedModel,
+      toolMode,
     ],
   );
 
-  const handleReuseUserMessage = useCallback((content: string) => {
-    setDraft(content);
+  const handleRetryAssistant = useCallback(
+    async (messageId: number | string) => {
+      if (!activeConversation || isStreaming) {
+        return;
+      }
+
+      const targetIndex = activeConversation.messages.findIndex((item) => item.id === messageId);
+      if (targetIndex < 0) {
+        return;
+      }
+
+      const sourceUser = [...activeConversation.messages.slice(0, targetIndex)]
+        .reverse()
+        .find((item) => item.role === "user");
+      if (!sourceUser) {
+        return;
+      }
+
+      await startRegeneratedBranch({
+        content: sourceUser.content,
+        errorMessage: "Failed to regenerate response.",
+        sourceAssistantId: messageId,
+        sourceUser,
+      });
+    },
+    [
+      activeConversation,
+      isStreaming,
+      startRegeneratedBranch,
+    ],
+  );
+
+  const handleStartEditingUserMessage = useCallback(
+    (messageId: number | string) => {
+      if (!activeConversation || isStreaming) {
+        return;
+      }
+
+      const targetMessage = activeConversation.messages.find(
+        (item) => item.id === messageId && item.role === "user",
+      );
+      if (!targetMessage) {
+        return;
+      }
+
+      setEditingUserMessageId(messageId);
+      setEditingUserMessageContent(targetMessage.content);
+    },
+    [activeConversation, isStreaming],
+  );
+
+  const handleCancelEditingUserMessage = useCallback(() => {
+    setEditingUserMessageId(null);
+    setEditingUserMessageContent("");
   }, []);
+
+  const handleSubmitEditedUserMessage = useCallback(
+    async (messageId: number | string) => {
+      if (!activeConversation || isStreaming) {
+        return;
+      }
+
+      const targetIndex = activeConversation.messages.findIndex(
+        (item) => item.id === messageId && item.role === "user",
+      );
+      if (targetIndex < 0) {
+        return;
+      }
+
+      const sourceUser = activeConversation.messages[targetIndex];
+      const sourceAssistant = findNextAssistantMessage(activeConversation.messages, targetIndex);
+      if (!sourceAssistant && targetIndex !== activeConversation.messages.length - 1) {
+        return;
+      }
+
+      const nextContent = editingUserMessageContent.trim();
+      if (!nextContent) {
+        return;
+      }
+
+      setEditingUserMessageId(null);
+      setEditingUserMessageContent("");
+
+      await startRegeneratedBranch({
+        content: nextContent,
+        errorMessage: "Failed to regenerate response.",
+        restoreToComposerOnStop: false,
+        sourceAssistantId: sourceAssistant?.id ?? null,
+        sourceUser,
+      });
+    },
+    [
+      activeConversation,
+      editingUserMessageContent,
+      isStreaming,
+      startRegeneratedBranch,
+    ],
+  );
 
   const handleMessageFeedback = useCallback(async (messageId: number, value: "up" | "down" | null) => {
     try {
@@ -1015,12 +1180,17 @@ export function useChatApp({
   }, []);
 
   const showLanding =
+    activeSection === "chats" &&
     !debateCreateOpen &&
     activeDebateId === null &&
     activeConversationId === null &&
     (!activeConversation || activeConversation.messages.length === 0);
+  const showSessionHeaderActions =
+    activeSection === "chats" || activeSection === "debates";
+  const showChatModelSelector = activeSection === "chats";
 
   return {
+    activeSection,
     error,
     debateCreateProps: debateCreateOpen
       ? {
@@ -1045,7 +1215,10 @@ export function useChatApp({
           conversation: activeConversation,
           draft,
           draftAttachments,
+          editingUserMessageContent,
+          editingUserMessageId,
           attachmentUploadAvailable,
+          earlierMessagesError,
           isLoadingEarlierMessages,
           isRecording,
           isReasoningStreaming: activeSession?.reasoningStreaming ?? false,
@@ -1061,9 +1234,12 @@ export function useChatApp({
           onLoadEarlierMessages: () => void handleLoadEarlierMessages(),
           onModelChange: handleModelChange,
           onReasoningProfileChange: handleReasoningProfileChange,
+          onCancelEditingUserMessage: handleCancelEditingUserMessage,
+          onChangeEditingUserMessage: setEditingUserMessageContent,
           onRemoveDraftAttachment: removeAttachment,
           onRetry: handleRetryAssistant,
-          onReuseUserMessage: handleReuseUserMessage,
+          onStartEditingUserMessage: handleStartEditingUserMessage,
+          onSubmitEditingUserMessage: (messageId: number | string) => void handleSubmitEditedUserMessage(messageId),
           onSelectAttachments: addAttachments,
           onSend: () => void handleSend(),
           onStop: handleStop,
@@ -1077,13 +1253,25 @@ export function useChatApp({
         }
       : null,
     headerProps: {
-      activeItemId: activeDebateId ?? activeConversationId,
+      activeItemId: showSessionHeaderActions
+        ? activeSection === "debates"
+          ? activeDebateId
+          : activeConversationId
+        : null,
       activeItemKind:
-        activeDebateId !== null ? ("debate" as const) : activeConversationId !== null ? ("chat" as const) : null,
+        showSessionHeaderActions
+          ? activeSection === "debates"
+            ? activeDebateId !== null
+              ? ("debate" as const)
+              : null
+            : activeConversationId !== null
+              ? ("chat" as const)
+              : null
+          : null,
       activeItemTitle: activeDebate?.topic ?? activeConversation?.title ?? "",
       isDesktop,
-      mobileModel: selectedModel,
-      mobileModels: availableModels,
+      mobileModel: showChatModelSelector ? selectedModel : "",
+      mobileModels: showChatModelSelector ? availableModels : [],
       onNewChat: handleNewChat,
       onNewDebate: handleNewDebate,
       onDeleteItem: async (itemId: number, kind: "chat" | "debate") => {
@@ -1103,7 +1291,7 @@ export function useChatApp({
         }
         await handleRenameConversation(itemId, title);
       },
-      onMobileModelChange: handleModelChange,
+      onMobileModelChange: showChatModelSelector ? handleModelChange : undefined,
       onToggleSidebar: toggleSidebar,
       showTitle: true,
       sidebarOpen,
@@ -1136,18 +1324,24 @@ export function useChatApp({
       shouldAnimate: !landingHeroAnimated,
       title: landingTitle,
     },
-    settingsProps: {
+    knowledgePageProps: {
+      knowledge: knowledgeManager,
+    },
+    memoriesPageProps: {
       activeConversationId: activeConversationId && activeConversationId > 0 ? activeConversationId : null,
       activeConversationTitle: activeConversation?.title ?? "",
-      knowledge: knowledgeManager,
       memories: memoryManager,
-      onClose: () => setSettingsOpen(false),
-      open: settingsOpen,
+    },
+    modelsPageProps: {
+      models: availableModels,
+      onSelectModel: handleModelChange,
+      selectedModel,
     },
     isConversationLoading: activeConversationId !== null && activeConversation === null,
     isDebateLoading: activeDebateId !== null && activeDebate === null,
     showLanding,
     sidebarProps: {
+      activeSection,
       activeConversationId,
       activeDebateId,
       activity: conversationActivity,
@@ -1156,11 +1350,11 @@ export function useChatApp({
       isDesktop,
       items: filteredConversations,
       debateItems: filteredDebateSessions,
+      onSelectSection: handleSelectSection,
       onDelete: handleDeleteConversation,
       onDeleteDebate: handleDeleteDebate,
       onNewChat: handleNewChat,
       onNewDebate: handleNewDebate,
-      onOpenSettings: () => setSettingsOpen(true),
       onQueryChange: setQuery,
       onRename: handleRenameConversation,
       onRenameDebate: handleRenameDebate,

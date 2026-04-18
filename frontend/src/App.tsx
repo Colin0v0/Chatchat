@@ -1,18 +1,14 @@
-import { LoaderCircle } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { useAuthSession } from "./app/useAuthSession";
 import { useChatApp } from "./app/useChatApp";
 import { useResponsiveSidebar } from "./app/useResponsiveSidebar";
 import { LoginView } from "./components/LoginView";
-import { ConversationView } from "./components/ConversationView";
-import { DebateCreateView } from "./components/DebateCreateView";
-import { DebateRoomView } from "./components/DebateRoomView";
-import { LandingView } from "./components/LandingView";
 import { MainHeader } from "./components/MainHeader";
-import { SettingsDialog } from "./components/SettingsDialog";
 import { Sidebar } from "./components/Sidebar";
+import { WorkspaceMainView } from "./components/WorkspaceMainView";
 import { setUnauthorizedHandler } from "./lib/api";
+import { LoaderCircle } from "lucide-react";
 
 type AppRoute = "/" | "/login";
 
@@ -56,16 +52,6 @@ function Disclaimer() {
   );
 }
 
-function LoadingView({ title }: { title: string }) {
-  return (
-    <section className="flex min-h-0 flex-1 items-center justify-center px-6">
-      <div className="flex flex-col items-center gap-4 text-center">
-        <LoaderCircle className="size-8 animate-spin text-app-muted" />
-      </div>
-    </section>
-  );
-}
-
 function WorkspaceApp({
   onLogout,
   username,
@@ -87,26 +73,24 @@ function WorkspaceApp({
 
       <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-app-panel">
         <MainHeader {...app.headerProps} />
-
-        {app.debateCreateProps ? (
-          <DebateCreateView {...app.debateCreateProps} />
-        ) : app.debateRoomProps ? (
-          <DebateRoomView {...app.debateRoomProps} />
-        ) : app.isDebateLoading ? (
-          <LoadingView title="" />
-        ) : app.isConversationLoading ? (
-          <LoadingView title="" />
-        ) : app.showLanding || !app.conversationProps ? (
-          <LandingView {...app.landingProps} />
-        ) : (
-          <ConversationView {...app.conversationProps} />
-        )}
+        <WorkspaceMainView
+          activeSection={app.activeSection}
+          conversationProps={app.conversationProps}
+          debateCreateProps={app.debateCreateProps}
+          debateRoomProps={app.debateRoomProps}
+          isConversationLoading={app.isConversationLoading}
+          isDebateLoading={app.isDebateLoading}
+          knowledgePageProps={app.knowledgePageProps}
+          landingProps={app.landingProps}
+          memoriesPageProps={app.memoriesPageProps}
+          modelsPageProps={app.modelsPageProps}
+          onNewDebate={app.headerProps.onNewDebate}
+          showLanding={app.showLanding}
+        />
 
         <ErrorToast message={app.error} />
-        {!app.debateRoomProps && <Disclaimer />}
+        {app.activeSection !== "debates" || !app.debateRoomProps ? <Disclaimer /> : null}
       </main>
-
-      <SettingsDialog {...app.settingsProps} />
     </div>
   );
 }

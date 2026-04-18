@@ -27,7 +27,7 @@ function createEmptyStatus(): KnowledgeStatus {
   };
 }
 
-export function useKnowledgeManager({ open }: { open: boolean }) {
+export function useKnowledgeManager({ enabled }: { enabled: boolean }) {
   const [documents, setDocuments] = useState<KnowledgeDocument[]>([]);
   const [status, setStatus] = useState<KnowledgeStatus>(createEmptyStatus);
   const [error, setError] = useState<string | null>(null);
@@ -67,14 +67,14 @@ export function useKnowledgeManager({ open }: { open: boolean }) {
   }, [loadGuard]);
 
   useEffect(() => {
-    if (!open) {
+    if (!enabled) {
       return;
     }
     void loadKnowledge();
-  }, [loadKnowledge, open]);
+  }, [enabled, loadKnowledge]);
 
   useEffect(() => {
-    if (!open || status.indexing_document_count === 0) {
+    if (!enabled || status.indexing_document_count === 0) {
       return;
     }
 
@@ -82,7 +82,7 @@ export function useKnowledgeManager({ open }: { open: boolean }) {
       void loadKnowledge();
     }, 3000);
     return () => window.clearInterval(timer);
-  }, [loadKnowledge, open, status.indexing_document_count]);
+  }, [enabled, loadKnowledge, status.indexing_document_count]);
 
   const uploadDocuments = useCallback(
     async (files: File[]) => {

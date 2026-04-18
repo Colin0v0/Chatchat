@@ -15,6 +15,7 @@ export type ConversationUpdater = (current: ConversationDetail) => ConversationD
 export type RestoreInput = {
   content: string;
   loadFiles: () => Promise<File[]>;
+  restoreToComposerOnStop?: boolean;
 };
 
 export type RunStreamOptions = {

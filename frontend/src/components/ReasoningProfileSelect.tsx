@@ -68,9 +68,9 @@ export function ReasoningProfileSelect({
   const isGhost = triggerStyle === "ghost";
   const buttonClassName = compact
     ? isGhost
-      ? `inline-flex min-w-0 items-center bg-transparent px-0 py-0 text-left text-[15px] font-medium tracking-[-0.02em] text-[#5f564a] transition hover:text-app-text ${fullWidth ? "w-full justify-between" : ""}`
-      : `inline-flex min-w-0 items-center rounded-[14px] border border-app-border bg-white/92 px-3 py-2.5 text-left text-[15px] font-medium tracking-[-0.02em] text-[#5f564a] transition hover:bg-[#f8f3eb] ${fullWidth ? "w-full justify-between" : ""}`
-    : `inline-flex min-w-0 items-center rounded-lg border border-app-border bg-app-panel-strong px-3 py-2.5 text-left text-[15px] font-medium tracking-[-0.02em] text-[#5f564a] transition hover:bg-app-panel-soft ${fullWidth ? "w-full justify-between" : ""}`;
+      ? `inline-flex h-11 min-w-0 items-center bg-transparent px-0 py-0 text-left text-[15px] font-medium tracking-[-0.02em] text-[#5f564a] transition hover:text-app-text ${fullWidth ? "w-full justify-between" : ""}`
+      : `inline-flex h-11 min-w-0 items-center rounded-[14px] border border-app-border bg-white/92 px-3 text-left text-[15px] font-medium tracking-[-0.02em] text-[#5f564a] transition hover:bg-[#f8f3eb] ${fullWidth ? "w-full justify-between" : ""}`
+    : `inline-flex h-10 min-w-0 items-center rounded-lg border border-app-border bg-app-panel-strong px-3 text-left text-[15px] font-medium tracking-[-0.02em] text-[#5f564a] transition hover:bg-app-panel-soft ${fullWidth ? "w-full justify-between" : ""}`;
   const menuPositionClassName = compact
     ? menuPlacement === "bottom"
       ? "top-[calc(100%+10px)]"

@@ -129,11 +129,11 @@ export function DebateCreateView({
     <section className="flex min-h-0 flex-1 flex-col pb-1">
       <div className="app-scrollbar min-h-0 flex-1 overflow-y-auto pt-6">
         <div className="mx-auto w-full max-w-[920px] px-4 md:px-6">
-          <div className="rounded-[8px] border border-app-border bg-app-panel px-7 py-7 shadow-[0_24px_80px_rgba(34,24,16,0.08)]">
+          <div className="rounded-[8px] border border-app-border bg-app-panel px-6 py-6">
             <div className="text-[30px] font-semibold tracking-[-0.04em] text-app-text">新建辩论</div>
 
             {/* 辩题 */}
-            <div className="mt-6">
+            <div className="mt-4">
               <label className="text-[13px] font-semibold tracking-[0.12em] text-app-muted uppercase">辩题</label>
               <input
                 className="mt-2 w-full rounded-[8px] border border-app-border bg-app-panel-strong px-4 py-3 text-[16px] text-app-text outline-none transition focus:border-app-border-strong"
@@ -144,7 +144,7 @@ export function DebateCreateView({
             </div>
 
             {/* 模型选择 */}
-            <div className="mt-6 grid grid-cols-1 gap-5 md:grid-cols-2">
+            <div className="mt-4 grid grid-cols-1 gap-5 md:grid-cols-2">
               <div>
                 <label className="text-[13px] font-semibold tracking-[0.12em] text-app-muted uppercase">正方模型</label>
                 <div className="mt-2">
@@ -174,7 +174,7 @@ export function DebateCreateView({
               </div>
             </div>
 
-            <div className="mt-5">
+            <div className="mt-4">
               <label className="text-[13px] font-semibold tracking-[0.12em] text-app-muted uppercase">
                 AI 裁判模型
               </label>
@@ -190,12 +190,12 @@ export function DebateCreateView({
               </div>
             </div>
 
-            <div className="mt-6">
+            <div className="mt-4">
               <div className="text-[13px] font-semibold tracking-[0.12em] text-app-muted uppercase">阶段时长</div>
-              <div className="mt-3 grid grid-cols-1 gap-5 md:grid-cols-2">
+              <div className="mt-2 grid grid-cols-1 gap-5 md:grid-cols-2">
                 <div>
                   <label className="text-[13px] font-semibold text-app-text">立论</label>
-                  <div className="mt-2 flex items-center gap-3">
+                  <div className="mt-2 flex items-center gap-2">
                     <input
                       className="w-full rounded-[8px] border border-app-border bg-app-panel-strong px-4 py-3 text-[15px] text-app-text outline-none transition focus:border-app-border-strong"
                       inputMode="numeric"
@@ -218,7 +218,7 @@ export function DebateCreateView({
 
                 <div>
                   <label className="text-[13px] font-semibold text-app-text">驳论</label>
-                  <div className="mt-2 flex items-center gap-3">
+                  <div className="mt-2 flex items-center gap-2">
                     <input
                       className="w-full rounded-[8px] border border-app-border bg-app-panel-strong px-4 py-3 text-[15px] text-app-text outline-none transition focus:border-app-border-strong"
                       inputMode="numeric"
@@ -241,7 +241,7 @@ export function DebateCreateView({
 
                 <div>
                   <label className="text-[13px] font-semibold text-app-text">自由辩论</label>
-                  <div className="mt-2 flex items-center gap-3">
+                  <div className="mt-2 flex items-center gap-2">
                     <input
                       className="w-full rounded-[8px] border border-app-border bg-app-panel-strong px-4 py-3 text-[15px] text-app-text outline-none transition focus:border-app-border-strong"
                       inputMode="numeric"
@@ -263,8 +263,8 @@ export function DebateCreateView({
                 </div>
 
                 <div>
-                  <label className="text-[13px] font-semibold text-app-text">总结</label>
-                  <div className="mt-2 flex items-center gap-3">
+                  <label className="text-[13px] font-semibold text-app-text">总结陈词</label>
+                  <div className="mt-2 flex items-center gap-2">
                     <input
                       className="w-full rounded-[8px] border border-app-border bg-app-panel-strong px-4 py-3 text-[15px] text-app-text outline-none transition focus:border-app-border-strong"
                       inputMode="numeric"
@@ -288,13 +288,13 @@ export function DebateCreateView({
             </div>
 
             {/* 双方提示词 / 语气风格 */}
-            <div className="mt-6 grid grid-cols-1 gap-5 md:grid-cols-2">
+            <div className="mt-4 grid grid-cols-1 gap-5 md:grid-cols-2">
               <div>
                 <label className="text-[13px] font-semibold tracking-[0.12em] text-app-muted uppercase">
                   正方提示词
                 </label>
                 <textarea
-                  className="mt-2 min-h-[150px] w-full resize-none rounded-[8px] border border-app-border bg-app-panel-strong px-4 py-3 text-[14px] leading-[1.6] text-app-text outline-none transition placeholder:text-app-muted focus:border-app-border-strong"
+                  className="mt-2 min-h-[120px] w-full resize-none rounded-[8px] border border-app-border bg-app-panel-strong px-4 py-3 text-[14px] leading-[1.6] text-app-text outline-none transition placeholder:text-app-muted focus:border-app-border-strong"
                   onChange={(event) => setProStyle(event.target.value)}
                   placeholder="例如：犀利强硬、逻辑严密，善用数据和类比"
                   value={proStyle}
@@ -306,7 +306,7 @@ export function DebateCreateView({
                   反方提示词
                 </label>
                 <textarea
-                  className="mt-2 min-h-[150px] w-full resize-none rounded-[8px] border border-app-border bg-app-panel-strong px-4 py-3 text-[14px] leading-[1.6] text-app-text outline-none transition placeholder:text-app-muted focus:border-app-border-strong"
+                  className="mt-2 min-h-[120px] w-full resize-none rounded-[8px] border border-app-border bg-app-panel-strong px-4 py-3 text-[14px] leading-[1.6] text-app-text outline-none transition placeholder:text-app-muted focus:border-app-border-strong"
                   onChange={(event) => setConStyle(event.target.value)}
                   placeholder="例如：温和理性、引经据典，擅长揭示对方前提漏洞"
                   value={conStyle}
@@ -314,7 +314,7 @@ export function DebateCreateView({
               </div>
             </div>
 
-            <div className="mt-7 flex justify-end gap-3">
+            <div className="mt-4 flex justify-end gap-3">
               <button
                 className="rounded-[8px] px-4 py-2.5 text-[15px] font-medium text-app-muted transition hover:bg-app-panel-soft hover:text-app-text"
                 onClick={onCancel}

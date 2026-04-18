@@ -48,6 +48,7 @@ def test_prepare_regeneration_run_request_coordinates_dependencies(monkeypatch):
     payload = RegenerateRequest(
         conversation_id=8,
         assistant_message_id=99,
+        edited_content="  revised prompt  ",
         model="new-model",
         tool_mode="knowledge",
         reasoning_profile="high",
@@ -77,6 +78,7 @@ def test_prepare_regeneration_run_request_coordinates_dependencies(monkeypatch):
         "db": db,
         "conversation": conversation,
         "source_user": source_user,
+        "override_content": "revised prompt",
     }
     assert captured["build"] == {
         "services": services,
@@ -84,7 +86,7 @@ def test_prepare_regeneration_run_request_coordinates_dependencies(monkeypatch):
         "conversation": conversation,
         "user_message": regenerated_user,
         "history_messages": [source_user],
-        "query": "retry this",
+        "query": "revised prompt",
         "tool_mode": "knowledge",
         "reasoning_profile": "high",
     }

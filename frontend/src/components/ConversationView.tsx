@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 import type { ComposerAttachmentDraft } from "../app/useComposerAttachments";
 import type {
@@ -17,7 +17,10 @@ interface ConversationViewProps {
   collapsedMessageIds?: ReadonlySet<number | string>;
   draft: string;
   draftAttachments: ComposerAttachmentDraft[];
+  editingUserMessageContent: string;
+  editingUserMessageId: number | string | null;
   attachmentUploadAvailable: boolean;
+  earlierMessagesError: string | null;
   isLoadingEarlierMessages: boolean;
   isRecording: boolean;
   isReasoningStreaming: boolean;
@@ -32,13 +35,16 @@ interface ConversationViewProps {
   submitBlockedReason: string | null;
   streamingStatusLabel: string | null;
   onChangeDraft: (value: string) => void;
+  onChangeEditingUserMessage: (value: string) => void;
   onModelChange: (value: string) => void;
   onReasoningProfileChange: (value: ReasoningProfileValue) => void;
+  onCancelEditingUserMessage: () => void;
   onLoadEarlierMessages: () => Promise<void> | void;
   onRemoveDraftAttachment: (attachmentId: string) => void;
   onFeedback: (messageId: number, value: FeedbackValue | null) => void;
   onRetry: (messageId: number | string) => void;
-  onReuseUserMessage: (content: string) => void;
+  onStartEditingUserMessage: (messageId: number | string) => void;
+  onSubmitEditingUserMessage: (messageId: number | string) => void;
   onSelectAttachments: (files: FileList | File[]) => void;
   onSend: () => void;
   onStop: () => void;
@@ -53,7 +59,10 @@ export function ConversationView({
   collapsedMessageIds,
   draft,
   draftAttachments,
+  editingUserMessageContent,
+  editingUserMessageId,
   attachmentUploadAvailable,
+  earlierMessagesError,
   isLoadingEarlierMessages,
   isRecording,
   isReasoningStreaming,
@@ -68,13 +77,16 @@ export function ConversationView({
   submitBlockedReason,
   streamingStatusLabel,
   onChangeDraft,
+  onChangeEditingUserMessage,
   onModelChange,
   onReasoningProfileChange,
+  onCancelEditingUserMessage,
   onLoadEarlierMessages,
   onRemoveDraftAttachment,
   onFeedback,
   onRetry,
-  onReuseUserMessage,
+  onStartEditingUserMessage,
+  onSubmitEditingUserMessage,
   onSelectAttachments,
   onSend,
   onStop,
@@ -85,7 +97,32 @@ export function ConversationView({
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const stickToBottomRef = useRef(true);
   const lastConversationIdRef = useRef<number | null>(null);
+  const loadEarlierInFlightRef = useRef(false);
   const prependSnapshotRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null);
+
+  const requestLoadEarlierMessages = useCallback(async () => {
+    const scrollContainer = scrollRef.current;
+    if (
+      !scrollContainer
+      || loadEarlierInFlightRef.current
+      || isLoadingEarlierMessages
+      || !canLoadEarlierMessages
+    ) {
+      return;
+    }
+
+    loadEarlierInFlightRef.current = true;
+    prependSnapshotRef.current = {
+      scrollHeight: scrollContainer.scrollHeight,
+      scrollTop: scrollContainer.scrollTop,
+    };
+
+    try {
+      await onLoadEarlierMessages();
+    } finally {
+      loadEarlierInFlightRef.current = false;
+    }
+  }, [canLoadEarlierMessages, isLoadingEarlierMessages, onLoadEarlierMessages]);
 
   useEffect(() => {
     const scrollContainer = scrollRef.current;
@@ -99,12 +136,28 @@ export function ConversationView({
       const distanceToBottom =
         activeContainer.scrollHeight - activeContainer.scrollTop - activeContainer.clientHeight;
       stickToBottomRef.current = distanceToBottom <= 48;
+
+      if (
+        lastConversationIdRef.current === conversation.id
+        && activeContainer.scrollTop <= 120
+        && canLoadEarlierMessages
+        && !isLoadingEarlierMessages
+        && !earlierMessagesError
+      ) {
+        void requestLoadEarlierMessages();
+      }
     }
 
     handleScroll();
     activeContainer.addEventListener("scroll", handleScroll);
     return () => activeContainer.removeEventListener("scroll", handleScroll);
-  }, []);
+  }, [
+    conversation.id,
+    canLoadEarlierMessages,
+    earlierMessagesError,
+    isLoadingEarlierMessages,
+    requestLoadEarlierMessages,
+  ]);
 
   useEffect(() => {
     const scrollContainer = scrollRef.current;
@@ -145,45 +198,67 @@ export function ConversationView({
     streamingStatusLabel,
   ]);
 
-  async function handleLoadEarlierClick() {
+  useEffect(() => {
     const scrollContainer = scrollRef.current;
-    if (!scrollContainer || isLoadingEarlierMessages) {
+    if (
+      !scrollContainer
+      || !canLoadEarlierMessages
+      || isLoadingEarlierMessages
+      || earlierMessagesError
+    ) {
       return;
     }
 
-    prependSnapshotRef.current = {
-      scrollHeight: scrollContainer.scrollHeight,
-      scrollTop: scrollContainer.scrollTop,
-    };
-    await onLoadEarlierMessages();
-  }
+    const frame = window.requestAnimationFrame(() => {
+      if (scrollContainer.scrollHeight <= scrollContainer.clientHeight + 48) {
+        void requestLoadEarlierMessages();
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [
+    canLoadEarlierMessages,
+    conversation.messages,
+    earlierMessagesError,
+    isLoadingEarlierMessages,
+    requestLoadEarlierMessages,
+  ]);
 
   return (
     <section className="flex min-h-0 flex-1 flex-col pb-1">
       <div className="app-scrollbar min-h-0 flex-1 overflow-y-auto pt-4" ref={scrollRef}>
         <div className="mx-auto w-full max-w-[920px] px-4 md:px-6">
-          {canLoadEarlierMessages ? (
-            <div className="mb-4 flex justify-center">
+          {isLoadingEarlierMessages ? (
+            <div className="mb-3 flex justify-center">
+              <div className="inline-flex items-center rounded-full px-3 py-1 text-xs text-app-muted">
+                正在加载更早消息...
+              </div>
+            </div>
+          ) : earlierMessagesError ? (
+            <div className="mb-3 flex justify-center">
               <button
-                className="inline-flex min-h-9 items-center rounded-full border border-app-line px-4 text-sm text-app-muted transition hover:border-app-accent/35 hover:text-app-text disabled:cursor-wait disabled:opacity-60"
-                disabled={isLoadingEarlierMessages}
-                onClick={() => void handleLoadEarlierClick()}
+                className="inline-flex min-h-8 items-center rounded-full border border-app-line px-3 text-xs text-app-muted transition hover:border-app-accent/35 hover:text-app-text"
+                onClick={() => void requestLoadEarlierMessages()}
                 type="button"
               >
-                {isLoadingEarlierMessages ? "Loading..." : `Load earlier messages (${conversation.remaining_message_count})`}
+                加载更早消息失败，点击重试
               </button>
             </div>
           ) : null}
           <MessageList
             collapsedMessageIds={collapsedMessageIds}
             conversationModel={conversation.model}
+            editingUserMessageContent={editingUserMessageContent}
+            editingUserMessageId={editingUserMessageId}
             isReasoningStreaming={isReasoningStreaming}
             onFeedback={onFeedback}
+            onCancelEditingUserMessage={onCancelEditingUserMessage}
+            onChangeEditingUserMessage={onChangeEditingUserMessage}
+            onStartEditingUserMessage={onStartEditingUserMessage}
             isStreaming={isStreaming}
             items={conversation.messages}
             models={models}
             onRetry={onRetry}
-            onReuseUserMessage={onReuseUserMessage}
+            onSubmitEditingUserMessage={onSubmitEditingUserMessage}
             reserveThinkingSpace={reserveThinkingSpace}
             streamingStatusLabel={streamingStatusLabel}
           />

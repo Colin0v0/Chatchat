@@ -2,6 +2,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+from app.runtime.modes.debate_runtime import DebateRuntimeContext, DebateStageTransition
 from app.runtime.modes.debate_stage_handlers import (
     stream_decision_summary_flow,
     stream_stage_followup_events,
@@ -24,6 +25,7 @@ class DebateRuntimeStageHandlerTests(unittest.IsolatedAsyncioTestCase):
         db = SimpleNamespace(refresh=Mock())
         request = SimpleNamespace()
         session = SimpleNamespace(stage="judge_decision", turns=[], participants=[])
+        context = DebateRuntimeContext(db=db, request=request, session=session)
 
         async def _fake_judge_eval(*, request, session):
             yield "judge_eval\n"
@@ -34,10 +36,8 @@ class DebateRuntimeStageHandlerTests(unittest.IsolatedAsyncioTestCase):
         ):
             events = await _drain(
                 stream_stage_followup_events(
-                    db=db,
-                    request=request,
-                    session=session,
-                    stage_changes=["judge_decision"],
+                    context=context,
+                    transition=DebateStageTransition.from_stage_changes(["judge_decision"]),
                 )
             )
 
@@ -48,6 +48,7 @@ class DebateRuntimeStageHandlerTests(unittest.IsolatedAsyncioTestCase):
         db = SimpleNamespace()
         request = SimpleNamespace()
         session = SimpleNamespace()
+        context = DebateRuntimeContext(db=db, request=request, session=session)
         persist_summary = Mock()
 
         async def _fake_summary_events(*, request, session, judge_note, winner_side, summary_chunks):
@@ -67,9 +68,7 @@ class DebateRuntimeStageHandlerTests(unittest.IsolatedAsyncioTestCase):
         ):
             events = await _drain(
                 stream_decision_summary_flow(
-                    db=db,
-                    request=request,
-                    session=session,
+                    context=context,
                 )
             )
 
@@ -83,10 +82,9 @@ class DebateRuntimeStageHandlerTests(unittest.IsolatedAsyncioTestCase):
 
 class DebateRuntimeTurnHandlerTests(unittest.IsolatedAsyncioTestCase):
     async def test_stream_next_turn_rounds_stops_after_judge_decision_followup(self):
-        db = SimpleNamespace()
-        request = SimpleNamespace()
         participant = SimpleNamespace(side="pro")
         session = SimpleNamespace(stage="free_debate", turns=[], participants=[SimpleNamespace(side="con")])
+        context = DebateRuntimeContext(db=SimpleNamespace(), request=SimpleNamespace(), session=session)
 
         async def _fake_turn_events(**kwargs):
             yield "turn_token\n"
@@ -99,16 +97,14 @@ class DebateRuntimeTurnHandlerTests(unittest.IsolatedAsyncioTestCase):
             side_effect=_fake_turn_events,
         ), patch(
             "app.runtime.modes.debate_turn_handlers.advance_after_speaker_turn",
-            return_value=["judge_decision"],
+            return_value=DebateStageTransition.from_stage_changes(["judge_decision"]),
         ), patch(
             "app.runtime.modes.debate_turn_handlers.stream_stage_followup_events",
             side_effect=_fake_stage_followups,
         ):
             events = await _drain(
                 stream_next_turn_rounds(
-                    db=db,
-                    request=request,
-                    session=session,
+                    context=context,
                     participant=participant,
                 )
             )
@@ -116,10 +112,9 @@ class DebateRuntimeTurnHandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(events, ["turn_token\n", "stage_followup\n"])
 
     async def test_stream_question_reply_rounds_skips_side_without_free_debate_budget(self):
-        db = SimpleNamespace()
-        request = SimpleNamespace()
         session = SimpleNamespace(stage="free_debate", turns=[])
         question_turn = SimpleNamespace(id=7)
+        context = DebateRuntimeContext(db=SimpleNamespace(), request=SimpleNamespace(), session=session)
 
         async def _fake_turn_events(*, participant, **kwargs):
             yield f"{participant.side}\n"
@@ -139,16 +134,14 @@ class DebateRuntimeTurnHandlerTests(unittest.IsolatedAsyncioTestCase):
             side_effect=_fake_turn_events,
         ), patch(
             "app.runtime.modes.debate_turn_handlers.advance_after_speaker_turn",
-            return_value=[],
+            return_value=DebateStageTransition(),
         ), patch(
             "app.runtime.modes.debate_turn_handlers.stream_stage_followup_events",
             side_effect=_fake_stage_followups,
         ):
             events = await _drain(
                 stream_question_reply_rounds(
-                    db=db,
-                    request=request,
-                    session=session,
+                    context=context,
                     target_sides=("pro", "con"),
                     question_turn=question_turn,
                     judge_question="请双方回答",

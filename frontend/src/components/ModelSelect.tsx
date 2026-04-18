@@ -1,7 +1,6 @@
 import { Check, ChevronDown } from "lucide-react";
 import { Fragment, useEffect, useRef, useState } from "react";
 
-import { nativeMultimodalLabel, reasoningDisplayLabel } from "../app/modelCapabilities";
 import { toModelLabel } from "../lib/models";
 import type { ModelOption } from "../types";
 import { cn, sidebarMenuItemClass, sidebarMenuPanelClass } from "./sidebar/styles";
@@ -151,18 +150,6 @@ export function ModelSelect({
                 >
                   <span className="min-w-0 flex-1 text-left">
                     <span className="block truncate">{item.label}</span>
-                    <span className="mt-1 flex flex-wrap gap-1.5">
-                      {[reasoningDisplayLabel(item), nativeMultimodalLabel(item)]
-                        .filter((value): value is string => Boolean(value))
-                        .map((badge) => (
-                          <span
-                            className="rounded-full border border-app-border bg-app-panel-soft px-2 py-0.5 text-[11px] font-medium tracking-[0.01em] text-app-muted"
-                            key={`${item.id}-${badge}`}
-                          >
-                            {badge}
-                          </span>
-                        ))}
-                    </span>
                   </span>
                   {active ? <Check className="size-4 text-[#5f564a]" /> : null}
                 </button>

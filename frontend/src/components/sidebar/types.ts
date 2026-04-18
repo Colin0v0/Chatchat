@@ -1,9 +1,13 @@
+import type { WorkspaceSection } from "../../app/workspaceSections";
 import type { ConversationSummary, DebateSessionSummary } from "../../types";
+
+export type { WorkspaceSection } from "../../app/workspaceSections";
 
 export interface SidebarProps {
   items: ConversationSummary[];
   debateItems: DebateSessionSummary[];
   activity?: Record<number, { running: boolean; unread: boolean }>;
+  activeSection: WorkspaceSection;
   activeConversationId: number | null;
   activeDebateId: number | null;
   conversationsLoaded: boolean;
@@ -12,7 +16,9 @@ export interface SidebarProps {
   isDesktop: boolean;
   query: string;
   viewerName?: string;
+  onOpenSearch: () => void;
   onQueryChange: (value: string) => void;
+  onSelectSection: (section: WorkspaceSection) => void;
   onNewChat: () => void;
   onNewDebate: () => void;
   onRename: (conversationId: number, title: string) => void | Promise<void>;
@@ -22,7 +28,6 @@ export interface SidebarProps {
   onLogout?: () => void | Promise<void>;
   onSelect: (conversationId: number) => void;
   onSelectDebate: (sessionId: number) => void;
-  onOpenSettings: () => void;
   onToggleSidebar: () => void;
 }
 

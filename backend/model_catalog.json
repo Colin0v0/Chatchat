@@ -523,6 +523,56 @@
         }
       },
       "enabled": true
+    },
+    {
+      "id": "gemini:gemini-3-flash",
+      "display_name": "Gemini 3 Flash",
+      "provider_ref": "gemini_default",
+      "upstream_model": "gemini-3-flash",
+      "limits": {
+        "context_window": 200000
+      },
+      "runtime": {
+        "native_multimodal_mode": "gemini"
+      },
+      "capabilities": {
+        "input": {
+          "text": true,
+          "image": true,
+          "pdf": true,
+          "other_file": true,
+          "audio": true
+        },
+        "transport": {
+          "inline_data": true,
+          "file_upload": false,
+          "remote_url": false
+        },
+        "reasoning": {
+          "control": "effort",
+          "default_profile": "auto",
+          "supported_profiles": ["auto", "low", "high"],
+          "visibility": "summary",
+          "continuation": "signature",
+          "visible_trace": true,
+          "summary_only": true
+        },
+        "tools": {
+          "function_calling": true,
+          "parallel_calls": false,
+          "forced_call": true
+        },
+        "stream": {
+          "text": true,
+          "reasoning": true,
+          "tool_call": true,
+          "usage": false
+        },
+        "state": {
+          "previous_response": false
+        }
+      },
+      "enabled": true
     }
   ]
 }

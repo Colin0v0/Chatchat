@@ -74,11 +74,12 @@ def persist_regenerated_turn(
     db: Session,
     conversation: Conversation,
     source_user: Message,
+    override_content: str | None = None,
 ) -> Message:
     regenerated_user_message = Message(
         conversation_id=conversation.id,
         role="user",
-        content=source_user.content,
+        content=source_user.content if override_content is None else override_content,
         image_context=source_user.image_context,
         attachment_context=source_user.attachment_context,
     )

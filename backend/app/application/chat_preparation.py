@@ -93,6 +93,7 @@ def prepare_regeneration_run_request(
     request: Request,
     db: Session,
 ) -> ChatRunRequest:
+    edited_content = payload.edited_content.strip() if payload.edited_content is not None else None
     conversation = load_user_chat_conversation(
         db=db,
         conversation_id=payload.conversation_id,
@@ -107,10 +108,16 @@ def prepare_regeneration_run_request(
         conversation=conversation,
         assistant_message_id=payload.assistant_message_id,
     )
+    query = regeneration.source_user.content if edited_content is None else edited_content
+    _ensure_chat_input_present(
+        content=query,
+        upload_count=len(regeneration.source_user.attachments),
+    )
     regenerated_user_message = persist_regenerated_turn(
         db=db,
         conversation=conversation,
         source_user=regeneration.source_user,
+        override_content=edited_content,
     )
     return build_chat_run_request(
         services=services,
@@ -118,7 +125,7 @@ def prepare_regeneration_run_request(
         conversation=conversation,
         user_message=regenerated_user_message,
         history_messages=regeneration.history_messages,
-        query=regeneration.source_user.content,
+        query=query,
         tool_mode=payload.tool_mode,
         reasoning_profile=payload.reasoning_profile,
     )

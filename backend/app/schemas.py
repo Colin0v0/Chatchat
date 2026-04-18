@@ -61,6 +61,7 @@ class ConversationUpdate(BaseModel):
 class RegenerateRequest(BaseModel):
     conversation_id: int
     assistant_message_id: int
+    edited_content: Optional[str] = None
     model: Optional[str] = None
     tool_mode: ToolMode = "none"
     reasoning_profile: Optional[ReasoningProfileValue] = None

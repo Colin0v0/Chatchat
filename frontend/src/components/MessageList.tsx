@@ -1,5 +1,5 @@
-import { Check, Copy, CornerUpLeft, RotateCcw, ThumbsDown, ThumbsUp } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { Check, Copy, Pencil, RotateCcw, ThumbsDown, ThumbsUp } from "lucide-react";
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 
 import { thinkingPanelLabels } from "../app/modelCapabilities";
 import { findModelOption } from "../app/modelOptions";
@@ -14,13 +14,18 @@ import { ThinkingPanel } from "./thinking/ThinkingPanel";
 interface MessageListProps {
   items: ChatMessage[];
   conversationModel: string;
+  editingUserMessageContent?: string;
+  editingUserMessageId?: number | string | null;
   models: ModelOption[];
   isReasoningStreaming?: boolean;
   isStreaming?: boolean;
   reserveThinkingSpace?: boolean;
   onFeedback?: (messageId: number, value: FeedbackValue | null) => void;
+  onCancelEditingUserMessage?: () => void;
+  onChangeEditingUserMessage?: (content: string) => void;
   onRetry?: (messageId: number | string) => void;
-  onReuseUserMessage?: (content: string) => void;
+  onStartEditingUserMessage?: (messageId: number | string) => void;
+  onSubmitEditingUserMessage?: (messageId: number | string) => void;
   collapsedMessageIds?: ReadonlySet<number | string>;
   streamingStatusLabel?: string | null;
 }
@@ -179,12 +184,14 @@ function AssistantActions({
 
 function UserActions({
   content,
+  messageId,
   hidden = false,
-  onReuse,
+  onEdit,
 }: {
   content: string;
+  messageId: number | string;
   hidden?: boolean;
-  onReuse?: (content: string) => void;
+  onEdit?: (messageId: number | string) => void;
 }) {
   const [copied, setCopied] = useState(false);
 
@@ -209,12 +216,12 @@ function UserActions({
   return (
     <div className="mt-1 mb-3 flex items-center justify-end gap-1 opacity-0 transition duration-150 group-hover:opacity-100">
       <button
-        aria-label="Reuse message"
+        aria-label="Edit message"
         className="flex h-9 w-9 items-center justify-center rounded-xl text-app-muted transition hover:text-app-text"
-        onClick={() => onReuse?.(content)}
+        onClick={() => onEdit?.(messageId)}
         type="button"
       >
-        <CornerUpLeft className="size-4" />
+        <Pencil className="size-4" />
       </button>
       <button
         aria-label="Copy message"
@@ -228,23 +235,108 @@ function UserActions({
   );
 }
 
+function InlineUserMessageEditor({
+  messageId,
+  onCancel,
+  onChange,
+  onSubmit,
+  value,
+}: {
+  messageId: number | string;
+  onCancel?: () => void;
+  onChange?: (content: string) => void;
+  onSubmit?: (messageId: number | string) => void;
+  value: string;
+}) {
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) {
+      return;
+    }
+
+    textarea.focus();
+    textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+  }, []);
+
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) {
+      return;
+    }
+
+    textarea.style.height = "0px";
+    textarea.style.height = `${textarea.scrollHeight}px`;
+  }, [value]);
+
+  function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      onCancel?.();
+      return;
+    }
+
+    if ((event.metaKey || event.ctrlKey) && event.key === "Enter" && !event.nativeEvent.isComposing) {
+      event.preventDefault();
+      onSubmit?.(messageId);
+    }
+  }
+
+  return (
+    <div className="min-w-0 rounded-[20px] bg-app-panel-soft px-4 py-1 text-left text-app-accent-strong">
+      <textarea
+        aria-label="Edit message"
+        className="min-h-[96px] w-full resize-none overflow-hidden border-none bg-transparent text-[15px] leading-7 text-app-accent-strong outline-none placeholder:text-app-muted/60"
+        onChange={(event) => onChange?.(event.target.value)}
+        onKeyDown={handleKeyDown}
+        placeholder="Edit your message"
+        ref={textareaRef}
+        rows={1}
+        value={value}
+      />
+      <div className="mt-3 flex items-center justify-end gap-2">
+        <button
+          className="inline-flex h-9 items-center rounded-lg border border-app-border/80 bg-white/70 px-3 text-sm text-app-muted transition hover:border-app-border-strong hover:text-app-text"
+          onClick={onCancel}
+          type="button"
+        >
+          Cancel
+        </button>
+        <button
+          className="inline-flex h-9 items-center rounded-lg bg-app-accent px-3 text-sm font-medium text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={!value.trim()}
+          onClick={() => onSubmit?.(messageId)}
+          type="button"
+        >
+          Update
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function MessageList({
   items,
   conversationModel,
+  editingUserMessageContent = "",
+  editingUserMessageId = null,
   models,
   isReasoningStreaming = false,
   isStreaming = false,
   reserveThinkingSpace = false,
   onFeedback,
+  onCancelEditingUserMessage,
+  onChangeEditingUserMessage,
   onRetry,
-  onReuseUserMessage,
+  onStartEditingUserMessage,
+  onSubmitEditingUserMessage,
   collapsedMessageIds,
   streamingStatusLabel = null,
 }: MessageListProps) {
   const activeStreamingAssistantId = isStreaming
     ? [...items].reverse().find((item) => item.role === "assistant")?.id
     : null;
-  const hideActions = isStreaming;
 
   return (
     <div className="flex w-full flex-col pb-6">
@@ -276,18 +368,40 @@ export function MessageList({
           (isPendingAssistantDraft || (isActiveStreamingAssistant && reserveThinkingSpace));
         const showSources = !isEmptyAssistant && item.id !== activeStreamingAssistantId;
         const attachments = item.attachments ?? [];
+        const isEditingUserMessage = !isAssistant && editingUserMessageId === item.id;
 
         if (!isAssistant) {
           return (
             <article className="mb-4 flex justify-end last:mb-0" key={item.clientKey ?? String(item.id)}>
-              <div className="group max-w-[420px]">
+              <div
+                className={
+                  isEditingUserMessage
+                    ? "w-full"
+                    : "group flex w-fit max-w-[420px] flex-col items-end"
+                }
+              >
                 <MessageAttachmentStrip align="end" attachments={attachments} />
-                {item.content.trim() ? (
-                  <div className="min-w-0 rounded-[20px] bg-app-panel-soft px-4 py-2.5 text-left text-[15px] leading-7 text-app-accent-strong">
+                {isEditingUserMessage ? (
+                  <InlineUserMessageEditor
+                    messageId={item.id}
+                    onCancel={onCancelEditingUserMessage}
+                    onChange={onChangeEditingUserMessage}
+                    onSubmit={onSubmitEditingUserMessage}
+                    value={editingUserMessageContent}
+                  />
+                ) : item.content.trim() ? (
+                  <div className="w-fit max-w-full min-w-0 self-end rounded-[18px] bg-app-panel-soft px-4 py-1.75 text-left text-[15px] leading-7 text-app-accent-strong">
                     {renderMessageContent(item.content)}
                   </div>
                 ) : null}
-                <UserActions content={item.content} hidden={hideActions} onReuse={onReuseUserMessage} />
+                {!isEditingUserMessage ? (
+                  <UserActions
+                    content={item.content}
+                    hidden={false}
+                    messageId={item.id}
+                    onEdit={onStartEditingUserMessage}
+                  />
+                ) : null}
               </div>
             </article>
           );
@@ -343,7 +457,7 @@ export function MessageList({
                 <AssistantActions
                   content={item.content}
                   feedback={item.feedback}
-                  hidden={hideActions || item.id === activeStreamingAssistantId}
+                  hidden={item.id === activeStreamingAssistantId}
                   messageId={item.id}
                   onFeedback={onFeedback}
                   onRetry={onRetry}

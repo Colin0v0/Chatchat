@@ -5,6 +5,8 @@ export interface ReasoningProfileOption {
   label: string;
 }
 
+const CONCRETE_REASONING_PROFILE_ORDER: ReasoningProfileValue[] = ["medium", "low", "high", "max", "off"];
+
 function fallbackReasoningControl(model: ModelOption): ReasoningControl {
   return model.supports_thinking ? "effort" : "none";
 }
@@ -29,9 +31,36 @@ export function supportedReasoningProfilesForModel(model: ModelOption): Reasonin
   return ["auto", "off", "low", "medium", "high", "max"];
 }
 
+function concreteReasoningProfilesForModel(model: ModelOption): ReasoningProfileValue[] {
+  return supportedReasoningProfilesForModel(model).filter(
+    (profile): profile is Exclude<ReasoningProfileValue, "auto" | "provider_default"> =>
+      profile !== "auto" && profile !== "provider_default",
+  );
+}
+
+function fallbackConcreteReasoningProfile(model: ModelOption): ReasoningProfileValue {
+  const concreteProfiles = concreteReasoningProfilesForModel(model);
+
+  for (const candidate of CONCRETE_REASONING_PROFILE_ORDER) {
+    if (concreteProfiles.includes(candidate)) {
+      return candidate;
+    }
+  }
+
+  return "off";
+}
+
 export function resolveModelDefaultReasoningProfile(model: ModelOption): ReasoningProfileValue {
   const resolved = model.default_reasoning_profile ?? "off";
-  return resolved === "provider_default" ? "auto" : resolved;
+  if (resolved === "provider_default" || resolved === "auto") {
+    return fallbackConcreteReasoningProfile(model);
+  }
+
+  if (concreteReasoningProfilesForModel(model).includes(resolved)) {
+    return resolved;
+  }
+
+  return fallbackConcreteReasoningProfile(model);
 }
 
 export function supportsReasoningSelection(model: ModelOption): boolean {
@@ -44,13 +73,15 @@ export function normalizeReasoningProfileForModel(
 ): ReasoningProfileValue {
   const control = resolveModelReasoningControl(model);
   const defaultValue = resolveModelDefaultReasoningProfile(model);
-  const supportedProfiles = supportedReasoningProfilesForModel(model);
-  const normalized = (value ?? defaultValue) === "provider_default" ? "auto" : (value ?? defaultValue);
+  const concreteProfiles = concreteReasoningProfilesForModel(model);
+  const candidate = value ?? defaultValue;
+  const normalized =
+    candidate === "provider_default" || candidate === "auto" ? defaultValue : candidate;
 
   if (control === "none") {
     return "off";
   }
-  if (supportedProfiles.includes(normalized)) {
+  if (concreteProfiles.includes(normalized)) {
     return normalized;
   }
   return defaultValue;
@@ -72,50 +103,31 @@ function resolvedProfileLabel(value: ReasoningProfileValue): string {
   if (value === "max") {
     return "Max";
   }
-  return "Auto";
+  return "Medium";
 }
 
 export function reasoningProfileLabelForModel(
   model: ModelOption,
   value: ReasoningProfileValue | null | undefined,
 ): string {
-  const control = resolveModelReasoningControl(model);
   const normalized = normalizeReasoningProfileForModel(model, value);
-
-  if (normalized === "auto") {
-    return "Default";
-  }
-  if (normalized === "off") {
-    return "Off";
-  }
-  if (control === "toggle" || control === "prompt_tag") {
-    return "On";
-  }
   return resolvedProfileLabel(normalized);
 }
 
 export function reasoningProfileOptionsForModel(model: ModelOption): ReasoningProfileOption[] {
   const control = resolveModelReasoningControl(model);
-  const defaultProfile = resolveModelDefaultReasoningProfile(model);
-  const defaultLabel = reasoningProfileLabelForModel(model, defaultProfile);
-  const supportedProfiles = supportedReasoningProfilesForModel(model);
+  const supportedProfiles = concreteReasoningProfilesForModel(model);
   if (control === "none") {
     return [];
   }
 
   const options: ReasoningProfileOption[] = [];
-  if (supportedProfiles.includes("auto")) {
-    options.push({
-      value: "auto",
-      label: defaultLabel === "Default" ? "Default" : `Default (${defaultLabel})`,
-    });
-  }
   if (supportedProfiles.includes("off")) {
     options.push({ value: "off", label: "Off" });
   }
   if (control === "toggle" || control === "prompt_tag") {
     if (supportedProfiles.includes("medium")) {
-      options.push({ value: "medium", label: "On" });
+      options.push({ value: "medium", label: "Medium" });
     }
     return options;
   }

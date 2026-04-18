@@ -30,7 +30,7 @@ export function MessageAttachmentStrip({
   const fileAttachments = attachments.filter((attachment) => attachment.kind === "file");
 
   return (
-    <div className={`mb-2 flex flex-col gap-2 ${align === "end" ? "items-end" : "items-start"}`}>
+    <div className={`mb-2 flex w-fit max-w-full flex-col gap-2 ${align === "end" ? "self-end items-end" : "items-start"}`}>
       {imageAttachments.length > 0 ? (
         <div
           className={`grid gap-2 ${imageAttachments.length === 1 ? "grid-cols-1" : "grid-cols-2"} max-w-[360px]`}

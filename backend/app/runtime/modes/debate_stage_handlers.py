@@ -2,11 +2,8 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 
-from fastapi import Request
-from sqlalchemy.orm import Session
-
-from ...storage.models import DebateSession
 from .debate_policies import decision_summary_context
+from .debate_runtime import DebateRuntimeContext, DebateStageTransition
 from .debate_state import emit_stage_events
 from .debate_steps import (
     persist_decision_summary,
@@ -17,37 +14,41 @@ from .debate_steps import (
 
 async def stream_stage_followup_events(
     *,
-    db: Session,
-    request: Request,
-    session: DebateSession,
-    stage_changes: list[str],
+    context: DebateRuntimeContext,
+    transition: DebateStageTransition,
 ) -> AsyncIterator[str]:
-    for event in emit_stage_events(session, stage_changes):
+    for event in emit_stage_events(context.session, transition):
         yield event
 
-    if "judge_decision" not in stage_changes:
+    if not transition.enters_judge_decision:
         return
 
-    db.refresh(session, attribute_names=["turns", "participants"])
-    async for event in stream_judge_evaluation_events(request=request, session=session):
+    if transition.refresh_relations:
+        context.db.refresh(context.session, attribute_names=["turns", "participants"])
+    async for event in stream_judge_evaluation_events(
+        request=context.request,
+        session=context.session,
+    ):
         yield event
 
 
 async def stream_decision_summary_flow(
     *,
-    db: Session,
-    request: Request,
-    session: DebateSession,
+    context: DebateRuntimeContext,
 ) -> AsyncIterator[str]:
-    winner_side, judge_note = decision_summary_context(session)
+    winner_side, judge_note = decision_summary_context(context.session)
     summary_chunks: list[str] = []
     async for event in stream_decision_summary_events(
-        request=request,
-        session=session,
+        request=context.request,
+        session=context.session,
         judge_note=judge_note,
         winner_side=winner_side,
         summary_chunks=summary_chunks,
     ):
         yield event
 
-    persist_decision_summary(db=db, session=session, summary_chunks=summary_chunks)
+    persist_decision_summary(
+        db=context.db,
+        session=context.session,
+        summary_chunks=summary_chunks,
+    )

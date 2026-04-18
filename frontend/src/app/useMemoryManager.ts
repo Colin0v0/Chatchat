@@ -106,10 +106,10 @@ function toPayload(editor: MemoryEditorState): MemoryUpsertPayload {
 
 export function useMemoryManager({
   activeConversationId,
-  open,
+  enabled,
 }: {
   activeConversationId: number | null;
-  open: boolean;
+  enabled: boolean;
 }) {
   const [collection, setCollection] = useState<MemoryCollection>(createEmptyCollection);
   const [editor, setEditor] = useState<MemoryEditorState | null>(null);
@@ -140,11 +140,11 @@ export function useMemoryManager({
   }, [activeConversationId, loadGuard]);
 
   useEffect(() => {
-    if (!open) {
+    if (!enabled) {
       return;
     }
     void loadMemories();
-  }, [loadMemories, open]);
+  }, [enabled, loadMemories]);
 
   useEffect(() => {
     if (!editor || editor.scope !== "conversation") {
@@ -264,18 +264,14 @@ export function useMemoryManager({
     [loadMemories],
   );
 
-  const canCreateConversationMemory = activeConversationId != null;
   const hasMemories =
     collection.documents.length > 0 ||
     collection.active_items.global_items.length > 0 ||
-    collection.active_items.conversation_items.length > 0 ||
-    collection.active_items.working_items.length > 0 ||
     collection.candidate_items.global_items.length > 0 ||
     collection.candidate_items.conversation_items.length > 0;
 
   return useMemo(
     () => ({
-      canCreateConversationMemory,
       collection,
       editor,
       error,
@@ -285,7 +281,6 @@ export function useMemoryManager({
       onCancelEditing: cancelEditing,
       onChangeEditor: (patch: Record<string, unknown>) =>
         setEditor((current) => (current ? { ...current, ...patch } : current)),
-      onCreateConversationMemory: () => startCreate("conversation"),
       onCreateGlobalMemory: () => startCreate("global"),
       onDeleteMemory: (memoryId: number) => void removeMemory(memoryId),
       onDismissCandidate: (memoryId: number) => void dismissCandidate(memoryId),
@@ -295,7 +290,6 @@ export function useMemoryManager({
       onSaveEditing: () => void saveEditing(),
     }),
     [
-      canCreateConversationMemory,
       cancelEditing,
       collection,
       dismissCandidate,

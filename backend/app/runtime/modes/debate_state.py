@@ -20,6 +20,7 @@ from ...debate.common import (
 )
 from ...schemas import DebateJudgeDecisionIn
 from ...storage.models import DebateJudgeDecision, DebateSession, DebateTurn
+from .debate_runtime import DebateStageTransition
 
 
 def commit_session_state(db: Session, session: DebateSession, *, refresh_turns: bool = False) -> DebateSession:
@@ -32,8 +33,8 @@ def commit_session_state(db: Session, session: DebateSession, *, refresh_turns: 
     return session
 
 
-def emit_stage_events(session: DebateSession, stage_changes: list[str]) -> Iterator[str]:
-    for stage in stage_changes:
+def emit_stage_events(session: DebateSession, transition: DebateStageTransition) -> Iterator[str]:
+    for stage in transition.stage_changes:
         yield json.dumps(
             {"type": "stage_changed", "stage": stage, "status": session.status},
             ensure_ascii=False,
@@ -47,26 +48,33 @@ def emit_stage_events(session: DebateSession, stage_changes: list[str]) -> Itera
 def resolve_next_debate_participant(
     db: Session,
     session: DebateSession,
-) -> tuple[object | None, list[str]]:
+) -> tuple[object | None, DebateStageTransition]:
     participant, stage_changes = _resolve_next_participant(session)
     commit_session_state(db, session)
-    return participant, stage_changes
+    return participant, DebateStageTransition.from_stage_changes(stage_changes)
 
 
-def advance_after_speaker_turn(db: Session, session: DebateSession, completed_stage: str) -> list[str]:
+def advance_after_speaker_turn(
+    db: Session,
+    session: DebateSession,
+    completed_stage: str,
+) -> DebateStageTransition:
     stage_changes = _advance_after_generated_turn(session, completed_stage)
     commit_session_state(db, session)
-    return stage_changes
+    return DebateStageTransition.from_stage_changes(stage_changes)
 
 
-def maybe_advance_free_debate_after_question(db: Session, session: DebateSession) -> list[str]:
+def maybe_advance_free_debate_after_question(
+    db: Session,
+    session: DebateSession,
+) -> DebateStageTransition:
     state = _ensure_free_debate_state(session)
     if state is None or not _is_free_debate_over(session, state):
-        return []
+        return DebateStageTransition()
     session.stage = _next_stage(session, "free_debate")
     session.status = "running" if session.stage != "judge_decision" else "waiting_judge"
     commit_session_state(db, session)
-    return [session.stage]
+    return DebateStageTransition.from_stage_changes([session.stage])
 
 
 def create_judge_question_turn(db: Session, session: DebateSession, question: str) -> DebateTurn:

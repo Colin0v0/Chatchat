@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import gc
 import io
+import logging
 import os
 import tempfile
 import wave
+from contextlib import contextmanager
 from threading import Lock
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 from ..schemas import AudioTranscriptionOut
 from .ffmpeg import transcode_audio_to_wav
@@ -72,19 +74,38 @@ class AudioTranscriber:
             duration_ms=self._wav_duration_ms(wav_bytes),
         )
 
+    @contextmanager
+    def _suppress_third_party_info_logs(self) -> Iterator[None]:
+        targets = (
+            logging.getLogger(),
+            logging.getLogger("funasr"),
+            logging.getLogger("modelscope"),
+        )
+        original_levels: list[tuple[logging.Logger, int]] = []
+        for logger in targets:
+            if logger.getEffectiveLevel() < logging.WARNING:
+                original_levels.append((logger, logger.level))
+                logger.setLevel(logging.WARNING)
+        try:
+            yield
+        finally:
+            for logger, level in reversed(original_levels):
+                logger.setLevel(level)
+
     def _transcribe_wav(self, wav_bytes: bytes) -> str:
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_file:
             temp_file.write(wav_bytes)
             temp_path = temp_file.name
 
         try:
-            result = self._require_model().generate(
-                input=temp_path,
-                cache={},
-                language="auto",
-                use_itn=True,
-                batch_size=1,
-            )
+            with self._suppress_third_party_info_logs():
+                result = self._require_model().generate(
+                    input=temp_path,
+                    cache={},
+                    language="auto",
+                    use_itn=True,
+                    batch_size=1,
+                )
         except Exception as exc:
             raise RuntimeError(f"SenseVoice transcription failed: {exc}") from exc
         finally:
@@ -112,20 +133,22 @@ class AudioTranscriber:
 
     def _load_model(self, *, model_name: str, device: str) -> tuple[Any, Callable[[str], str]]:
         try:
-            from funasr import AutoModel
-            from funasr.utils.postprocess_utils import rich_transcription_postprocess
+            with self._suppress_third_party_info_logs():
+                from funasr import AutoModel
+                from funasr.utils.postprocess_utils import rich_transcription_postprocess
         except ImportError as exc:
             raise RuntimeError(
                 "funasr is required for audio transcription. Install backend dependencies first."
             ) from exc
 
         try:
-            model = AutoModel(
-                model=model_name,
-                disable_update=True,
-                device=device,
-                trust_remote_code=False,
-            )
+            with self._suppress_third_party_info_logs():
+                model = AutoModel(
+                    model=model_name,
+                    disable_update=True,
+                    device=device,
+                    trust_remote_code=False,
+                )
         except Exception as exc:
             raise AudioModelLoadError(
                 "Failed to load SenseVoice-Small. Ensure the model path is valid or the server can download it."

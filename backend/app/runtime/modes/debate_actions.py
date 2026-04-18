@@ -16,6 +16,7 @@ from .debate_policies import (
     resolve_question_target_sides,
     should_restore_pre_question_status,
 )
+from .debate_runtime import DebateRuntimeContext
 from .debate_stage_handlers import stream_decision_summary_flow, stream_stage_followup_events
 from .debate_steps import DebateStreamInterrupted
 from .debate_state import (
@@ -64,6 +65,7 @@ def _debate_trace(db: Session, session: DebateSession, action: str) -> RunTraceR
 
 
 async def debate_next_event_stream(*, db: Session, request: Request, session: DebateSession):
+    context = DebateRuntimeContext(db=db, request=request, session=session)
     trace = _debate_trace(db, session, "next")
     if debate_session_finished(session):
         line = trace.persist_failure_payload(
@@ -75,14 +77,12 @@ async def debate_next_event_stream(*, db: Session, request: Request, session: De
             yield line
         return
 
-    participant, stage_changes = resolve_next_debate_participant(db, session)
+    participant, transition = resolve_next_debate_participant(db, session)
 
     try:
         async for event in stream_stage_followup_events(
-            db=db,
-            request=request,
-            session=session,
-            stage_changes=stage_changes,
+            context=context,
+            transition=transition,
         ):
             yield trace.emit_ndjson_line(event)
     except DebateStreamInterrupted:
@@ -102,9 +102,7 @@ async def debate_next_event_stream(*, db: Session, request: Request, session: De
 
     try:
         async for event in stream_next_turn_rounds(
-            db=db,
-            request=request,
-            session=session,
+            context=context,
             participant=participant,
         ):
             yield trace.emit_ndjson_line(event)
@@ -129,6 +127,7 @@ async def debate_ask_event_stream(
     session: DebateSession,
     payload: DebateJudgeAskIn,
 ):
+    context = DebateRuntimeContext(db=db, request=request, session=session)
     trace = _debate_trace(db, session, "ask")
     if debate_session_finished(session):
         line = trace.persist_failure_payload(
@@ -151,14 +150,12 @@ async def debate_ask_event_stream(
     previous_status = session.status
 
     if session.stage == "free_debate":
-        stage_changes = maybe_advance_free_debate_after_question(db, session)
-        if stage_changes:
+        transition = maybe_advance_free_debate_after_question(db, session)
+        if transition:
             try:
                 async for event in stream_stage_followup_events(
-                    db=db,
-                    request=request,
-                    session=session,
-                    stage_changes=stage_changes,
+                    context=context,
+                    transition=transition,
                 ):
                     yield trace.emit_ndjson_line(event)
             except DebateStreamInterrupted:
@@ -176,9 +173,7 @@ async def debate_ask_event_stream(
 
     try:
         async for event in stream_question_reply_rounds(
-            db=db,
-            request=request,
-            session=session,
+            context=context,
             target_sides=target_sides,
             question_turn=question_turn,
             judge_question=payload.question.strip(),
@@ -209,6 +204,7 @@ async def debate_decision_event_stream(
     session: DebateSession,
     payload: DebateJudgeDecisionIn,
 ):
+    context = DebateRuntimeContext(db=db, request=request, session=session)
     trace = _debate_trace(db, session, "decision")
     resolved_winner, resolved_scoring = _normalize_decision_scoring(
         winner_side=payload.winner_side,
@@ -220,14 +216,13 @@ async def debate_decision_event_stream(
         scoring_json=resolved_scoring,
     )
     session = finalize_debate_decision(db, session, resolved_payload)
+    context.session = session
 
     yield trace.emit_ndjson_line(build_decision_saved_event(session))
 
     try:
         async for event in stream_decision_summary_flow(
-            db=db,
-            request=request,
-            session=session,
+            context=context,
         ):
             yield trace.emit_ndjson_line(event)
     except DebateStreamInterrupted:

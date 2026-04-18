@@ -550,9 +550,12 @@ export function useConversationStreams({
         return;
       }
 
-      // Only restore the original draft if the user hasn't started typing new content
-      if (!getCurrentDraft()) {
-        restoreDraft(session.restoreInput.content);
+      const shouldRestoreComposer = session.restoreInput.restoreToComposerOnStop !== false;
+      if (shouldRestoreComposer) {
+        // Only restore the original draft if the user hasn't started typing new content
+        if (!getCurrentDraft()) {
+          restoreDraft(session.restoreInput.content);
+        }
       }
       updateSessionConversation(conversationId, markAssistantDraftStopped);
       settleStreamSession(conversationId, "stopped");
@@ -563,12 +566,14 @@ export function useConversationStreams({
         upsertConversationSummary(stoppedSession.conversation);
       }
 
-      try {
-        restoreAttachments(await session.restoreInput.loadFiles());
-      } catch (restoreError) {
-        setError(
-          restoreError instanceof Error ? restoreError.message : "Failed to restore attachments.",
-        );
+      if (shouldRestoreComposer) {
+        try {
+          restoreAttachments(await session.restoreInput.loadFiles());
+        } catch (restoreError) {
+          setError(
+            restoreError instanceof Error ? restoreError.message : "Failed to restore attachments.",
+          );
+        }
       }
     },
     [

@@ -1,4 +1,4 @@
-import { ChevronDown, LogOut, MessageSquarePlus, PanelLeftOpen, Scale, Search, type LucideIcon } from "lucide-react";
+import { ChevronDown, LogOut, MessageSquarePlus, PanelLeftOpen, Scale, type LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { AppLogo } from "../AppLogo";
@@ -14,9 +14,9 @@ interface SidebarActionProps {
   onClick?: () => void;
 }
 
-function SidebarTooltip({ label }: { label: string }) {
+export function SidebarTooltip({ label }: { label: string }) {
   return (
-    <div className="pointer-events-none absolute left-[calc(100%+10px)] top-1/2 z-30 -translate-y-1/2 whitespace-nowrap rounded-lg bg-app-accent px-3 py-2 text-[13px] font-medium text-white opacity-0 shadow-[0_10px_24px_rgba(59,43,28,0.18)] transition duration-150 group-hover:opacity-100">
+    <div className="pointer-events-none absolute left-[calc(100%+10px)] top-1/2 z-30 -translate-y-1/2 whitespace-nowrap rounded-lg border border-app-border bg-app-panel px-3 py-2 text-[13px] font-medium text-app-text opacity-0 shadow-[0_10px_24px_rgba(59,43,28,0.12)] transition duration-150 group-hover:opacity-100">
       <span>{label}</span>
     </div>
   );
@@ -70,7 +70,7 @@ export function SidebarAction({
   return (
     <button
       className={cn(
-        "flex h-12 items-center rounded-[8px] border border-app-border bg-app-panel-strong",
+        "flex h-12 items-center rounded-[8px]",
         "text-[15px] font-medium tracking-[-0.02em] text-app-text transition-colors",
         "hover:bg-app-panel-soft focus:outline-none focus-visible:outline-none focus-visible:ring-0",
         alignToRail ? "pl-0 pr-4" : "gap-3 px-4",
@@ -87,27 +87,20 @@ export function SidebarAction({
 export function SidebarBrand({
   compact = false,
   title = "Chatchat",
-  onIconClick,
 }: {
   compact?: boolean;
   title?: string;
-  onIconClick?: () => void;
 }) {
   return (
     <div className="flex min-w-0 items-center gap-3">
-      <button
-        aria-label="Open settings"
-        className="flex h-9 w-9 shrink-0 items-center justify-center text-[#13227a]"
-        onClick={onIconClick}
-        type="button"
-      >
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center text-[#13227a]">
         <AppLogo className="h-[22px] w-[22px]" />
-      </button>
+      </div>
       {!compact ? (
         <div className="min-w-0">
           <div className="truncate text-[15px] font-semibold tracking-[-0.02em]">{title}</div>
           <div className="truncate text-[13px] tracking-[0.08em] text-app-muted lowercase">
-            reasoning workspace
+            personal workspace
           </div>
         </div>
       ) : null}
@@ -127,12 +120,12 @@ export function DesktopPinnedAction({
   onClick: () => void;
 }) {
   return (
-    <div className="group relative h-12">
+    <div className="group relative h-[38.5px]">
       <button
         aria-label={label}
         className={cn(
           sidebarIconButtonClass,
-          "absolute inset-y-0 left-0 z-20 h-12 w-9",
+          "absolute inset-y-0 left-0 z-20 h-[38.5px] w-10",
           SIDEBAR_MOTION,
           open ? "pointer-events-none opacity-0" : "opacity-100",
         )}
@@ -145,10 +138,10 @@ export function DesktopPinnedAction({
       <button
         aria-hidden={!open}
         className={cn(
-          "absolute inset-y-0 left-0 w-full overflow-hidden rounded-[8px] border border-app-border bg-app-panel-strong text-left text-app-muted",
+          "absolute inset-y-0 left-0 w-full overflow-hidden rounded-[8px] text-left text-app-muted",
           "transition-[background-color,color,opacity]",
           SIDEBAR_MOTION,
-          open ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0",
+          open ? "pointer-events-auto opacity-100 hover:bg-app-panel-soft hover:text-app-text" : "pointer-events-none opacity-0",
         )}
         onClick={onClick}
         tabIndex={open ? 0 : -1}
@@ -230,10 +223,15 @@ export function SidebarCreateMenu({
         aria-haspopup="menu"
         aria-hidden={!compact}
         className={cn(
-          "absolute inset-y-0 left-0 w-full overflow-hidden rounded-[8px] border border-app-border bg-app-panel-strong text-left text-app-muted",
+          "absolute inset-y-0 left-0 w-full overflow-hidden rounded-[8px] text-left text-app-muted",
           "transition-[background-color,color,opacity]",
           SIDEBAR_MOTION,
-          compact ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0",
+          compact
+            ? cn(
+                "pointer-events-auto opacity-100",
+                menuOpen ? "bg-app-panel-soft text-app-text" : "hover:bg-app-panel-soft hover:text-app-text",
+              )
+            : "pointer-events-none opacity-0",
         )}
         onClick={() => setMenuOpen((current) => !current)}
         tabIndex={compact ? 0 : -1}
@@ -249,26 +247,32 @@ export function SidebarCreateMenu({
       {menuOpen ? (
         <div className={menuClassName}>
           <button
-            className={`${sidebarMenuItemClass} w-full px-3 text-app-text hover:text-app-accent-strong`}
+            className={`${sidebarMenuItemClass} min-h-12 w-full gap-0 px-0 py-0 text-app-text hover:text-app-accent-strong`}
             onClick={() => {
               setMenuOpen(false);
               onNewChat();
             }}
             type="button"
           >
-            <MessageSquarePlus className="size-4 text-app-muted" />
-            <span>新建聊天</span>
+            <span className="flex h-full w-full items-center whitespace-nowrap pl-0 pr-4 text-[15px] tracking-[-0.02em]">
+              <IconSlot alignToRail icon={<MessageSquarePlus className="size-4" />} />
+              <span>新建聊天</span>
+              <span aria-hidden="true" className="ml-auto size-4 shrink-0" />
+            </span>
           </button>
           <button
-            className={`${sidebarMenuItemClass} w-full px-3 text-app-text hover:text-app-accent-strong`}
+            className={`${sidebarMenuItemClass} min-h-12 w-full gap-0 px-0 py-0 text-app-text hover:text-app-accent-strong`}
             onClick={() => {
               setMenuOpen(false);
               onNewDebate();
             }}
             type="button"
           >
-            <Scale className="size-4 text-app-muted" />
-            <span>发起辩论</span>
+            <span className="flex h-full w-full items-center whitespace-nowrap pl-0 pr-4 text-[15px] tracking-[-0.02em]">
+              <IconSlot alignToRail icon={<Scale className="size-4" />} />
+              <span>发起辩论</span>
+              <span aria-hidden="true" className="ml-auto size-4 shrink-0" />
+            </span>
           </button>
         </div>
       ) : null}
@@ -280,70 +284,30 @@ export function SidebarCreateMenu({
 
 export function DesktopPinnedHeader({
   open,
-  onNewChat,
-  onNewDebate,
-  onSearch,
-  onQueryChange,
-  onOpenSettings,
-  query,
   title,
 }: {
   open: boolean;
-  onNewChat: () => void;
-  onNewDebate: () => void;
-  onSearch: () => void;
-  onQueryChange: (value: string) => void;
-  onOpenSettings: () => void;
-  query: string;
   title: string;
 }) {
   return (
     <div className="absolute top-4 right-2 left-[10px] z-10">
       <div className="relative h-9">
         <div className="absolute inset-y-0 left-0 flex items-center">
-          <SidebarBrand compact onIconClick={onOpenSettings} title={title} />
+          <SidebarBrand compact title={title} />
         </div>
 
         <div
           aria-hidden={!open}
           className={cn(
-            "min-w-0 pl-12 transition-opacity",
-            SIDEBAR_MOTION,
-            open ? "opacity-100" : "pointer-events-none opacity-0",
+            "min-w-0 overflow-hidden whitespace-nowrap",
+            open ? "max-w-[220px] pl-12 opacity-100" : "pointer-events-none max-w-0 pl-0 opacity-0",
           )}
         >
           <div className="truncate text-[15px] font-semibold tracking-[-0.02em]">{title}</div>
           <div className="truncate text-[13px] tracking-[0.08em] text-app-muted lowercase">
-            reasoning workspace
+            personal workspace
           </div>
         </div>
-      </div>
-
-      <div className="mt-4 flex flex-col gap-3">
-        <SidebarCreateMenu
-          compact={open}
-          label="New chat"
-          menuPlacement={open ? "bottom" : "right"}
-          onNewChat={onNewChat}
-          onNewDebate={onNewDebate}
-        />
-        {open ? (
-          <SidebarAction
-            icon={<Search className="size-4" />}
-            alignToRail
-            isInput
-            label="Search chats"
-            onChange={onQueryChange}
-            value={query}
-          />
-        ) : (
-          <DesktopPinnedAction
-            icon={<Search className="size-4" />}
-            label="Search chats"
-            onClick={onSearch}
-            open={open}
-          />
-        )}
       </div>
     </div>
   );
@@ -402,13 +366,14 @@ export function DesktopSidebarFooter({
         aria-label={open ? "Collapse sidebar" : "Expand sidebar"}
         className={cn(
           sidebarIconButtonClass,
+          "text-app-text hover:text-app-text",
           "absolute top-0 left-0 h-9 w-9",
           SIDEBAR_MOTION,
         )}
         onClick={onToggle}
         type="button"
       >
-        <PanelLeftOpen className={cn("size-4 transition-transform", SIDEBAR_MOTION, open && "rotate-180")} />
+        <PanelLeftOpen className="size-4" />
       </button>
 
       {onLogout ? (
@@ -461,5 +426,3 @@ export function DesktopSidebarToggle({ open, onToggle }: { open: boolean; onTogg
 export function SidebarIcon({ icon: Icon }: { icon: LucideIcon }) {
   return <Icon className="size-4" />;
 }
-
-export { Search };

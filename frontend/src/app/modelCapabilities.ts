@@ -4,6 +4,17 @@ function hasCapabilityData(model: ModelOption): boolean {
   return Boolean(model.capabilities);
 }
 
+function normalizeModelBrandSource(model: ModelOption): string {
+  return [model.id, model.label, model.chat_model, model.reasoning_model, model.provider_name, model.provider_family]
+    .filter((value): value is string => typeof value === "string" && value.length > 0)
+    .join(" ")
+    .toLowerCase();
+}
+
+function isDeepSeekModel(model: ModelOption): boolean {
+  return normalizeModelBrandSource(model).includes("deepseek");
+}
+
 export function reasoningDisplayLabel(model: ModelOption): string | null {
   const reasoning = model.capabilities?.reasoning;
   if (reasoning) {
@@ -45,6 +56,10 @@ export function nativeMultimodalLabel(model: ModelOption): string | null {
 }
 
 export function providerBadgeLabel(model: ModelOption): string | null {
+  if (isDeepSeekModel(model)) {
+    return "DeepSeek";
+  }
+
   const provider = model.provider_name?.trim();
   if (!provider) {
     return null;

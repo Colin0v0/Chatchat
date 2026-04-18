@@ -289,6 +289,7 @@ export interface DebateDecisionRequest {
 export interface RegenerateChatRequest {
   conversation_id: number;
   assistant_message_id: number;
+  edited_content?: string | null;
   model?: string | null;
   tool_mode: ToolMode;
   reasoning_profile?: ReasoningProfileValue | null;
