@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from typing import Any
-
-from .base import ModeStream, RuntimeMode, UnsupportedModeActionError
+from ..requests import DebateAskRequest, DebateDecisionRequest, DebateNextRequest, ModeActionRequest
+from .base import ModeStream, RuntimeMode
 from .debate_actions import (
     debate_ask_event_stream,
     debate_decision_event_stream,
@@ -14,14 +13,30 @@ class DebateRuntimeMode(RuntimeMode):
     mode_name = "debate"
     supported_actions = frozenset({"next", "ask", "decision"})
 
-    def stream(self, action: str, /, **kwargs: Any) -> ModeStream:
+    def stream(self, action: str, /, *, request: ModeActionRequest | None = None) -> ModeStream:
+        self.ensure_supported_action(action)
         if action == "next":
-            return debate_next_event_stream(**kwargs)
+            debate_request = self.require_request(request, DebateNextRequest)
+            return debate_next_event_stream(
+                db=debate_request.db,
+                request=debate_request.request,
+                session=debate_request.session,
+            )
         if action == "ask":
-            return debate_ask_event_stream(**kwargs)
-        if action == "decision":
-            return debate_decision_event_stream(**kwargs)
-        raise UnsupportedModeActionError(f"Unsupported action for debate mode: {action}")
+            debate_request = self.require_request(request, DebateAskRequest)
+            return debate_ask_event_stream(
+                db=debate_request.db,
+                request=debate_request.request,
+                session=debate_request.session,
+                payload=debate_request.payload,
+            )
+        debate_request = self.require_request(request, DebateDecisionRequest)
+        return debate_decision_event_stream(
+            db=debate_request.db,
+            request=debate_request.request,
+            session=debate_request.session,
+            payload=debate_request.payload,
+        )
 
 
 debate_mode = DebateRuntimeMode()

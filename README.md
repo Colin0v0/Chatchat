@@ -52,9 +52,8 @@ cd backend
 首次启动空的开发库时，脚本会自动：
 
 - 创建 `vector` / `pg_trgm` 扩展
-- 按当前 ORM 建表
-- 补知识库检索索引
-- `stamp` 到当前 Alembic head
+- 运行 Alembic baseline / head migration
+- 对旧的未版本化 PostgreSQL schema 补齐迁移
 
 这套开发环境默认使用：
 

@@ -38,6 +38,7 @@ async def stream_model_response(
         model=model,
         messages=normalized_history,
         reasoning_profile=reasoning_profile,
+        reasoning_visibility=profile.capabilities.reasoning_visibility,
     )
 
     show_reasoning = reasoning_profile != "off"

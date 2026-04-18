@@ -16,6 +16,8 @@ const EMPTY_LOGIN_ERROR: LoginErrorState = {
   username: null,
 };
 
+const SESSION_BOOTSTRAP_TIMEOUT_MS = 8000;
+
 function toLoginErrorState(error: unknown): LoginErrorState {
   if (error instanceof ApiError) {
     if (error.code === "user_not_found") {
@@ -29,6 +31,24 @@ function toLoginErrorState(error: unknown): LoginErrorState {
   return { ...EMPTY_LOGIN_ERROR, form: "登录失败" };
 }
 
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === "AbortError";
+}
+
+function createBootstrapTimeoutError(): LoginErrorState {
+  return {
+    ...EMPTY_LOGIN_ERROR,
+    form: "连接后端超时。请确认后端服务已启动，再刷新页面。",
+  };
+}
+
+function createBootstrapNetworkError(): LoginErrorState {
+  return {
+    ...EMPTY_LOGIN_ERROR,
+    form: "无法连接后端服务。请确认后端 8050 端口正常运行后重试。",
+  };
+}
+
 export function useAuthSession() {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isBootstrapping, setIsBootstrapping] = useState(true);
@@ -40,8 +60,10 @@ export function useAuthSession() {
   const refreshSession = useCallback(async () => {
     const requestId = bootstrapGuard.begin();
     setIsBootstrapping(true);
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), SESSION_BOOTSTRAP_TIMEOUT_MS);
     try {
-      const session = await fetchSession();
+      const session = await fetchSession({ signal: controller.signal });
       if (!bootstrapGuard.isCurrent(requestId)) {
         return;
       }
@@ -55,8 +77,15 @@ export function useAuthSession() {
         console.warn("Failed to restore session.", error);
       }
       setUser(null);
-      setAuthError(EMPTY_LOGIN_ERROR);
+      if (isAbortError(error)) {
+        setAuthError(createBootstrapTimeoutError());
+      } else if (error instanceof TypeError) {
+        setAuthError(createBootstrapNetworkError());
+      } else {
+        setAuthError(EMPTY_LOGIN_ERROR);
+      }
     } finally {
+      window.clearTimeout(timeoutId);
       if (bootstrapGuard.isCurrent(requestId)) {
         setIsBootstrapping(false);
       }

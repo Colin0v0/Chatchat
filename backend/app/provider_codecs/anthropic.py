@@ -5,6 +5,37 @@ import json
 from ..chat.types import ChatDocumentPayload, ChatImagePayload, ChatMessagePayload
 
 
+def _normalize_reasoning_profile(reasoning_profile: str | None) -> str:
+    return (reasoning_profile or "").strip().lower()
+
+
+def _anthropic_budget_tokens(reasoning_profile: str | None) -> int | None:
+    normalized = _normalize_reasoning_profile(reasoning_profile)
+    if normalized in {"", "off"}:
+        return None
+    if normalized in {"auto", "provider_default"}:
+        return 1536
+    if normalized == "low":
+        return 1024
+    if normalized == "medium":
+        return 1536
+    if normalized == "high":
+        return 2048
+    if normalized == "max":
+        return 3072
+    return 1536
+
+
+def apply_anthropic_reasoning_controls(payload: dict[str, object], *, reasoning_profile: str | None) -> None:
+    budget_tokens = _anthropic_budget_tokens(reasoning_profile)
+    if budget_tokens is None:
+        return
+    payload["thinking"] = {
+        "type": "enabled",
+        "budget_tokens": budget_tokens,
+    }
+
+
 def _claude_image_part(image: ChatImagePayload) -> dict[str, object]:
     _, _, encoded = image.data_url.partition(",")
     if not encoded:
@@ -41,7 +72,13 @@ def _claude_content_blocks(message: ChatMessagePayload) -> list[dict[str, object
     return blocks
 
 
-def claude_request_payload(messages: list[ChatMessagePayload], *, max_tokens: int, stream: bool) -> dict[str, object]:
+def claude_request_payload(
+    messages: list[ChatMessagePayload],
+    *,
+    max_tokens: int,
+    stream: bool,
+    reasoning_profile: str | None = None,
+) -> dict[str, object]:
     system_parts: list[str] = []
     chat_messages: list[dict[str, object]] = []
 
@@ -68,6 +105,7 @@ def claude_request_payload(messages: list[ChatMessagePayload], *, max_tokens: in
     }
     if system_parts:
         payload["system"] = "\n\n".join(system_parts)
+    apply_anthropic_reasoning_controls(payload, reasoning_profile=reasoning_profile)
     return payload
 
 
@@ -138,4 +176,3 @@ def _decode_claude_stream_payload(payload: str) -> dict[str, object]:
         raise RuntimeError(message or "Claude service returned a streaming error event.")
 
     return {}
-

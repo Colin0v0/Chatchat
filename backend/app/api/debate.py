@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
@@ -14,6 +12,7 @@ from ..application import (
 from ..auth import require_current_user
 from ..core.config import settings
 from ..debate.common import build_debate_session_detail, load_debate_session_for_user
+from ..debate.config import DebateSessionConfig
 from ..providers import resolve_model_profile
 from ..schemas import (
     DebateJudgeAskIn,
@@ -94,21 +93,7 @@ def create_debate_session(
         topic=topic,
         status="created",
         stage="opening",
-        config_json=json.dumps(
-            {
-                "style": payload.style,
-                "pro_style": payload.pro_style,
-                "con_style": payload.con_style,
-                "tool_mode": payload.tool_mode,
-                "judge_model_id": payload.judge_model_id,
-                "free_debate_enabled": payload.free_debate_enabled,
-                "opening_budget_ms": payload.opening_duration_sec * 1000,
-                "rebuttal_budget_ms": payload.rebuttal_duration_sec * 1000,
-                "free_debate_budget_ms": payload.free_debate_duration_sec * 1000,
-                "closing_budget_ms": payload.closing_duration_sec * 1000,
-            },
-            ensure_ascii=False,
-        ),
+        config_json=DebateSessionConfig.from_create_payload(payload).to_json(),
     )
     db.add(session)
     db.flush()

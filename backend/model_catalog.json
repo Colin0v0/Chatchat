@@ -59,8 +59,10 @@
         "reasoning": {
           "control": "none",
           "default_profile": "off",
-          "visible_trace": false,
-          "summary_only": false
+          "visibility": "summary",
+          "continuation": "signature",
+          "visible_trace": true,
+          "summary_only": true
         },
         "tools": {
           "function_calling": true,
@@ -104,8 +106,10 @@
           "remote_url": true
         },
         "reasoning": {
-          "control": "effort",
-          "default_profile": "medium",
+          "control": "none",
+          "default_profile": "off",
+          "visibility": "full",
+          "continuation": "stateful",
           "visible_trace": true,
           "summary_only": false
         },
@@ -151,10 +155,13 @@
           "remote_url": true
         },
         "reasoning": {
-          "control": "none",
-          "default_profile": "off",
-          "visible_trace": false,
-          "summary_only": false
+          "control": "budget",
+          "default_profile": "medium",
+          "supported_profiles": ["auto", "off", "low", "medium", "high", "max"],
+          "visibility": "summary",
+          "continuation": "signature",
+          "visible_trace": true,
+          "summary_only": true
         },
         "tools": {
           "function_calling": true,
@@ -210,7 +217,7 @@
         },
         "stream": {
           "text": true,
-          "reasoning": false,
+          "reasoning": true,
           "tool_call": true,
           "usage": false
         },
@@ -294,6 +301,9 @@
         "reasoning": {
           "control": "toggle",
           "default_profile": "medium",
+          "supported_profiles": ["auto", "off", "medium"],
+          "visibility": "full",
+          "continuation": "stateful",
           "visible_trace": true,
           "summary_only": false
         },
@@ -341,6 +351,9 @@
         "reasoning": {
           "control": "toggle",
           "default_profile": "medium",
+          "supported_profiles": ["auto", "off", "medium"],
+          "visibility": "full",
+          "continuation": "stateful",
           "visible_trace": true,
           "summary_only": false
         },
@@ -387,8 +400,11 @@
         },
         "reasoning": {
           "control": "effort",
-          "default_profile": "off",
-          "visible_trace": false,
+          "default_profile": "medium",
+          "supported_profiles": ["auto", "low", "medium", "high", "max"],
+          "visibility": "summary",
+          "continuation": "stateful",
+          "visible_trace": true,
           "summary_only": true
         },
         "tools": {
@@ -434,8 +450,11 @@
         },
         "reasoning": {
           "control": "effort",
-          "default_profile": "off",
-          "visible_trace": false,
+          "default_profile": "medium",
+          "supported_profiles": ["auto", "low", "medium", "high", "max"],
+          "visibility": "summary",
+          "continuation": "stateful",
+          "visible_trace": true,
           "summary_only": true
         },
         "tools": {
@@ -480,10 +499,13 @@
           "remote_url": false
         },
         "reasoning": {
-          "control": "none",
-          "default_profile": "off",
-          "visible_trace": false,
-          "summary_only": false
+          "control": "effort",
+          "default_profile": "auto",
+          "supported_profiles": ["auto", "low", "high"],
+          "visibility": "summary",
+          "continuation": "signature",
+          "visible_trace": true,
+          "summary_only": true
         },
         "tools": {
           "function_calling": true,
@@ -492,7 +514,7 @@
         },
         "stream": {
           "text": true,
-          "reasoning": false,
+          "reasoning": true,
           "tool_call": true,
           "usage": false
         },

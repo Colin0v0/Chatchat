@@ -4,9 +4,16 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 interface ThinkingPanelProps {
   trace: string;
   streaming?: boolean;
+  streamingLabel?: string;
+  settledLabel?: string;
 }
 
-export function ThinkingPanel({ trace, streaming = false }: ThinkingPanelProps) {
+export function ThinkingPanel({
+  trace,
+  streaming = false,
+  streamingLabel = "思考中",
+  settledLabel = "已思考",
+}: ThinkingPanelProps) {
   const [expanded, setExpanded] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const stickToBottomRef = useRef(true);
@@ -76,7 +83,7 @@ export function ThinkingPanel({ trace, streaming = false }: ThinkingPanelProps) 
               : "inline-flex shrink-0 whitespace-nowrap text-[15px] leading-[1.4] tracking-[0.01em] text-app-muted/80"
           }
         >
-          {streaming ? "思考中" : "已思考"}
+          {streaming ? streamingLabel : settledLabel}
         </span>
         {streaming ? (
           <span aria-hidden="true" className="inline-flex shrink-0 items-center gap-1.25 self-center">

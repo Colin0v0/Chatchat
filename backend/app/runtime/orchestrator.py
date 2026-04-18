@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
-from datetime import datetime
 
 import httpx
 from fastapi import Request
@@ -15,7 +13,6 @@ from ..chat.strategy import choose_context_strategy
 from ..chat.state import ChatServices
 from ..providers import resolve_model_profile, resolve_reasoning_profile
 from ..runtime.events import (
-    CanonicalEvent,
     completed_event,
     context_event,
     failed_event,
@@ -26,35 +23,22 @@ from ..runtime.events import (
     status_event,
 )
 from ..runtime.model_runner import stream_model_response
+from ..runtime.run_trace import RunTraceRecorder
 from ..runtime.stream_codec import encode_ndjson_event
 from ..storage.database import SessionLocal
-from ..storage.models import Conversation, Run, RunEvent
+from ..storage.models import Conversation
+from ..tools import ToolContextBuildRequest, ToolPlanRequest
+from ..tools.policy import ToolPolicy
 
 logger = logging.getLogger("chatchat.runtime")
-
-
-def _append_run_event(buffer: list[RunEvent], run_id: int, event: CanonicalEvent) -> None:
-    buffer.append(
-        RunEvent(
-            run_id=run_id,
-            sequence_no=len(buffer) + 1,
-            event_type=event.kind,
-            payload_json=json.dumps(event.payload, ensure_ascii=False),
-        )
-    )
-
-
-def _serialize_event(buffer: list[RunEvent], run_id: int, event: CanonicalEvent) -> str | None:
-    _append_run_event(buffer, run_id, event)
-    return encode_ndjson_event(event)
 
 
 def tool_status_items(*, plan, include_file_context: bool) -> list[str]:
     if include_file_context:
         return ["Reading files"]
-    if plan.mode == "knowledge":
+    if "knowledge" in plan.requested_tools:
         return ["Reading notes"]
-    if plan.mode == "search":
+    if "search" in plan.requested_tools:
         return ["Searching"]
     return []
 
@@ -82,7 +66,7 @@ async def stream_chat_run(
     model: str,
     history_message_ids: list[int],
     query: str,
-    tool_mode,
+    tool_policy: ToolPolicy,
     requested_reasoning: bool | None = None,
     requested_reasoning_profile: str | None = None,
 ):
@@ -95,7 +79,7 @@ async def stream_chat_run(
 
     run_db = SessionLocal()
     reservation = None
-    buffered_events: list[RunEvent] = []
+    trace: RunTraceRecorder | None = None
     try:
         conversation = run_db.get(Conversation, conversation_id)
         if conversation is None:
@@ -106,7 +90,8 @@ async def stream_chat_run(
             requested_reasoning,
             requested_profile=requested_reasoning_profile,
         )
-        run = Run(
+        trace = RunTraceRecorder.create(
+            db=run_db,
             conversation_id=conversation_id,
             user_id=conversation.user_id,
             request_message_id=message_id,
@@ -114,22 +99,16 @@ async def stream_chat_run(
             model_id=profile.id,
             provider_family=profile.provider_family,
             reasoning_profile=reasoning_profile,
-            status="running",
-            metadata_json=json.dumps({"tool_mode": tool_mode}, ensure_ascii=False),
+            metadata=tool_policy.to_metadata(),
         )
-        run_db.add(run)
-        run_db.commit()
-        run_db.refresh(run)
 
-        meta_line = _serialize_event(
-            buffered_events,
-            run.id,
+        meta_line = trace.emit(
             meta_event(
                 conversation_id=conversation_id,
                 message_id=message_id,
                 model=profile.id,
-                run_id=run.id,
-            ),
+                run_id=trace.run_id,
+            )
         )
         if meta_line:
             yield meta_line
@@ -143,7 +122,7 @@ async def stream_chat_run(
 
         strategy = choose_context_strategy(
             query=query,
-            tool_mode=tool_mode,
+            tool_policy=tool_policy,
             has_conversation_attachments=any(message.attachments for message in all_history_messages),
             default_history_budget=history_budget,
             default_summary_budget=summary_budget,
@@ -158,11 +137,15 @@ async def stream_chat_run(
         message_history_service = MessageHistoryService(run_db, services.attachment_context_service)
         needs_retrieval_grounding = (
             include_file_context
-            and tool_mode != "none"
+            and tool_policy.is_enabled
             and message_history_service.needs_retrieval_grounding(model=model, messages=history_window.recent_messages)
         )
+        should_build_file_context = (
+            profile.native_multimodal_mode == "false"
+            and include_file_context
+        ) or needs_retrieval_grounding
         if message_history_service.needs_image_text(model=model, messages=history_window.recent_messages) or needs_retrieval_grounding:
-            line = _serialize_event(buffered_events, run.id, status_event(["Reading attachments"]))
+            line = trace.emit(status_event(["Reading attachments"]))
             if line:
                 yield line
 
@@ -172,7 +155,7 @@ async def stream_chat_run(
             messages=history_window.recent_messages,
         )
         if prepared_history.used_image_text or prepared_retrieval_history.used_image_text:
-            line = _serialize_event(buffered_events, run.id, status_event([]))
+            line = trace.emit(status_event([]))
             if line:
                 yield line
 
@@ -184,32 +167,36 @@ async def stream_chat_run(
             query=query or retrieval_query,
         )
         tool_plan = services.tool_runtime.plan_context(
-            query=retrieval_query,
-            tool_mode=tool_mode,
+            request=ToolPlanRequest(
+                query=retrieval_query,
+                tool_policy=tool_policy,
+            ),
         )
-        status_items = tool_status_items(plan=tool_plan, include_file_context=include_file_context)
+        status_items = tool_status_items(plan=tool_plan, include_file_context=should_build_file_context)
         if status_items:
-            line = _serialize_event(buffered_events, run.id, status_event(status_items))
+            line = trace.emit(status_event(status_items))
             if line:
                 yield line
 
         prompt_context = await services.tool_runtime.build_context_payload(
-            db=run_db,
-            user_id=conversation.user_id or 0,
-            query=query or retrieval_query,
-            plan=tool_plan,
-            retrieval_messages=prepared_retrieval_history.messages,
-            conversation_messages=all_history_messages,
-            include_file_context=include_file_context,
-            include_image_context=include_image_context,
+            request=ToolContextBuildRequest(
+                db=run_db,
+                user_id=conversation.user_id or 0,
+                query=query or retrieval_query,
+                plan=tool_plan,
+                retrieval_messages=prepared_retrieval_history.messages,
+                conversation_messages=all_history_messages,
+                include_file_context=should_build_file_context,
+                include_image_context=include_image_context,
+            ),
         )
         if status_items:
-            line = _serialize_event(buffered_events, run.id, status_event([]))
+            line = trace.emit(status_event([]))
             if line:
                 yield line
 
         if prompt_context.sources:
-            line = _serialize_event(buffered_events, run.id, sources_event(prompt_context.sources))
+            line = trace.emit(sources_event(prompt_context.sources))
             if line:
                 yield line
 
@@ -221,36 +208,20 @@ async def stream_chat_run(
                 sources=[],
                 context_payload=None,
             )
-            run.response_message_id = assistant_message.id
-            run.status = "completed"
-            run.completed_at = datetime.utcnow()
-            run_db.add(run)
-            _append_run_event(buffered_events, run.id, output_text_delta_event(prompt_context.refusal_message))
-            _append_run_event(
-                buffered_events,
-                run.id,
-                completed_event(
-                    assistant_message_id=assistant_message.id,
-                    conversation_title=conversation.title,
-                    content=prompt_context.refusal_message,
-                    run_id=run.id,
-                ),
+            terminal_lines = trace.persist_completion(
+                response_message_id=assistant_message.id,
+                terminal_events=[
+                    output_text_delta_event(prompt_context.refusal_message),
+                    completed_event(
+                        assistant_message_id=assistant_message.id,
+                        conversation_title=conversation.title,
+                        content=prompt_context.refusal_message,
+                        run_id=trace.run_id,
+                    ),
+                ],
             )
-            run_db.add_all(buffered_events)
-            run_db.commit()
-
-            for event in (
-                output_text_delta_event(prompt_context.refusal_message),
-                completed_event(
-                    assistant_message_id=assistant_message.id,
-                    conversation_title=conversation.title,
-                    content=prompt_context.refusal_message,
-                    run_id=run.id,
-                ),
-            ):
-                line = encode_ndjson_event(event)
-                if line:
-                    yield line
+            for line in terminal_lines:
+                yield line
             return
 
         prompt_composition = build_prompt_composition(
@@ -263,19 +234,19 @@ async def stream_chat_run(
         )
         hydrated_history = [*prompt_composition.prefix_messages, *prepared_history.messages]
         if prompt_composition.inspection.get("sections"):
-            line = _serialize_event(buffered_events, run.id, context_event(prompt_composition.inspection))
+            line = trace.emit(context_event(prompt_composition.inspection))
             if line:
                 yield line
 
         reservation = await services.model_execution_coordinator.reserve(model)
         if reservation.queued:
-            line = _serialize_event(buffered_events, run.id, status_event(["Waiting for model"]))
+            line = trace.emit(status_event(["Waiting for model"]))
             if line:
                 yield line
 
         await wait_for_model_turn(request=request, reservation=reservation)
         if reservation.queued:
-            line = _serialize_event(buffered_events, run.id, status_event([]))
+            line = trace.emit(status_event([]))
             if line:
                 yield line
 
@@ -289,14 +260,14 @@ async def stream_chat_run(
         ):
             if chunk.reasoning_delta:
                 reasoning_chunks.append(chunk.reasoning_delta)
-                line = _serialize_event(buffered_events, run.id, reasoning_delta_event(chunk.reasoning_delta))
+                line = trace.emit(reasoning_delta_event(chunk.reasoning_delta))
                 if line:
                     yield line
                 continue
 
             if chunk.output_text_delta:
                 answer_chunks.append(chunk.output_text_delta)
-                line = _serialize_event(buffered_events, run.id, output_text_delta_event(chunk.output_text_delta))
+                line = trace.emit(output_text_delta_event(chunk.output_text_delta))
                 if line:
                     yield line
                 continue
@@ -321,33 +292,28 @@ async def stream_chat_run(
             response_model=model,
         )
 
-        run.response_message_id = assistant_message.id
-        run.status = "completed"
-        run.completed_at = datetime.utcnow()
-        run_db.add(run)
-        _append_run_event(
-            buffered_events,
-            run.id,
-            completed_event(
-                assistant_message_id=assistant_message.id,
-                conversation_title=conversation.title,
-                content=full_response,
-                run_id=run.id,
-            ),
+        done_event = completed_event(
+            assistant_message_id=assistant_message.id,
+            conversation_title=conversation.title,
+            content=full_response,
+            run_id=trace.run_id,
         )
-        run_db.add_all(buffered_events)
-        run_db.commit()
-
-        done_line = encode_ndjson_event(
-            completed_event(
-                assistant_message_id=assistant_message.id,
-                conversation_title=conversation.title,
-                content=full_response,
-                run_id=run.id,
-            )
-        )
+        done_line = encode_ndjson_event(done_event)
         if done_line:
             yield done_line
+        try:
+            trace.persist_completion_state(
+                response_message_id=assistant_message.id,
+                terminal_events=[done_event],
+            )
+        except Exception:
+            run_db.rollback()
+            logger.exception(
+                "runtime chat completion trace persist failed | conversation_id=%s | message_id=%s | model=%s",
+                conversation_id,
+                message_id,
+                model,
+            )
     except httpx.HTTPError as exc:
         run_db.rollback()
         details = str(exc).strip() or exc.__class__.__name__
@@ -355,16 +321,15 @@ async def stream_chat_run(
             "Model service connection failed. Check service URL, API key, and model name. "
             f"Details: {details}"
         )
-        if "run" in locals():
-            run.status = "failed"
-            run.error_code = exc.__class__.__name__
-            run.error_message = message
-            run.completed_at = datetime.utcnow()
-            run_db.add(run)
-            _append_run_event(buffered_events, run.id, failed_event(message))
-            run_db.add_all(buffered_events)
-            run_db.commit()
-        line = encode_ndjson_event(failed_event(message))
+        line = (
+            trace.persist_failure(
+                error_code=exc.__class__.__name__,
+                error_message=message,
+                failure_event=failed_event(message),
+            )
+            if trace is not None
+            else encode_ndjson_event(failed_event(message))
+        )
         if line:
             yield line
     except Exception as exc:  # pragma: no cover
@@ -375,16 +340,15 @@ async def stream_chat_run(
             message_id,
             model,
         )
-        if "run" in locals():
-            run.status = "failed"
-            run.error_code = exc.__class__.__name__
-            run.error_message = str(exc)
-            run.completed_at = datetime.utcnow()
-            run_db.add(run)
-            _append_run_event(buffered_events, run.id, failed_event(str(exc)))
-            run_db.add_all(buffered_events)
-            run_db.commit()
-        line = encode_ndjson_event(failed_event(str(exc)))
+        line = (
+            trace.persist_failure(
+                error_code=exc.__class__.__name__,
+                error_message=str(exc),
+                failure_event=failed_event(str(exc)),
+            )
+            if trace is not None
+            else encode_ndjson_event(failed_event(str(exc)))
+        )
         if line:
             yield line
     finally:

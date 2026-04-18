@@ -1,0 +1,124 @@
+from __future__ import annotations
+
+from fastapi import HTTPException, Request, UploadFile
+from sqlalchemy.orm import Session
+
+from ..chat.state import ChatServices
+from ..core.config import settings
+from ..runtime.requests import ChatRunRequest
+from ..schemas import ReasoningProfileValue, RegenerateRequest, ToolMode
+from ..storage.media import persist_uploaded_attachments
+from ..storage.models import User
+from .chat_requests import (
+    build_chat_run_request,
+    ensure_conversation_run_model,
+    load_user_chat_conversation,
+    reload_conversation_for_run,
+    resolve_regeneration_source,
+)
+from .chat_turns import persist_chat_turn, persist_regenerated_turn, resolve_chat_model
+
+
+def _ensure_chat_input_present(*, content: str, upload_count: int) -> None:
+    if not content and upload_count == 0:
+        raise HTTPException(status_code=400, detail="Message cannot be empty")
+
+
+async def prepare_chat_stream_run_request(
+    *,
+    current_user: User,
+    services: ChatServices,
+    request: Request,
+    db: Session,
+    conversation_id: int | None,
+    message: str,
+    model: str | None,
+    tool_mode: ToolMode,
+    reasoning_profile: ReasoningProfileValue | None,
+    files: list[UploadFile] | None,
+) -> ChatRunRequest:
+    content = message.strip()
+    uploads = files or []
+    _ensure_chat_input_present(content=content, upload_count=len(uploads))
+    profile = resolve_chat_model(
+        requested_model=model,
+        fallback_model=settings.default_model,
+    )
+
+    conversation = (
+        load_user_chat_conversation(
+            db=db,
+            conversation_id=conversation_id,
+            user_id=current_user.id,
+        )
+        if conversation_id is not None
+        else None
+    )
+
+    try:
+        uploaded_attachments = await persist_uploaded_attachments(uploads)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    _ensure_chat_input_present(content=content, upload_count=len(uploaded_attachments))
+    persisted_turn = persist_chat_turn(
+        db=db,
+        current_user=current_user,
+        conversation=conversation,
+        profile=profile,
+        content=content,
+        uploaded_attachments=uploaded_attachments,
+    )
+    conversation = reload_conversation_for_run(
+        db=db,
+        conversation_id=persisted_turn.conversation.id,
+    )
+    return build_chat_run_request(
+        services=services,
+        request=request,
+        conversation=conversation,
+        user_message=persisted_turn.user_message,
+        history_messages=list(conversation.messages),
+        query=content,
+        tool_mode=tool_mode,
+        reasoning_profile=reasoning_profile,
+    )
+
+
+def prepare_regeneration_run_request(
+    *,
+    current_user: User,
+    services: ChatServices,
+    payload: RegenerateRequest,
+    request: Request,
+    db: Session,
+) -> ChatRunRequest:
+    conversation = load_user_chat_conversation(
+        db=db,
+        conversation_id=payload.conversation_id,
+        user_id=current_user.id,
+    )
+    ensure_conversation_run_model(
+        db=db,
+        conversation=conversation,
+        requested_model=payload.model,
+    )
+    regeneration = resolve_regeneration_source(
+        conversation=conversation,
+        assistant_message_id=payload.assistant_message_id,
+    )
+    regenerated_user_message = persist_regenerated_turn(
+        db=db,
+        conversation=conversation,
+        source_user=regeneration.source_user,
+    )
+    return build_chat_run_request(
+        services=services,
+        request=request,
+        conversation=conversation,
+        user_message=regenerated_user_message,
+        history_messages=regeneration.history_messages,
+        query=regeneration.source_user.content,
+        tool_mode=payload.tool_mode,
+        reasoning_profile=payload.reasoning_profile,
+    )

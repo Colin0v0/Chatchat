@@ -1,14 +1,20 @@
 import { Download, MoreHorizontal, PanelLeftOpen, Pencil, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
+import type { ModelOption } from "../types";
+import { ModelSelect } from "./ModelSelect";
+
 interface MainHeaderProps {
   title: string;
   showTitle?: boolean;
   sidebarOpen: boolean;
   isDesktop: boolean;
+  mobileModel?: string;
+  mobileModels?: ModelOption[];
   activeItemId?: number | null;
   activeItemKind?: "chat" | "debate" | null;
   activeItemTitle?: string;
+  onMobileModelChange?: (value: string) => void;
   onExportItem?: (itemId: number, kind: "chat" | "debate") => void | Promise<void>;
   onRenameItem?: (itemId: number, title: string, kind: "chat" | "debate") => void | Promise<void>;
   onDeleteItem?: (itemId: number, kind: "chat" | "debate") => void | Promise<void>;
@@ -30,9 +36,12 @@ export function MainHeader({
   showTitle = true,
   sidebarOpen,
   isDesktop,
+  mobileModel = "",
+  mobileModels = [],
   activeItemId = null,
   activeItemKind = null,
   activeItemTitle = "",
+  onMobileModelChange,
   onExportItem,
   onRenameItem,
   onDeleteItem,
@@ -134,8 +143,22 @@ export function MainHeader({
     <>
       <header className="relative flex h-[68px] items-center justify-between px-4 md:px-6">
         {showTitle ? (
-          <div className="min-w-0 py-1 text-[20px] font-semibold leading-none tracking-[-0.04em] text-app-text md:text-[24px]">
-            <span className="truncate">{title}</span>
+          <div className="flex min-w-0 max-w-[calc(100%-6rem)] items-center gap-1.5 py-1 md:max-w-none">
+            <div className="min-w-0 text-[20px] font-semibold leading-none tracking-[-0.04em] text-app-text md:text-[24px]">
+              <span className="truncate">{title}</span>
+            </div>
+            {!isDesktop && mobileModel && mobileModels.length > 0 && onMobileModelChange ? (
+              <div className="shrink-0">
+                <ModelSelect
+                  compact
+                  menuPlacement="bottom"
+                  model={mobileModel}
+                  models={mobileModels}
+                  onChange={onMobileModelChange}
+                  triggerStyle="chevron"
+                />
+              </div>
+            ) : null}
           </div>
         ) : (
           <div />

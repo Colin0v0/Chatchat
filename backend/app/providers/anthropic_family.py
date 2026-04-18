@@ -14,6 +14,7 @@ class AnthropicProviderAdapter(ProviderAdapter):
         async for chunk in stream_claude_chat(
             model=request.profile.upstream_model,
             messages=request.messages,
+            reasoning_profile=request.reasoning_profile,
             base_url_override=request.profile.chat_base_url,
             api_key_override=request.profile.api_key,
         ):

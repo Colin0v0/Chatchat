@@ -13,6 +13,22 @@ export function resolveModelReasoningControl(model: ModelOption): ReasoningContr
   return model.capabilities?.reasoning.control ?? model.reasoning_control ?? fallbackReasoningControl(model);
 }
 
+export function supportedReasoningProfilesForModel(model: ModelOption): ReasoningProfileValue[] {
+  const explicit = model.capabilities?.reasoning.supported_profiles;
+  if (explicit && explicit.length > 0) {
+    return explicit;
+  }
+
+  const control = resolveModelReasoningControl(model);
+  if (control === "none") {
+    return ["off"];
+  }
+  if (control === "toggle" || control === "prompt_tag") {
+    return ["auto", "off", "medium"];
+  }
+  return ["auto", "off", "low", "medium", "high", "max"];
+}
+
 export function resolveModelDefaultReasoningProfile(model: ModelOption): ReasoningProfileValue {
   const resolved = model.default_reasoning_profile ?? "off";
   return resolved === "provider_default" ? "auto" : resolved;
@@ -28,18 +44,13 @@ export function normalizeReasoningProfileForModel(
 ): ReasoningProfileValue {
   const control = resolveModelReasoningControl(model);
   const defaultValue = resolveModelDefaultReasoningProfile(model);
+  const supportedProfiles = supportedReasoningProfilesForModel(model);
   const normalized = (value ?? defaultValue) === "provider_default" ? "auto" : (value ?? defaultValue);
 
   if (control === "none") {
     return "off";
   }
-  if (normalized === "off" || normalized === "auto") {
-    return normalized;
-  }
-  if (control === "toggle" || control === "prompt_tag") {
-    return "medium";
-  }
-  if (normalized === "low" || normalized === "medium" || normalized === "high" || normalized === "max") {
+  if (supportedProfiles.includes(normalized)) {
     return normalized;
   }
   return defaultValue;
@@ -86,29 +97,40 @@ export function reasoningProfileLabelForModel(
 export function reasoningProfileOptionsForModel(model: ModelOption): ReasoningProfileOption[] {
   const control = resolveModelReasoningControl(model);
   const defaultProfile = resolveModelDefaultReasoningProfile(model);
+  const defaultLabel = reasoningProfileLabelForModel(model, defaultProfile);
+  const supportedProfiles = supportedReasoningProfilesForModel(model);
   if (control === "none") {
     return [];
   }
 
-  const options: ReasoningProfileOption[] = [
-    {
+  const options: ReasoningProfileOption[] = [];
+  if (supportedProfiles.includes("auto")) {
+    options.push({
       value: "auto",
-      label: `Default (${reasoningProfileLabelForModel(model, defaultProfile)})`,
-    },
-    { value: "off", label: "Off" },
-  ];
-
+      label: defaultLabel === "Default" ? "Default" : `Default (${defaultLabel})`,
+    });
+  }
+  if (supportedProfiles.includes("off")) {
+    options.push({ value: "off", label: "Off" });
+  }
   if (control === "toggle" || control === "prompt_tag") {
-    options.push({ value: "medium", label: "On" });
+    if (supportedProfiles.includes("medium")) {
+      options.push({ value: "medium", label: "On" });
+    }
     return options;
   }
-
-  options.push(
-    { value: "low", label: "Low" },
-    { value: "medium", label: "Medium" },
-    { value: "high", label: "High" },
-    { value: "max", label: "Max" },
-  );
+  if (supportedProfiles.includes("low")) {
+    options.push({ value: "low", label: "Low" });
+  }
+  if (supportedProfiles.includes("medium")) {
+    options.push({ value: "medium", label: "Medium" });
+  }
+  if (supportedProfiles.includes("high")) {
+    options.push({ value: "high", label: "High" });
+  }
+  if (supportedProfiles.includes("max")) {
+    options.push({ value: "max", label: "Max" });
+  }
   return options;
 }
 

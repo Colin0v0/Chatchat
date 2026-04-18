@@ -1,7 +1,6 @@
 import { BookOpen, Check, Globe, Paperclip, Plus } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
-import { ModelSelect } from "../ModelSelect";
 import { ReasoningProfileSelect } from "../ReasoningProfileSelect";
 import type { ModelOption, ReasoningProfileValue, ToolMode } from "../../types";
 
@@ -9,10 +8,7 @@ interface ComposerMobileToolbarProps {
   attachmentUploadAvailable: boolean;
   attachmentsPresent: boolean;
   isStreaming: boolean;
-  model: string;
-  models: ModelOption[];
   onAddAttachment: () => void;
-  onModelChange: (value: string) => void;
   onReasoningProfileChange: (value: ReasoningProfileValue) => void;
   reasoningProfile: ReasoningProfileValue;
   selectedModelOption: ModelOption;
@@ -65,10 +61,7 @@ export function ComposerMobileToolbar({
   attachmentUploadAvailable,
   attachmentsPresent,
   isStreaming,
-  model,
-  models,
   onAddAttachment,
-  onModelChange,
   onReasoningProfileChange,
   reasoningProfile,
   selectedModelOption,
@@ -95,7 +88,7 @@ export function ComposerMobileToolbar({
 
   return (
     <div className="md:hidden">
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1.5">
         <div className="relative shrink-0" ref={menuRef}>
           <button
             aria-expanded={menuOpen}
@@ -140,19 +133,17 @@ export function ComposerMobileToolbar({
             </div>
           ) : null}
         </div>
-
-        <ModelSelect compact model={model} models={models} onChange={onModelChange} />
-      </div>
-      <div className="mt-2">
-        <ReasoningProfileSelect
-          compact
-          fullWidth
-          label="Think"
-          menuPlacement="top"
-          modelOption={selectedModelOption}
-          onChange={onReasoningProfileChange}
-          value={reasoningProfile}
-        />
+        <div className="min-w-0">
+          <ReasoningProfileSelect
+            compact
+            label="Reasoning"
+            menuPlacement="top"
+            modelOption={selectedModelOption}
+            onChange={onReasoningProfileChange}
+            triggerContent="label_only"
+            value={reasoningProfile}
+          />
+        </div>
       </div>
       {attachmentsPresent ? <div className="sr-only">Attachments ready</div> : null}
     </div>

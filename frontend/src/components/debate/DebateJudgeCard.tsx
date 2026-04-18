@@ -71,12 +71,12 @@ function ScoreTable({
               </div>
               <div>
                 <div className="mb-1.5 flex items-center justify-between text-[11px] font-medium text-[#9d3d32]">
-                  <span>{item.con ?? "-"}</span>
-                  <span>反方</span>
+                  <span className="order-2 md:order-1">{item.con ?? "-"}</span>
+                  <span className="order-1 md:order-2">反方</span>
                 </div>
                 <div className="h-2.5 overflow-hidden rounded-full bg-[#f1ddd9]">
                   <div
-                    className="ml-auto h-full rounded-full bg-[#c6654d] transition-[width] duration-300 ease-out"
+                    className="h-full rounded-full bg-[#c6654d] transition-[width] duration-300 ease-out md:ml-auto"
                     style={{ width: `${toPercent(item.con)}%` }}
                   />
                 </div>

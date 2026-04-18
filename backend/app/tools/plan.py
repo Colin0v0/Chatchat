@@ -1,56 +1,60 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
 
 from ..retrieval.strategy import DIRECT_ANSWER, NOTE_FIRST, WEB_FIRST, RetrievalStrategy
-from ..schemas import ToolMode
-
-ContextTool = Literal["knowledge", "search"]
+from .policy import ContextTool, ToolPolicy, build_tool_policy
 
 
 @dataclass(frozen=True)
 class ToolContextPlan:
-    mode: ToolMode
+    policy: ToolPolicy
     reason: str
     strategy: RetrievalStrategy
     query: str = ""
-    requested_tools: tuple[ContextTool, ...] = ()
+
+    @property
+    def mode(self) -> str:
+        return self.policy.source_mode
+
+    @property
+    def requested_tools(self) -> tuple[ContextTool, ...]:
+        return self.policy.requested_tools
+
+    @property
+    def selection_payload(self) -> dict[str, object]:
+        return self.policy.to_context_payload()
 
 
-def build_tool_context_plan(*, query: str, mode: ToolMode) -> ToolContextPlan:
+def build_tool_context_plan(*, query: str, policy: ToolPolicy) -> ToolContextPlan:
     normalized_query = query.strip()
-    if mode == "none":
+    if not policy.is_enabled:
         return ToolContextPlan(
-            mode="none",
+            policy=policy,
             reason="Tool grounding is off.",
             strategy=DIRECT_ANSWER,
             query="",
-            requested_tools=(),
         )
 
     if not normalized_query:
         return ToolContextPlan(
-            mode="none",
+            policy=build_tool_policy("none"),
             reason="No text query provided.",
             strategy=DIRECT_ANSWER,
             query="",
-            requested_tools=(),
         )
 
-    if mode == "knowledge":
+    if policy.mode == "knowledge":
         return ToolContextPlan(
-            mode="knowledge",
+            policy=policy,
             reason="Knowledge grounding selected.",
             strategy=NOTE_FIRST,
             query=normalized_query,
-            requested_tools=("knowledge",),
         )
 
     return ToolContextPlan(
-        mode="search",
+        policy=policy,
         reason="Search grounding selected.",
         strategy=WEB_FIRST,
         query=normalized_query,
-        requested_tools=("search",),
     )

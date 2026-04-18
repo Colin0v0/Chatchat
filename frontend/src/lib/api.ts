@@ -34,7 +34,26 @@ import type {
 } from "../types";
 import { toModelLabel } from "./models";
 
-const API_BASE = import.meta.env.VITE_API_BASE ?? "";
+function resolveDefaultApiBase(): string {
+  const explicit = import.meta.env.VITE_API_BASE?.trim();
+  if (explicit) {
+    return explicit;
+  }
+
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  const { hostname, port, protocol } = window.location;
+  const isLocalhost = hostname === "127.0.0.1" || hostname === "localhost";
+  if (!isLocalhost || port !== "3300") {
+    return "";
+  }
+
+  return `${protocol}//${hostname}:8050`;
+}
+
+const API_BASE = resolveDefaultApiBase();
 let unauthorizedHandler: (() => void) | null = null;
 
 export class ApiError extends Error {
@@ -141,6 +160,7 @@ function toModelOption(model: string | ModelOption): ModelOption {
     supports_thinking: false,
     supports_thinking_trace: false,
     supports_attachment_upload: true,
+    native_multimodal_mode: "false",
     chat_model: null,
     reasoning_model: null,
   };
@@ -442,8 +462,10 @@ export async function deleteDebateSession(sessionId: number) {
   }
 }
 
-export function fetchSession() {
-  return apiFetch<AuthSession>("/api/auth/session");
+export function fetchSession(options?: { signal?: AbortSignal }) {
+  return apiFetch<AuthSession>("/api/auth/session", {
+    signal: options?.signal,
+  });
 }
 
 export async function login(payload: { username: string; password: string }) {

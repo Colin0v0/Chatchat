@@ -125,10 +125,11 @@ async def stream_gemini_chat(
     *,
     model: str,
     messages: list[ChatMessagePayload],
+    reasoning_profile: str | None = None,
     base_url_override: str | None = None,
     api_key_override: str | None = None,
 ) -> AsyncIterator[dict]:
-    payload = gemini_request_payload(messages)
+    payload = gemini_request_payload(messages, reasoning_profile=reasoning_profile)
     image_count = sum(len(message.images) for message in messages)
     document_count = sum(len(message.documents) for message in messages)
     logger.info("stream_gemini_chat called | model=%s", model)

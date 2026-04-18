@@ -9,6 +9,7 @@ from ...debate.common import (
     _normalize_decision_scoring,
 )
 from ...schemas import DebateJudgeAskIn, DebateJudgeDecisionIn
+from ...runtime.run_trace import RunTraceRecorder
 from ...storage.models import DebateSession
 from .debate_policies import (
     debate_session_finished,
@@ -33,6 +34,10 @@ def _error_event_line(message: str) -> str:
     return json.dumps({"type": "error", "message": message}, ensure_ascii=False) + "\n"
 
 
+def _error_event_payload(message: str) -> dict[str, object]:
+    return {"type": "error", "message": message}
+
+
 def _done_event_line(session: DebateSession) -> str:
     return json.dumps(
         {"type": "done", "stage": session.stage, "status": session.status},
@@ -40,9 +45,34 @@ def _done_event_line(session: DebateSession) -> str:
     ) + "\n"
 
 
+def _done_event_payload(session: DebateSession) -> dict[str, object]:
+    return {"type": "done", "stage": session.stage, "status": session.status}
+
+
+def _debate_trace(db: Session, session: DebateSession, action: str) -> RunTraceRecorder:
+    return RunTraceRecorder.create(
+        db=db,
+        conversation_id=None,
+        user_id=session.user_id,
+        request_message_id=None,
+        mode="debate",
+        model_id="debate:multi-model",
+        provider_family="debate",
+        reasoning_profile="auto",
+        metadata={"session_id": session.id, "action": action, "stage": session.stage},
+    )
+
+
 async def debate_next_event_stream(*, db: Session, request: Request, session: DebateSession):
+    trace = _debate_trace(db, session, "next")
     if debate_session_finished(session):
-        yield _error_event_line("Debate session already finished.")
+        line = trace.persist_failure_payload(
+            error_code="DebateAlreadyFinished",
+            error_message="Debate session already finished.",
+            failure_payload=_error_event_payload("Debate session already finished."),
+        )
+        if line:
+            yield line
         return
 
     participant, stage_changes = resolve_next_debate_participant(db, session)
@@ -54,12 +84,20 @@ async def debate_next_event_stream(*, db: Session, request: Request, session: De
             session=session,
             stage_changes=stage_changes,
         ):
-            yield event
+            yield trace.emit_ndjson_line(event)
     except DebateStreamInterrupted:
+        trace.persist_failure_payload(
+            error_code="DebateStreamInterrupted",
+            error_message="Debate next stream interrupted.",
+        )
         return
 
     if participant is None:
-        yield _done_event_line(session)
+        for line in trace.persist_completion_payloads(
+            response_message_id=None,
+            terminal_payloads=[_done_event_payload(session)],
+        ):
+            yield line
         return
 
     try:
@@ -69,11 +107,19 @@ async def debate_next_event_stream(*, db: Session, request: Request, session: De
             session=session,
             participant=participant,
         ):
-            yield event
+            yield trace.emit_ndjson_line(event)
     except DebateStreamInterrupted:
+        trace.persist_failure_payload(
+            error_code="DebateStreamInterrupted",
+            error_message="Debate next stream interrupted.",
+        )
         return
 
-    yield _done_event_line(session)
+    for line in trace.persist_completion_payloads(
+        response_message_id=None,
+        terminal_payloads=[_done_event_payload(session)],
+    ):
+        yield line
 
 
 async def debate_ask_event_stream(
@@ -83,8 +129,15 @@ async def debate_ask_event_stream(
     session: DebateSession,
     payload: DebateJudgeAskIn,
 ):
+    trace = _debate_trace(db, session, "ask")
     if debate_session_finished(session):
-        yield _error_event_line("Debate session already finished.")
+        line = trace.persist_failure_payload(
+            error_code="DebateAlreadyFinished",
+            error_message="Debate session already finished.",
+            failure_payload=_error_event_payload("Debate session already finished."),
+        )
+        if line:
+            yield line
         return
 
     if session.status == "created":
@@ -92,7 +145,7 @@ async def debate_ask_event_stream(
 
     question_turn = create_judge_question_turn(db, session, payload.question)
 
-    yield build_judge_question_event(question_turn)
+    yield trace.emit_ndjson_line(build_judge_question_event(question_turn))
 
     target_sides = resolve_question_target_sides(payload.ask_to)
     previous_status = session.status
@@ -107,10 +160,18 @@ async def debate_ask_event_stream(
                     session=session,
                     stage_changes=stage_changes,
                 ):
-                    yield event
+                    yield trace.emit_ndjson_line(event)
             except DebateStreamInterrupted:
+                trace.persist_failure_payload(
+                    error_code="DebateStreamInterrupted",
+                    error_message="Debate ask stream interrupted.",
+                )
                 return
-            yield _done_event_line(session)
+            for line in trace.persist_completion_payloads(
+                response_message_id=None,
+                terminal_payloads=[_done_event_payload(session)],
+            ):
+                yield line
             return
 
     try:
@@ -122,15 +183,23 @@ async def debate_ask_event_stream(
             question_turn=question_turn,
             judge_question=payload.question.strip(),
         ):
-            yield event
+            yield trace.emit_ndjson_line(event)
     except DebateStreamInterrupted:
+        trace.persist_failure_payload(
+            error_code="DebateStreamInterrupted",
+            error_message="Debate ask stream interrupted.",
+        )
         return
 
     if should_restore_pre_question_status(session=session, question_stage=question_turn.stage):
         session.status = previous_status
     commit_session_state(db, session)
 
-    yield _done_event_line(session)
+    for line in trace.persist_completion_payloads(
+        response_message_id=None,
+        terminal_payloads=[_done_event_payload(session)],
+    ):
+        yield line
 
 
 async def debate_decision_event_stream(
@@ -140,6 +209,7 @@ async def debate_decision_event_stream(
     session: DebateSession,
     payload: DebateJudgeDecisionIn,
 ):
+    trace = _debate_trace(db, session, "decision")
     resolved_winner, resolved_scoring = _normalize_decision_scoring(
         winner_side=payload.winner_side,
         scoring_json=payload.scoring_json or {},
@@ -151,7 +221,7 @@ async def debate_decision_event_stream(
     )
     session = finalize_debate_decision(db, session, resolved_payload)
 
-    yield build_decision_saved_event(session)
+    yield trace.emit_ndjson_line(build_decision_saved_event(session))
 
     try:
         async for event in stream_decision_summary_flow(
@@ -159,8 +229,16 @@ async def debate_decision_event_stream(
             request=request,
             session=session,
         ):
-            yield event
+            yield trace.emit_ndjson_line(event)
     except DebateStreamInterrupted:
+        trace.persist_failure_payload(
+            error_code="DebateStreamInterrupted",
+            error_message="Debate decision stream interrupted.",
+        )
         return
 
-    yield _done_event_line(session)
+    for line in trace.persist_completion_payloads(
+        response_message_id=None,
+        terminal_payloads=[_done_event_payload(session)],
+    ):
+        yield line

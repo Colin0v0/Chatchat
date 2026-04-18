@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy import inspect
 
 
 revision = "20260418_0003"
@@ -18,6 +19,14 @@ depends_on = None
 
 def upgrade() -> None:
     bind = op.get_bind()
+    inspector = inspect(bind)
+    if "message_attachments" not in set(inspector.get_table_names()):
+        return
+
+    columns = {str(column["name"]) for column in inspector.get_columns("message_attachments")}
+    if "upstream_file_id" not in columns:
+        return
+
     if bind.dialect.name == "postgresql":
         op.drop_column("message_attachments", "upstream_file_id")
         return
@@ -28,6 +37,14 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     bind = op.get_bind()
+    inspector = inspect(bind)
+    if "message_attachments" not in set(inspector.get_table_names()):
+        return
+
+    columns = {str(column["name"]) for column in inspector.get_columns("message_attachments")}
+    if "upstream_file_id" in columns:
+        return
+
     if bind.dialect.name == "postgresql":
         op.add_column("message_attachments", sa.Column("upstream_file_id", sa.String(length=255), nullable=True))
         return

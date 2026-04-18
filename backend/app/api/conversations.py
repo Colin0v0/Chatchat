@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import delete
+from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session
 
 from ..auth import require_current_user
@@ -24,7 +24,7 @@ from ..storage.access import (
 )
 from ..storage.database import get_db
 from ..storage.media import remove_media_files
-from ..storage.models import Conversation, MemoryItem, User
+from ..storage.models import Conversation, MemoryItem, Run, RunEvent, User
 
 router = APIRouter(prefix="/api/conversations", tags=["conversations"])
 
@@ -179,6 +179,19 @@ def delete_conversation(
         raise HTTPException(status_code=404, detail="Conversation not found")
 
     remove_media_files(conversation_media_paths(conversation))
+    message_ids = [message.id for message in conversation.messages if getattr(message, "id", None) is not None]
+    run_filters = [Run.conversation_id == conversation_id]
+    if message_ids:
+        run_filters.extend(
+            [
+                Run.request_message_id.in_(message_ids),
+                Run.response_message_id.in_(message_ids),
+            ]
+        )
+    run_ids = list(db.scalars(select(Run.id).where(or_(*run_filters))))
+    if run_ids:
+        db.execute(delete(RunEvent).where(RunEvent.run_id.in_(run_ids)))
+        db.execute(delete(Run).where(Run.id.in_(run_ids)))
     db.execute(
         delete(MemoryItem).where(
             MemoryItem.conversation_id == conversation_id,

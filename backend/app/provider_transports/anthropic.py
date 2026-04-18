@@ -116,10 +116,16 @@ async def stream_claude_chat(
     *,
     model: str,
     messages: list[ChatMessagePayload],
+    reasoning_profile: str | None = None,
     base_url_override: str | None = None,
     api_key_override: str | None = None,
 ) -> AsyncIterator[dict]:
-    payload = claude_request_payload(messages, max_tokens=CLAUDE_DEFAULT_MAX_TOKENS, stream=True)
+    payload = claude_request_payload(
+        messages,
+        max_tokens=CLAUDE_DEFAULT_MAX_TOKENS,
+        stream=True,
+        reasoning_profile=reasoning_profile,
+    )
     payload["model"] = model
 
     client = await _claude_client(
@@ -149,10 +155,16 @@ async def complete_claude_chat(
     *,
     model: str,
     messages: list[ChatMessagePayload],
+    reasoning_profile: str | None = None,
     base_url_override: str | None = None,
     api_key_override: str | None = None,
 ) -> AsyncIterator[dict]:
-    payload = claude_request_payload(messages, max_tokens=CLAUDE_DEFAULT_MAX_TOKENS, stream=False)
+    payload = claude_request_payload(
+        messages,
+        max_tokens=CLAUDE_DEFAULT_MAX_TOKENS,
+        stream=False,
+        reasoning_profile=reasoning_profile,
+    )
     payload["model"] = model
 
     async with limited_request(gate="claude", max_concurrency=max(1, settings.claude_http_max_concurrency)):

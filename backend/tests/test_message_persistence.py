@@ -46,6 +46,7 @@ class MessagePersistenceTests(unittest.TestCase):
 
         payload = MessageOut.model_validate(stored_message)
         self.assertEqual(payload.reasoning, "step 1\nstep 2")
+        self.assertIsNone(payload.model)
 
 
 if __name__ == "__main__":

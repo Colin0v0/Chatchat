@@ -40,7 +40,7 @@ export function DebateTurnCard({
 
   return (
     <article className="border-b border-app-border">
-      <div className="grid w-full grid-cols-[minmax(0,1fr)_auto] gap-x-4 px-6 py-3 transition hover:bg-app-panel-soft">
+      <div className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 px-6 py-3 transition hover:bg-app-panel-soft">
         <button
           className="mb-1 min-w-0 text-left md:mb-0"
           onClick={() => setExpanded((value) => !value)}
@@ -78,11 +78,11 @@ export function DebateTurnCard({
           )}
         </button>
 
-        <div className="flex items-start gap-1.5">
+        <div className="flex items-center self-center gap-1.5">
           {hasContent ? (
             <button
               aria-label="复制辩词"
-              className="flex h-9 w-9 items-center justify-center rounded-xl text-app-muted transition hover:bg-white/70 hover:text-app-text"
+              className="flex h-9 w-9 items-center justify-center rounded-xl text-app-muted transition hover:text-app-text"
               onClick={() => void handleCopy()}
               title={copied ? "已复制" : "复制辩词"}
               type="button"
@@ -92,7 +92,7 @@ export function DebateTurnCard({
           ) : null}
           <button
             aria-label={expanded ? "收起发言" : "展开发言"}
-            className="flex h-9 w-9 items-center justify-center rounded-xl text-app-muted transition hover:bg-white/70 hover:text-app-text"
+            className="flex h-9 w-9 items-center justify-center rounded-xl text-app-muted transition hover:text-app-text"
             onClick={() => setExpanded((value) => !value)}
             type="button"
           >

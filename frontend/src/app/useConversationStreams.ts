@@ -22,6 +22,7 @@ import {
   replaceConversationMessageId,
   RunStreamOptions,
   setAssistantDraftId,
+  setAssistantDraftModel,
   setAssistantDraftContext,
   setAssistantDraftFinalContent,
   setAssistantDraftSources,
@@ -469,7 +470,9 @@ export function useConversationStreams({
                   tempUserMessageId,
                   event.message_id,
                 );
-                updateSessionConversation(nextConversationId, () => nextConversation);
+                updateSessionConversation(nextConversationId, () =>
+                  setAssistantDraftModel(nextConversation, event.model),
+                );
                 upsertConversationSummary(nextConversation);
               }
 

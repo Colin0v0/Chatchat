@@ -25,6 +25,7 @@ interface ConversationViewProps {
   isTranscribing: boolean;
   model: string;
   models: ModelOption[];
+  reserveThinkingSpace: boolean;
   reasoningProfile: ReasoningProfileValue;
   toolMode: ToolMode;
   submitBlocked: boolean;
@@ -60,6 +61,7 @@ export function ConversationView({
   isTranscribing,
   model,
   models,
+  reserveThinkingSpace,
   reasoningProfile,
   toolMode,
   submitBlocked,
@@ -174,18 +176,21 @@ export function ConversationView({
           ) : null}
           <MessageList
             collapsedMessageIds={collapsedMessageIds}
+            conversationModel={conversation.model}
             isReasoningStreaming={isReasoningStreaming}
             onFeedback={onFeedback}
             isStreaming={isStreaming}
             items={conversation.messages}
+            models={models}
             onRetry={onRetry}
             onReuseUserMessage={onReuseUserMessage}
+            reserveThinkingSpace={reserveThinkingSpace}
             streamingStatusLabel={streamingStatusLabel}
           />
         </div>
       </div>
 
-      <div className="mx-auto w-full max-w-[920px] pl-4 pr-4 pt-2 md:pl-6 md:pr-[34px]">
+      <div className="mx-auto w-full max-w-[920px] px-4 pt-2 md:px-6">
         <ChatComposer
           attachmentUploadAvailable={attachmentUploadAvailable}
           attachments={draftAttachments}

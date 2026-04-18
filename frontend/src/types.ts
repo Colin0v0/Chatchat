@@ -3,6 +3,9 @@ export type FeedbackValue = "up" | "down";
 export type ToolMode = "none" | "knowledge" | "search";
 export type ReasoningProfileValue = "off" | "auto" | "low" | "medium" | "high" | "max" | "provider_default";
 export type ReasoningControl = "none" | "toggle" | "effort" | "budget" | "prompt_tag";
+export type ReasoningVisibility = "none" | "summary" | "full";
+export type ReasoningContinuation = "none" | "stateful" | "signature";
+export type NativeMultimodalMode = "false" | "local" | "codex" | "gemini" | "claude";
 
 export interface MessageAttachment {
   id: number | string;
@@ -67,9 +70,11 @@ export interface AuthSession {
 
 export interface ChatMessage {
   id: number | string;
+  clientKey?: string;
   role: Role;
   content: string;
   reasoning?: string;
+  model?: string | null;
   attachments?: MessageAttachment[];
   sources?: MessageSource[];
   context?: MessageContext | null;
@@ -195,6 +200,9 @@ export interface ModelOption {
   supports_thinking: boolean;
   supports_thinking_trace: boolean;
   supports_attachment_upload: boolean;
+  provider_name?: string;
+  provider_family?: string;
+  native_multimodal_mode?: NativeMultimodalMode;
   reasoning_control?: ReasoningControl;
   default_reasoning_profile?: ReasoningProfileValue;
   capabilities?: {
@@ -212,6 +220,9 @@ export interface ModelOption {
     };
     reasoning: {
       control: ReasoningControl;
+      supported_profiles: ReasoningProfileValue[];
+      visibility: ReasoningVisibility;
+      continuation: ReasoningContinuation;
       visible_trace: boolean;
       summary_only: boolean;
     };

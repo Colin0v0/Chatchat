@@ -21,11 +21,11 @@ def main() -> int:
         raise SystemExit("Development bootstrap only supports PostgreSQL databases.")
 
     if bootstrap_empty_postgres_database_from_models():
-        print("Bootstrapped empty PostgreSQL database from current models and stamped Alembic head.")
+        print("Migrated empty PostgreSQL database to Alembic head.")
         return 0
 
     if stamp_existing_head_like_schema():
-        print("Stamped existing PostgreSQL schema to Alembic head.")
+        print("Migrated existing unversioned PostgreSQL schema to Alembic head.")
         return 0
 
     table_names = set(inspect(engine).get_table_names())

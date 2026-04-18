@@ -43,7 +43,7 @@ import { useAudioRecorder } from "./useAudioRecorder";
 import { useKnowledgeManager } from "./useKnowledgeManager";
 import {
   appendRetryDraft,
-  createAssistantDraftMessage,
+  createAssistantDraftMessageForModel,
   createTransientAttachments,
   createUserDraftMessage,
   labelForStage,
@@ -156,6 +156,10 @@ export function useChatApp({
         resolveModelDefaultReasoningProfile(selectedModelOption),
       ].join(":"),
     [selectedModelOption],
+  );
+  const activeReasoningRequest = useMemo(
+    () => reasoningRequestValueForModel(selectedModelOption, reasoningProfile),
+    [reasoningProfile, selectedModelOption],
   );
 
   const clearTransientAttachmentUrls = useCallback(() => {
@@ -609,20 +613,24 @@ export function useChatApp({
 
   const handleDeleteConversation = useCallback(
     async (conversationId: number) => {
-      cancelRecording();
-      abortAndRemoveSession(conversationId);
-      await deleteConversation(conversationId);
-      await refreshConversations();
+      try {
+        cancelRecording();
+        abortAndRemoveSession(conversationId);
+        await deleteConversation(conversationId);
+        await refreshConversations();
 
-      if (activeConversationId === conversationId) {
-        setActiveConversationId(null);
-        setActiveConversation(null);
-        setCollapsedMessageIds(new Set());
-        setDraft("");
-        clearAttachments();
+        if (activeConversationId === conversationId) {
+          setActiveConversationId(null);
+          setActiveConversation(null);
+          setCollapsedMessageIds(new Set());
+          setDraft("");
+          clearAttachments();
+        }
+      } catch (deleteError) {
+        setError(deleteError instanceof Error ? deleteError.message : "Failed to delete conversation.");
       }
     },
-    [abortAndRemoveSession, activeConversationId, cancelRecording, clearAttachments, refreshConversations],
+    [abortAndRemoveSession, activeConversationId, cancelRecording, clearAttachments, refreshConversations, setError],
   );
 
   const handleRenameDebate = useCallback(
@@ -638,16 +646,20 @@ export function useChatApp({
 
   const handleDeleteDebate = useCallback(
     async (sessionId: number) => {
-      await deleteDebateSession(sessionId);
-      debateSessionCacheRef.current.delete(sessionId);
-      await refreshDebateSessions();
+      try {
+        await deleteDebateSession(sessionId);
+        debateSessionCacheRef.current.delete(sessionId);
+        await refreshDebateSessions();
 
-      if (activeDebateId === sessionId) {
-        setActiveDebateId(null);
-        setActiveDebate(null);
+        if (activeDebateId === sessionId) {
+          setActiveDebateId(null);
+          setActiveDebate(null);
+        }
+      } catch (deleteError) {
+        setError(deleteError instanceof Error ? deleteError.message : "Failed to delete debate.");
       }
     },
-    [activeDebateId, refreshDebateSessions],
+    [activeDebateId, refreshDebateSessions, setError],
   );
 
   const handleRefreshDebate = useCallback(
@@ -791,11 +803,11 @@ export function useChatApp({
     }
 
     const effectiveModel = selectedModel;
-    const effectiveReasoningProfile = reasoningRequestValueForModel(selectedModelOption, reasoningProfile);
+    const effectiveReasoningProfile = activeReasoningRequest;
     const tempConversationId =
       activeConversation?.id != null ? activeConversation.id : -Date.now();
     const initialStage =
-      pendingFiles.length > 0 ? "analyzing_attachments" : stageForToolMode(toolMode);
+      pendingFiles.length > 0 ? "analyzing_attachments" : (stageForToolMode(toolMode) ?? "waiting_for_model");
     const tempAttachments = createTransientAttachments(pendingFiles);
     transientAttachmentUrlsRef.current.push(...tempAttachments.map((item) => item.url));
     const tempUserMessageId = `user-${Date.now()}`;
@@ -806,7 +818,7 @@ export function useChatApp({
           model: effectiveModel,
           total_message_count: activeConversation.total_message_count + 2,
           loaded_message_count: activeConversation.loaded_message_count + 2,
-          messages: [...activeConversation.messages, tempUserMessage, createAssistantDraftMessage()],
+          messages: [...activeConversation.messages, tempUserMessage, createAssistantDraftMessageForModel(effectiveModel)],
         }
       : {
           id: tempConversationId,
@@ -815,7 +827,7 @@ export function useChatApp({
           total_message_count: 2,
           loaded_message_count: 2,
           remaining_message_count: 0,
-          messages: [tempUserMessage, createAssistantDraftMessage()],
+          messages: [tempUserMessage, createAssistantDraftMessageForModel(effectiveModel)],
         };
 
     setDraft("");
@@ -852,6 +864,7 @@ export function useChatApp({
     }
   }, [
     activeConversation,
+    activeReasoningRequest,
     clearAttachments,
     draft,
     draftAttachments,
@@ -859,12 +872,9 @@ export function useChatApp({
     isStreaming,
     isTranscribing,
     refreshConversations,
-    reasoningProfile,
     toolMode,
     runStream,
     selectedModel,
-    selectedModelOption,
-    setError,
   ]);
 
   const handleStop = useCallback(async () => {
@@ -899,12 +909,13 @@ export function useChatApp({
       }
 
       const effectiveModel = selectedModel;
-      const effectiveReasoningProfile = reasoningRequestValueForModel(selectedModelOption, reasoningProfile);
+      const effectiveReasoningProfile = activeReasoningRequest;
       const retryUserDraftId = `retry-user-${messageId}-${Date.now()}`;
       const nextConversation = appendRetryDraft(
         activeConversation,
         retryUserDraftId,
         sourceUser.content,
+        effectiveModel,
         sourceUser.attachments ?? [],
       );
       const retryConversation: ConversationDetail = {
@@ -919,7 +930,7 @@ export function useChatApp({
       const result = await runStream({
         conversation: retryConversation,
         errorMessage: "Failed to regenerate response.",
-        initialStage: stageForToolMode(toolMode),
+        initialStage: stageForToolMode(toolMode) ?? "waiting_for_model",
         restoreInput: {
           content: sourceUser.content,
           loadFiles: () => restoreAttachmentFiles(sourceUser.attachments ?? []),
@@ -960,14 +971,12 @@ export function useChatApp({
     },
     [
       activeConversation,
+      activeReasoningRequest,
       isStreaming,
       refreshConversations,
-      reasoningProfile,
       toolMode,
       runStream,
       selectedModel,
-      selectedModelOption,
-      setError,
     ],
   );
 
@@ -1044,6 +1053,7 @@ export function useChatApp({
           isTranscribing,
           model: selectedModel,
           models: availableModels,
+          reserveThinkingSpace: activeReasoningRequest !== null && activeReasoningRequest !== "off",
           reasoningProfile,
           onChangeDraft: setDraft,
           onFeedback: (messageId: number, value: "up" | "down" | null) =>
@@ -1072,6 +1082,8 @@ export function useChatApp({
         activeDebateId !== null ? ("debate" as const) : activeConversationId !== null ? ("chat" as const) : null,
       activeItemTitle: activeDebate?.topic ?? activeConversation?.title ?? "",
       isDesktop,
+      mobileModel: selectedModel,
+      mobileModels: availableModels,
       onNewChat: handleNewChat,
       onNewDebate: handleNewDebate,
       onDeleteItem: async (itemId: number, kind: "chat" | "debate") => {
@@ -1091,6 +1103,7 @@ export function useChatApp({
         }
         await handleRenameConversation(itemId, title);
       },
+      onMobileModelChange: handleModelChange,
       onToggleSidebar: toggleSidebar,
       showTitle: true,
       sidebarOpen,

@@ -20,6 +20,8 @@ logger = logging.getLogger("chatchat.model_catalog")
 
 ReasoningProfile = Literal["off", "auto", "low", "medium", "high", "max", "provider_default"]
 ReasoningControl = Literal["none", "toggle", "effort", "budget", "prompt_tag"]
+ReasoningVisibility = Literal["none", "summary", "full"]
+ReasoningContinuation = Literal["none", "stateful", "signature"]
 
 
 class ModelCatalogError(RuntimeError):
@@ -37,6 +39,9 @@ class CapabilityMatrix:
     transport_file_upload: bool
     transport_remote_url: bool
     reasoning_control: ReasoningControl
+    reasoning_profiles: tuple[ReasoningProfile, ...]
+    reasoning_visibility: ReasoningVisibility
+    reasoning_continuation: ReasoningContinuation
     reasoning_visible_trace: bool
     reasoning_summary_only: bool
     tools_function_calling: bool
@@ -156,6 +161,24 @@ def _normalize_reasoning_profile(value: str) -> ReasoningProfile:
     )
 
 
+def _normalize_reasoning_visibility(value: str) -> ReasoningVisibility:
+    normalized = value.strip().lower()
+    if normalized in {"none", "summary", "full"}:
+        return cast(ReasoningVisibility, normalized)
+    raise ModelCatalogError(
+        "Invalid reasoning visibility. Expected one of: none, summary, full"
+    )
+
+
+def _normalize_reasoning_continuation(value: str) -> ReasoningContinuation:
+    normalized = value.strip().lower()
+    if normalized in {"none", "stateful", "signature"}:
+        return cast(ReasoningContinuation, normalized)
+    raise ModelCatalogError(
+        "Invalid reasoning continuation. Expected one of: none, stateful, signature"
+    )
+
+
 def _normalize_native_multimodal_mode(value: str) -> NativeMultimodalMode:
     normalized = value.strip().lower()
     if normalized in {"false", "local", "codex", "gemini", "claude"}:
@@ -202,6 +225,15 @@ def _read_optional_string(raw: dict[str, object], key: str, path: str) -> str | 
     if not isinstance(value, str):
         raise ModelCatalogError(f"{path}.{key} must be string when provided")
     return value
+
+
+def _read_optional_string_list(raw: dict[str, object], key: str, path: str) -> list[str] | None:
+    value = raw.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+        raise ModelCatalogError(f"{path}.{key} must be an array of strings when provided")
+    return [item for item in cast(list[str], value)]
 
 
 def _parse_provider_presets(payload: dict[str, object]) -> dict[str, ProviderPreset]:
@@ -259,6 +291,54 @@ def _parse_capabilities(row: dict[str, object], row_path: str) -> tuple[Capabili
     )
     reasoning_control = _normalize_reasoning_control(control_raw)
     default_reasoning_profile = _normalize_reasoning_profile(default_profile_raw)
+    supported_profiles_raw = _read_optional_string_list(
+        reasoning_cfg,
+        "supported_profiles",
+        f"{row_path}.capabilities.reasoning",
+    )
+    visibility_raw = _read_optional_string(
+        reasoning_cfg,
+        "visibility",
+        f"{row_path}.capabilities.reasoning",
+    )
+    continuation_raw = _read_optional_string(
+        reasoning_cfg,
+        "continuation",
+        f"{row_path}.capabilities.reasoning",
+    )
+
+    if supported_profiles_raw is None:
+        if reasoning_control == "none":
+            reasoning_profiles: tuple[ReasoningProfile, ...] = ("off",)
+        elif reasoning_control in {"toggle", "prompt_tag"}:
+            reasoning_profiles = ("auto", "off", "medium")
+        else:
+            reasoning_profiles = ("auto", "off", "low", "medium", "high", "max")
+    else:
+        normalized_profiles = tuple(_normalize_reasoning_profile(item) for item in supported_profiles_raw)
+        if not normalized_profiles:
+            raise ModelCatalogError(
+                f"{row_path}.capabilities.reasoning.supported_profiles cannot be empty"
+            )
+        reasoning_profiles = tuple(dict.fromkeys(normalized_profiles))
+
+    if visibility_raw:
+        reasoning_visibility = _normalize_reasoning_visibility(visibility_raw)
+    elif reasoning_control == "none":
+        reasoning_visibility = "none"
+    elif _read_bool(reasoning_cfg, "summary_only", f"{row_path}.capabilities.reasoning"):
+        reasoning_visibility = "summary"
+    elif _read_bool(reasoning_cfg, "visible_trace", f"{row_path}.capabilities.reasoning"):
+        reasoning_visibility = "full"
+    else:
+        reasoning_visibility = "none"
+
+    if continuation_raw:
+        reasoning_continuation = _normalize_reasoning_continuation(continuation_raw)
+    elif reasoning_control == "none":
+        reasoning_continuation = "none"
+    else:
+        reasoning_continuation = "stateful"
 
     matrix = CapabilityMatrix(
         input_text=_read_bool(input_cfg, "text", f"{row_path}.capabilities.input", default=True),
@@ -270,6 +350,9 @@ def _parse_capabilities(row: dict[str, object], row_path: str) -> tuple[Capabili
         transport_file_upload=_read_bool(transport_cfg, "file_upload", f"{row_path}.capabilities.transport"),
         transport_remote_url=_read_bool(transport_cfg, "remote_url", f"{row_path}.capabilities.transport"),
         reasoning_control=reasoning_control,
+        reasoning_profiles=reasoning_profiles,
+        reasoning_visibility=reasoning_visibility,
+        reasoning_continuation=reasoning_continuation,
         reasoning_visible_trace=_read_bool(
             reasoning_cfg,
             "visible_trace",
@@ -293,6 +376,18 @@ def _parse_capabilities(row: dict[str, object], row_path: str) -> tuple[Capabili
     if matrix.reasoning_control == "none" and default_reasoning_profile != "off":
         raise ModelCatalogError(
             f"{row_path}.capabilities.reasoning.default_profile must be off when reasoning.control is none"
+        )
+    if matrix.reasoning_control == "none" and matrix.reasoning_profiles != ("off",):
+        raise ModelCatalogError(
+            f"{row_path}.capabilities.reasoning.supported_profiles must be ['off'] when reasoning.control is none"
+        )
+    if default_reasoning_profile == "provider_default" and "auto" not in matrix.reasoning_profiles:
+        raise ModelCatalogError(
+            f"{row_path}.capabilities.reasoning.supported_profiles must include auto when default_profile is provider_default"
+        )
+    if default_reasoning_profile != "provider_default" and default_reasoning_profile not in matrix.reasoning_profiles:
+        raise ModelCatalogError(
+            f"{row_path}.capabilities.reasoning.supported_profiles must include {default_reasoning_profile}"
         )
     return matrix, default_reasoning_profile
 
@@ -474,8 +569,26 @@ def resolve_model_profile(model_id: str) -> ModelProfile | None:
 
 def _effective_reasoning_default(profile: ModelProfile) -> ReasoningProfile:
     if profile.default_reasoning_profile == "provider_default":
-        return "auto"
+        if "auto" in profile.capabilities.reasoning_profiles:
+            return "auto"
+        for candidate in ("medium", "high", "low", "max", "off"):
+            if candidate in profile.capabilities.reasoning_profiles:
+                return cast(ReasoningProfile, candidate)
+        return "off"
     return profile.default_reasoning_profile
+
+
+def _normalize_requested_reasoning_profile(profile: ModelProfile, requested: ReasoningProfile) -> ReasoningProfile:
+    supported = profile.capabilities.reasoning_profiles
+    if requested == "provider_default":
+        return _effective_reasoning_default(profile)
+    if requested in supported:
+        return requested
+    if requested == "off":
+        return _effective_reasoning_default(profile)
+    if requested == "auto":
+        return _effective_reasoning_default(profile)
+    return _effective_reasoning_default(profile)
 
 
 def resolve_reasoning_profile(
@@ -488,20 +601,27 @@ def resolve_reasoning_profile(
     if profile is None or profile.capabilities.reasoning_control == "none":
         return "off"
     if requested_profile is not None:
-        if requested_profile == "provider_default":
-            return _effective_reasoning_default(profile)
-        if requested_profile == "off":
-            return "off"
-        return requested_profile
+        return _normalize_requested_reasoning_profile(profile, requested_profile)
     if requested_enabled is False:
-        return "off"
+        if "off" in profile.capabilities.reasoning_profiles:
+            return "off"
+        return _effective_reasoning_default(profile)
     if requested_enabled is True:
         if profile.default_reasoning_profile not in {"off", "auto", "provider_default"}:
             return profile.default_reasoning_profile
+        if "auto" in profile.capabilities.reasoning_profiles:
+            return "auto"
         if profile.capabilities.reasoning_control == "budget":
             return "high"
         if profile.capabilities.reasoning_control in {"toggle", "effort", "prompt_tag"}:
-            return "medium"
+            if "medium" in profile.capabilities.reasoning_profiles:
+                return "medium"
+            if "high" in profile.capabilities.reasoning_profiles:
+                return "high"
+            if "low" in profile.capabilities.reasoning_profiles:
+                return "low"
+            if "max" in profile.capabilities.reasoning_profiles:
+                return "max"
         return "auto"
     return _effective_reasoning_default(profile)
 
@@ -541,8 +661,11 @@ def build_model_options() -> list[dict[str, object]]:
                 "id": profile.id,
                 "label": profile.display_name,
                 "supports_thinking": profile.capabilities.reasoning_control != "none",
-                "supports_thinking_trace": profile.capabilities.reasoning_visible_trace,
+                "supports_thinking_trace": profile.capabilities.reasoning_visibility != "none",
                 "supports_attachment_upload": profile.capabilities.supports_attachment_upload,
+                "provider_name": profile.provider_name,
+                "provider_family": profile.provider_family,
+                "native_multimodal_mode": profile.native_multimodal_mode,
                 "reasoning_control": profile.capabilities.reasoning_control,
                 "default_reasoning_profile": _effective_reasoning_default(profile),
                 "capabilities": {
@@ -560,6 +683,9 @@ def build_model_options() -> list[dict[str, object]]:
                     },
                     "reasoning": {
                         "control": profile.capabilities.reasoning_control,
+                        "supported_profiles": list(profile.capabilities.reasoning_profiles),
+                        "visibility": profile.capabilities.reasoning_visibility,
+                        "continuation": profile.capabilities.reasoning_continuation,
                         "visible_trace": profile.capabilities.reasoning_visible_trace,
                         "summary_only": profile.capabilities.reasoning_summary_only,
                     },

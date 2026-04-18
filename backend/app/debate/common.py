@@ -15,6 +15,11 @@ from sqlalchemy.orm import Session, selectinload
 logger = logging.getLogger("chatchat.debate")
 
 from ..core.config import settings
+from ..debate.config import (
+    DEFAULT_FREE_DEBATE_BUDGET_MS,
+    DEFAULT_STAGE_TURN_BUDGET_MS,
+    DebateSessionConfig,
+)
 from ..schemas import (
     DebateFreeDebateStateOut,
     DebateJudgeDecisionIn,
@@ -28,13 +33,6 @@ from ..storage.models import DebateJudgeDecision, DebateParticipant, DebateSessi
 from ..chat.types import ChatMessagePayload
 
 THINK_TAG_ONLY_PATTERN = re.compile(r"</?think>", re.IGNORECASE)
-DEFAULT_FREE_DEBATE_BUDGET_MS = 60_000
-DEFAULT_STAGE_TURN_BUDGET_MS = {
-    "opening": 10_000,
-    "rebuttal": 10_000,
-    "closing": 15_000,
-    "judge_decision": 10_000,
-}
 FREE_DEBATE_MIN_START_MS = 5_000
 SIDE_LABEL = {"pro": "正方", "con": "反方"}
 STAGE_LABEL = {
@@ -281,6 +279,10 @@ def _save_config(session: DebateSession, payload: dict[str, Any]) -> None:
     session.config_json = json.dumps(payload, ensure_ascii=False)
 
 
+def _session_config(session: DebateSession) -> DebateSessionConfig:
+    return DebateSessionConfig.from_payload(_config(session))
+
+
 def _to_bool(value: Any, default: bool = False) -> bool:
     if isinstance(value, bool):
         return value
@@ -319,17 +321,11 @@ def _score_to_int(value: Any) -> int | None:
 
 
 def _free_debate_enabled(session: DebateSession) -> bool:
-    return True
+    return _session_config(session).free_debate_enabled
 
 
 def _stage_time_limits_ms(session: DebateSession) -> dict[str, int]:
-    config = _config(session)
-    return {
-        "opening": max(1_000, _to_int(config.get("opening_budget_ms"), DEFAULT_STAGE_TURN_BUDGET_MS["opening"])),
-        "rebuttal": max(1_000, _to_int(config.get("rebuttal_budget_ms"), DEFAULT_STAGE_TURN_BUDGET_MS["rebuttal"])),
-        "free_debate": max(1_000, _to_int(config.get("free_debate_budget_ms"), DEFAULT_FREE_DEBATE_BUDGET_MS)),
-        "closing": max(1_000, _to_int(config.get("closing_budget_ms"), DEFAULT_STAGE_TURN_BUDGET_MS["closing"])),
-    }
+    return _session_config(session).stage_time_limits_ms
 
 
 def _stage_turn_budget_ms(session: DebateSession, stage: str) -> int | None:
@@ -767,14 +763,9 @@ def _build_turn_messages(
     stage: str,
     judge_question: str | None = None,
 ) -> list[ChatMessagePayload]:
-    session_config = _config(session)
+    session_config = _session_config(session)
     side = participant.side
-    side_style_key = "pro_style" if side == "pro" else "con_style"
-    style = (
-        str(session_config.get(side_style_key, "")).strip()
-        or str(session_config.get("style", "")).strip()
-        or "理性清晰"
-    )
+    style = session_config.style_for_side(side)
     opponent_last_turn = _latest_opponent_turn(session, side)
     latest_judge_turn = _latest_judge_question(session)
     latest_question = judge_question or (latest_judge_turn.content if latest_judge_turn else "")

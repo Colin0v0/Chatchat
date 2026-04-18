@@ -1,7 +1,10 @@
 import { Check, Copy, CornerUpLeft, RotateCcw, ThumbsDown, ThumbsUp } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
-import type { ChatMessage, FeedbackValue } from "../types";
+import { thinkingPanelLabels } from "../app/modelCapabilities";
+import { findModelOption } from "../app/modelOptions";
+import { ASSISTANT_DRAFT_ID } from "../app/constants";
+import type { ChatMessage, FeedbackValue, ModelOption } from "../types";
 import { ContextPanel } from "./context/ContextPanel";
 import { MarkdownMessage } from "./markdown/MarkdownMessage";
 import { MessageAttachmentStrip } from "./message/MessageAttachmentStrip";
@@ -10,8 +13,11 @@ import { ThinkingPanel } from "./thinking/ThinkingPanel";
 
 interface MessageListProps {
   items: ChatMessage[];
+  conversationModel: string;
+  models: ModelOption[];
   isReasoningStreaming?: boolean;
   isStreaming?: boolean;
+  reserveThinkingSpace?: boolean;
   onFeedback?: (messageId: number, value: FeedbackValue | null) => void;
   onRetry?: (messageId: number | string) => void;
   onReuseUserMessage?: (content: string) => void;
@@ -38,15 +44,27 @@ function StreamingLabel({ label }: { label: string }) {
 
 function StreamingStatusSlot({
   label,
+  panelLabels,
   reasoning,
   streaming,
 }: {
   label: string | null;
+  panelLabels: {
+    streamingLabel: string;
+    settledLabel: string;
+  };
   reasoning: string;
   streaming: boolean;
 }) {
   if (reasoning.trim()) {
-    return <ThinkingPanel streaming={streaming} trace={reasoning} />;
+    return (
+      <ThinkingPanel
+        settledLabel={panelLabels.settledLabel}
+        streaming={streaming}
+        streamingLabel={panelLabels.streamingLabel}
+        trace={reasoning}
+      />
+    );
   }
 
   if (!label) {
@@ -54,6 +72,13 @@ function StreamingStatusSlot({
   }
 
   return <StreamingLabel label={label} />;
+}
+
+function pendingAssistantLabel(panelLabels: { streamingLabel: string }, hasReasoningCapability: boolean) {
+  if (hasReasoningCapability) {
+    return panelLabels.streamingLabel;
+  }
+  return "正在组织回答";
 }
 
 function renderMessageContent(content: string) {
@@ -118,7 +143,7 @@ function AssistantActions({
   }
 
   if (hidden) {
-    return null;
+    return <div aria-hidden="true" className="mt-3 h-8" />;
   }
 
   return (
@@ -173,8 +198,12 @@ function UserActions({
     }
   }
 
-  if (hidden || !content.trim()) {
+  if (!content.trim()) {
     return null;
+  }
+
+  if (hidden) {
+    return <div aria-hidden="true" className="mt-1 mb-3 h-9" />;
   }
 
   return (
@@ -201,8 +230,11 @@ function UserActions({
 
 export function MessageList({
   items,
+  conversationModel,
+  models,
   isReasoningStreaming = false,
   isStreaming = false,
+  reserveThinkingSpace = false,
   onFeedback,
   onRetry,
   onReuseUserMessage,
@@ -226,15 +258,28 @@ export function MessageList({
         const hasStoppedNote = item.localStatus === "stopped";
         const isActiveStreamingAssistant = item.id === activeStreamingAssistantId;
         const reasoning = item.reasoning ?? "";
+        const messageModelOption = isAssistant
+          ? findModelOption(models, item.model ?? conversationModel)
+          : null;
+        const panelLabels = thinkingPanelLabels(messageModelOption);
+        const hasReasoningCapability = Boolean(
+          messageModelOption?.supports_thinking_trace || messageModelOption?.supports_thinking,
+        );
         const showThinkingPanel = reasoning.trim().length > 0;
         const thinkingStreaming = isActiveStreamingAssistant && isReasoningStreaming;
         const showStreamingStatus = isActiveStreamingAssistant && isEmptyAssistant && Boolean(streamingStatusLabel);
+        const isPendingAssistantDraft = item.id === ASSISTANT_DRAFT_ID && isEmptyAssistant && !hasStoppedNote;
+        const showPendingPlaceholder =
+          !hasStoppedNote &&
+          !showThinkingPanel &&
+          !showStreamingStatus &&
+          (isPendingAssistantDraft || (isActiveStreamingAssistant && reserveThinkingSpace));
         const showSources = !isEmptyAssistant && item.id !== activeStreamingAssistantId;
         const attachments = item.attachments ?? [];
 
         if (!isAssistant) {
           return (
-            <article className="mb-4 flex justify-end last:mb-0" key={item.id}>
+            <article className="mb-4 flex justify-end last:mb-0" key={item.clientKey ?? String(item.id)}>
               <div className="group max-w-[420px]">
                 <MessageAttachmentStrip align="end" attachments={attachments} />
                 {item.content.trim() ? (
@@ -248,22 +293,31 @@ export function MessageList({
           );
         }
 
-        if (isEmptyAssistant && !showThinkingPanel && !showStreamingStatus && !hasStoppedNote) {
+        if (isEmptyAssistant && !showThinkingPanel && !showStreamingStatus && !showPendingPlaceholder && !hasStoppedNote) {
           return null;
         }
 
         return (
-          <article className="mb-5 flex justify-start last:mb-0" key={item.id}>
+          <article className="mb-5 flex justify-start last:mb-0" key={item.clientKey ?? String(item.id)}>
             <div className="w-full">
               {showThinkingPanel ? (
                 <StreamingStatusSlot
                   label={null}
+                  panelLabels={panelLabels}
                   reasoning={reasoning}
                   streaming={thinkingStreaming}
                 />
               ) : showStreamingStatus ? (
                 <StreamingStatusSlot
                   label={streamingStatusLabel}
+                  panelLabels={panelLabels}
+                  reasoning=""
+                  streaming={false}
+                />
+              ) : showPendingPlaceholder ? (
+                <StreamingStatusSlot
+                  label={pendingAssistantLabel(panelLabels, reserveThinkingSpace || hasReasoningCapability)}
+                  panelLabels={panelLabels}
                   reasoning=""
                   streaming={false}
                 />

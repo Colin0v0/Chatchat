@@ -10,6 +10,7 @@ from ..retrieval.language import prefers_simplified_chinese, response_language_i
 from ..retrieval.query_rewrite import QueryRewriteResult, RagQueryRewriter
 from ..retrieval.types import ContextEntry, ContextPayload, PromptContextPayload
 from .plan import ToolContextPlan, build_tool_context_plan
+from .requests import ToolContextBuildRequest, ToolPlanRequest
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -36,26 +37,22 @@ class ToolRuntimeService:
     def plan_context(
         self,
         *,
-        query: str,
-        tool_mode,
+        request: ToolPlanRequest,
     ) -> ToolContextPlan:
-        return build_tool_context_plan(query=query, mode=tool_mode)
+        return build_tool_context_plan(query=request.query, policy=request.tool_policy)
 
     async def build_context_payload(
         self,
         *,
-        db: "Session",
-        user_id: int,
-        query: str,
-        plan: ToolContextPlan,
-        retrieval_messages: list[dict[str, str]],
-        conversation_messages: list["Message"],
-        include_file_context: bool,
-        include_image_context: bool,
+        request: ToolContextBuildRequest,
     ) -> PromptContextPayload:
-        rewrite_result = await self._rewrite_query(plan=plan, retrieval_messages=retrieval_messages)
-        debug = self._base_debug(plan=plan, rewrite_result=rewrite_result, include_file_context=include_file_context)
-        configuration_refusal = self._resolve_configuration_refusal(query=query, plan=plan)
+        rewrite_result = await self._rewrite_query(plan=request.plan, retrieval_messages=request.retrieval_messages)
+        debug = self._base_debug(
+            plan=request.plan,
+            rewrite_result=rewrite_result,
+            include_file_context=request.include_file_context,
+        )
+        configuration_refusal = self._resolve_configuration_refusal(query=request.query, plan=request.plan)
         if configuration_refusal:
             return PromptContextPayload(
                 context_message=None,
@@ -64,43 +61,51 @@ class ToolRuntimeService:
                 debug=debug,
             )
 
-        if plan.mode == "none" and not include_file_context:
+        if not request.plan.policy.is_enabled and not request.include_file_context:
             return PromptContextPayload(context_message=None, debug=debug)
 
         tasks: list[asyncio.Future | asyncio.Task | object] = []
-        if "knowledge" in plan.requested_tools:
+        if "knowledge" in request.plan.requested_tools:
             tasks.append(
                 self._knowledge_service.retrieve_context(
-                    db=db,
-                    user_id=user_id,
+                    db=request.db,
+                    user_id=request.user_id,
                     query=rewrite_result.effective_query,
                 )
             )
-        if "search" in plan.requested_tools:
-            tasks.append(self._web_search_service.retrieve_context(plan.query))
-        if include_file_context:
+        if "search" in request.plan.requested_tools:
+            tasks.append(self._web_search_service.retrieve_context(request.plan.query))
+        if request.include_file_context:
             tasks.append(
                 self._file_context_service.retrieve_context(
-                    db=db,
-                    query=query,
-                    messages=conversation_messages,
-                    include_images=include_image_context,
+                    db=request.db,
+                    query=request.query,
+                    messages=request.conversation_messages,
+                    include_images=request.include_image_context,
                 )
             )
 
         results = await asyncio.gather(*tasks) if tasks else []
         merged_sources = self._merge_sources(results)
-        merged_entries = self._merge_entries(results, strategy=plan.strategy)
-        refusal_message = self._resolve_refusal_message(results, query=query)
+        merged_entries = self._merge_entries(results, strategy=request.plan.strategy)
+        refusal_message = self._resolve_refusal_message(results, query=request.query)
         merged_debug = self._merge_debug(
             results,
-            plan=plan,
+            plan=request.plan,
             rewrite_result=rewrite_result,
-            include_file_context=include_file_context,
+            include_file_context=request.include_file_context,
         )
         merged_instructions = self._merge_instructions(results)
 
         if not merged_entries:
+            if request.include_file_context:
+                # Native multimodal requests may not need synthetic retrieval context.
+                # In that case we should fall back to direct model reasoning instead of refusing.
+                return PromptContextPayload(
+                    context_message=None,
+                    sources=[],
+                    debug=merged_debug,
+                )
             return PromptContextPayload(
                 context_message=None,
                 sources=[],
@@ -111,10 +116,10 @@ class ToolRuntimeService:
 
         return PromptContextPayload(
             context_message=self._build_context_message(
-                query=query,
+                query=request.query,
                 entries=merged_entries,
                 instructions=merged_instructions,
-                plan=plan,
+                plan=request.plan,
             ),
             sources=[source.to_payload() for source in merged_sources],
             debug=merged_debug,
@@ -185,13 +190,11 @@ class ToolRuntimeService:
         requested_tools = list(plan.requested_tools)
         if include_file_context:
             requested_tools.append("attachments")
-        return {
+        debug_payload = {
             "tool_strategy": plan.strategy.name,
-            "tool_mode": plan.mode,
             "tool_reason": plan.reason,
             "tool_query": rewrite_result.effective_query,
             "tool_query_original": rewrite_result.original_query,
-            "tool_plan": requested_tools,
             "knowledge_query_rewrite_applied": rewrite_result.applied,
             "knowledge_query_rewrite_model": rewrite_result.model,
             "knowledge_query_rewrite_context_messages": rewrite_result.context_message_count,
@@ -199,6 +202,9 @@ class ToolRuntimeService:
             "search_executed": False,
             "file_executed": False,
         }
+        debug_payload.update(plan.selection_payload)
+        debug_payload["tool_plan"] = requested_tools
+        return debug_payload
 
     def _merge_debug(
         self,

@@ -115,7 +115,7 @@ export function LandingView({
         </div>
       </div>
 
-      <div className="mx-auto w-full max-w-[920px] pl-4 pr-4 pt-2 md:pl-6 md:pr-[34px]">
+      <div className="mx-auto w-full max-w-[920px] px-4 pt-2 md:px-6">
         <ChatComposer
           centered={false}
           attachmentUploadAvailable={attachmentUploadAvailable}

@@ -18,6 +18,8 @@ interface ReasoningProfileSelectProps {
   fullWidth?: boolean;
   label?: string;
   menuPlacement?: "top" | "bottom";
+  triggerStyle?: "default" | "ghost";
+  triggerContent?: "label_value" | "label_only";
 }
 
 export function ReasoningProfileSelect({
@@ -28,6 +30,8 @@ export function ReasoningProfileSelect({
   fullWidth = false,
   label = "Reasoning",
   menuPlacement = "top",
+  triggerStyle = "default",
+  triggerContent = "label_value",
 }: ReasoningProfileSelectProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -61,9 +65,12 @@ export function ReasoningProfileSelect({
     return null;
   }
 
+  const isGhost = triggerStyle === "ghost";
   const buttonClassName = compact
-    ? `inline-flex h-11 min-w-0 items-center gap-1.5 rounded-[14px] border border-app-border bg-white/92 px-3 text-left text-[15px] font-medium tracking-[-0.02em] text-[#5f564a] transition hover:bg-[#f8f3eb] ${fullWidth ? "w-full justify-between" : ""}`
-    : `inline-flex h-10 min-w-0 items-center gap-2 rounded-lg border border-app-border bg-app-panel-strong px-3 text-left text-[15px] font-medium tracking-[-0.02em] text-[#5f564a] transition hover:bg-app-panel-soft ${fullWidth ? "w-full justify-between" : "sm:max-w-[240px]"}`;
+    ? isGhost
+      ? `inline-flex min-w-0 items-center bg-transparent px-0 py-0 text-left text-[15px] font-medium tracking-[-0.02em] text-[#5f564a] transition hover:text-app-text ${fullWidth ? "w-full justify-between" : ""}`
+      : `inline-flex min-w-0 items-center rounded-[14px] border border-app-border bg-white/92 px-3 py-2.5 text-left text-[15px] font-medium tracking-[-0.02em] text-[#5f564a] transition hover:bg-[#f8f3eb] ${fullWidth ? "w-full justify-between" : ""}`
+    : `inline-flex min-w-0 items-center rounded-lg border border-app-border bg-app-panel-strong px-3 py-2.5 text-left text-[15px] font-medium tracking-[-0.02em] text-[#5f564a] transition hover:bg-app-panel-soft ${fullWidth ? "w-full justify-between" : ""}`;
   const menuPositionClassName = compact
     ? menuPlacement === "bottom"
       ? "top-[calc(100%+10px)]"
@@ -72,7 +79,7 @@ export function ReasoningProfileSelect({
       ? "top-[calc(100%+8px)]"
       : "bottom-[calc(100%+8px)]";
   const menuClassName = compact
-    ? `absolute ${menuPositionClassName} left-0 z-20 w-[min(220px,calc(100vw-5rem))] ${sidebarMenuPanelClass}`
+    ? `absolute ${menuPositionClassName} left-0 z-20 w-[min(180px,calc(100vw-5rem))] ${sidebarMenuPanelClass}`
     : `absolute ${menuPositionClassName} left-0 z-20 min-w-full ${sidebarMenuPanelClass} ${fullWidth ? "w-full" : "sm:w-max sm:max-w-[240px]"}`;
   const itemClassName = (active: boolean) =>
     compact
@@ -89,20 +96,26 @@ export function ReasoningProfileSelect({
         );
 
   return (
-    <div className="relative min-w-0 shrink-0" ref={rootRef}>
+    <div className={`relative min-w-0 ${fullWidth ? "w-full" : "shrink-0"}`} ref={rootRef}>
       <button className={buttonClassName} onClick={() => setOpen((current) => !current)} type="button">
         {fullWidth ? (
           <span className="min-w-0 truncate text-[#5f564a]">{displayLabel}</span>
         ) : (
-          <span className="flex min-w-0 items-center gap-1.5 sm:gap-2">
-            <span className={`shrink-0 whitespace-nowrap ${compact ? "text-[#5f564a]" : "text-[#5f564a] sm:hidden"}`}>
-              {label}
-            </span>
-            {compact ? null : <span className="hidden shrink-0 whitespace-nowrap text-[#5f564a] sm:inline">{label}:</span>}
-            {compact ? null : <span className="hidden min-w-0 truncate text-[#5f564a] sm:inline">{displayLabel}</span>}
-          </span>
+          <>
+            {triggerContent === "label_only" ? (
+              <span className="shrink-0 whitespace-nowrap text-[#5f564a]">{label}</span>
+            ) : (
+              <span className="flex min-w-0 items-center gap-1.5">
+                <span className="shrink-0 whitespace-nowrap text-[#5f564a]">{label}:</span>
+                <span className="min-w-0 truncate text-[#5f564a]">{displayLabel}</span>
+              </span>
+            )}
+            <ChevronDown className={`ml-2 size-4 shrink-0 text-[#5f564a] transition ${open ? "rotate-180" : ""}`} />
+          </>
         )}
-        <ChevronDown className={`size-4 shrink-0 text-[#5f564a] transition ${open ? "rotate-180" : ""}`} />
+        {fullWidth ? (
+          <ChevronDown className={`size-4 shrink-0 text-[#5f564a] transition ${open ? "rotate-180" : ""}`} />
+        ) : null}
       </button>
 
       {open ? (

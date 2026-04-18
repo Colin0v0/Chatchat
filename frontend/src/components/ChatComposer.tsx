@@ -330,16 +330,13 @@ export function ChatComposer({
         </div>
 
         <div className="px-4 pb-3 pt-1 md:hidden">
-          <div className="flex items-end gap-3">
-            <div className="min-w-0 flex-1">
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0">
               <ComposerMobileToolbar
                 attachmentUploadAvailable={attachmentUploadAvailable}
                 attachmentsPresent={attachments.length > 0}
                 isStreaming={isStreaming}
-                model={model}
-                models={models}
                 onAddAttachment={() => inputRef.current?.click()}
-                onModelChange={onModelChange}
                 onReasoningProfileChange={onReasoningProfileChange}
                 onToggleRag={onToggleRag}
                 onToggleWeb={onToggleWeb}
@@ -349,29 +346,31 @@ export function ChatComposer({
               />
             </div>
 
-            <ComposerVoiceButton
-              compact
-              disabled={voiceDisabled}
-              isRecording={isRecording}
-              isTranscribing={isTranscribing}
-              onClick={onToggleRecording}
-            />
+            <div className="ml-auto flex shrink-0 items-center gap-2">
+              <ComposerVoiceButton
+                compact
+                disabled={voiceDisabled}
+                isRecording={isRecording}
+                isTranscribing={isTranscribing}
+                onClick={onToggleRecording}
+              />
 
-            <button
-              className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] transition-colors ${
-                isStreaming
-                  ? "bg-app-danger text-white hover:bg-app-danger"
-                  : canSubmit
-                    ? "bg-app-accent-soft text-app-accent-strong hover:bg-[#e7ddcf]"
-                    : "bg-app-panel-soft text-app-muted/55"
-              }`}
-              disabled={!isStreaming && !canSubmit}
-              onClick={isStreaming ? onStop : onSubmit}
-              title={submitBlockedReason ?? undefined}
-              type="button"
-            >
-              {isStreaming ? <Square className="size-3.5 fill-current" /> : <ArrowUp className="size-4" />}
-            </button>
+              <button
+                className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] transition-colors ${
+                  isStreaming
+                    ? "bg-app-danger text-white hover:bg-app-danger"
+                    : canSubmit
+                      ? "bg-app-accent-soft text-app-accent-strong hover:bg-[#e7ddcf]"
+                      : "bg-app-panel-soft text-app-muted/55"
+                }`}
+                disabled={!isStreaming && !canSubmit}
+                onClick={isStreaming ? onStop : onSubmit}
+                title={submitBlockedReason ?? undefined}
+                type="button"
+              >
+                {isStreaming ? <Square className="size-3.5 fill-current" /> : <ArrowUp className="size-4" />}
+              </button>
+            </div>
           </div>
         </div>
       </div>

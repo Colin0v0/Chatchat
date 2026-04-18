@@ -1,6 +1,7 @@
 import { Check, ChevronDown } from "lucide-react";
 import { Fragment, useEffect, useRef, useState } from "react";
 
+import { nativeMultimodalLabel, reasoningDisplayLabel } from "../app/modelCapabilities";
 import { toModelLabel } from "../lib/models";
 import type { ModelOption } from "../types";
 import { cn, sidebarMenuItemClass, sidebarMenuPanelClass } from "./sidebar/styles";
@@ -13,6 +14,7 @@ interface ModelSelectProps {
   fullWidth?: boolean;
   label?: string;
   menuPlacement?: "top" | "bottom";
+  triggerStyle?: "default" | "chevron";
 }
 
 function createFallbackOption(id: string): ModelOption {
@@ -22,6 +24,7 @@ function createFallbackOption(id: string): ModelOption {
     supports_thinking: false,
     supports_thinking_trace: false,
     supports_attachment_upload: false,
+    native_multimodal_mode: "false",
     chat_model: null,
     reasoning_model: null,
   };
@@ -44,6 +47,7 @@ export function ModelSelect({
   fullWidth = false,
   label = "Model",
   menuPlacement = "top",
+  triggerStyle = "default",
 }: ModelSelectProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -74,7 +78,10 @@ export function ModelSelect({
     };
   }, []);
 
-  const buttonClassName = compact
+  const isChevronOnly = triggerStyle === "chevron";
+  const buttonClassName = isChevronOnly
+    ? "inline-flex h-7 w-5 items-center justify-center border-0 bg-transparent p-0 text-[#5f564a] transition hover:text-app-text focus:outline-none focus-visible:ring-0"
+    : compact
     ? `inline-flex h-11 min-w-0 items-center gap-1.5 rounded-[14px] border border-app-border bg-white/92 px-3 text-left text-[15px] font-medium tracking-[-0.02em] text-[#5f564a] transition hover:bg-[#f8f3eb] ${fullWidth ? "w-full justify-between" : ""}`
     : `inline-flex h-10 min-w-0 items-center gap-2 rounded-lg border border-app-border bg-app-panel-strong px-3 text-left text-[15px] font-medium tracking-[-0.02em] text-[#5f564a] transition hover:bg-app-panel-soft ${fullWidth ? "w-full justify-between" : "sm:max-w-[320px]"}`;
   const menuPositionClassName = compact
@@ -102,9 +109,14 @@ export function ModelSelect({
         );
 
   return (
-    <div className="relative min-w-0 shrink-0" ref={rootRef}>
-      <button className={buttonClassName} onClick={() => setOpen((value) => !value)} type="button">
-        {fullWidth ? (
+    <div className={`relative min-w-0 ${fullWidth ? "w-full" : "shrink-0"}`} ref={rootRef}>
+      <button
+        aria-label={isChevronOnly ? `Select model: ${displayModel.label}` : undefined}
+        className={buttonClassName}
+        onClick={() => setOpen((value) => !value)}
+        type="button"
+      >
+        {isChevronOnly ? null : fullWidth ? (
           <span className="min-w-0 truncate text-[#5f564a]">{displayModel.label}</span>
         ) : (
           <span className="flex min-w-0 items-center gap-1.5 sm:gap-2">
@@ -115,7 +127,7 @@ export function ModelSelect({
             {compact ? null : <span className="hidden min-w-0 truncate text-[#5f564a] sm:inline">{displayModel.label}</span>}
           </span>
         )}
-        <ChevronDown className={`size-4 shrink-0 text-[#5f564a] transition ${open ? "rotate-180" : ""}`} />
+        <ChevronDown className={`shrink-0 text-[#5f564a] transition ${isChevronOnly ? "size-4.5" : "size-4"} ${open ? "rotate-180" : ""}`} />
       </button>
 
       {open ? (
@@ -137,7 +149,21 @@ export function ModelSelect({
                   }}
                   type="button"
                 >
-                  <span className="truncate">{item.label}</span>
+                  <span className="min-w-0 flex-1 text-left">
+                    <span className="block truncate">{item.label}</span>
+                    <span className="mt-1 flex flex-wrap gap-1.5">
+                      {[reasoningDisplayLabel(item), nativeMultimodalLabel(item)]
+                        .filter((value): value is string => Boolean(value))
+                        .map((badge) => (
+                          <span
+                            className="rounded-full border border-app-border bg-app-panel-soft px-2 py-0.5 text-[11px] font-medium tracking-[0.01em] text-app-muted"
+                            key={`${item.id}-${badge}`}
+                          >
+                            {badge}
+                          </span>
+                        ))}
+                    </span>
+                  </span>
                   {active ? <Check className="size-4 text-[#5f564a]" /> : null}
                 </button>
               </Fragment>

@@ -99,8 +99,7 @@ def build_prompt_composition(
     inspection = {
         "query": query,
         "strategy": strategy.name,
-        "tool_mode": tool_plan.mode,
-        "tool_plan": list(tool_plan.requested_tools),
+        **tool_plan.selection_payload,
         "older_message_count": older_turn_count,
         "recent_message_count": recent_turn_count,
         "memory_count": int(

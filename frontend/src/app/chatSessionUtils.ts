@@ -91,7 +91,7 @@ export function stageForToolMode(mode: ToolMode): StreamingStage | null {
 
 export function labelForStage(stage: StreamingStage | null): string | null {
   if (stage === "waiting_for_model") {
-    return "等待模型响应";
+    return "正在组织回答";
   }
   if (stage === "analyzing_attachments") {
     return "分析附件";
@@ -172,11 +172,13 @@ export function mergeConversationSummaries(
   return sortConversations([...byId.values()]);
 }
 
-export function createAssistantDraftMessage(): ChatMessage {
+export function createAssistantDraftMessageForModel(model: string): ChatMessage {
   return {
     id: ASSISTANT_DRAFT_ID,
+    clientKey: createClientId("assistant"),
     role: "assistant",
     content: "",
+    model,
   };
 }
 
@@ -187,6 +189,7 @@ export function createUserDraftMessage(
 ): ChatMessage {
   return {
     id,
+    clientKey: createClientId("user"),
     role: "user",
     content,
     attachments,
@@ -272,6 +275,18 @@ export function setAssistantDraftId(
   };
 }
 
+export function setAssistantDraftModel(
+  conversation: ConversationDetail,
+  model: string,
+): ConversationDetail {
+  return {
+    ...conversation,
+    messages: conversation.messages.map((item) =>
+      item.id === ASSISTANT_DRAFT_ID ? { ...item, model } : item,
+    ),
+  };
+}
+
 export function setAssistantDraftFinalContent(
   conversation: ConversationDetail,
   content: string,
@@ -333,6 +348,7 @@ export function appendRetryDraft(
   conversation: ConversationDetail,
   userMessageId: number | string,
   content: string,
+  model: string,
   attachments: MessageAttachment[] = [],
 ): ConversationDetail {
   const messages = conversation.messages.filter((item) => item.id !== ASSISTANT_DRAFT_ID);
@@ -341,7 +357,7 @@ export function appendRetryDraft(
     messages: [
       ...messages,
       createUserDraftMessage(userMessageId, content, attachments),
-      createAssistantDraftMessage(),
+      createAssistantDraftMessageForModel(model),
     ],
   };
 }

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from typing import cast
 
 from ..chat.types import ChatDocumentPayload, ChatImagePayload, ChatMessagePayload
 
@@ -37,7 +38,39 @@ def _gemini_parts(message: ChatMessagePayload) -> list[dict[str, object]]:
     return parts
 
 
-def gemini_request_payload(messages: list[ChatMessagePayload]) -> dict[str, object]:
+def _normalize_reasoning_profile(reasoning_profile: str | None) -> str:
+    return (reasoning_profile or "").strip().lower()
+
+
+def _gemini_thinking_budget(reasoning_profile: str | None) -> int | None:
+    normalized = _normalize_reasoning_profile(reasoning_profile)
+    if normalized in {"", "auto", "provider_default"}:
+        return 1024
+    if normalized == "off":
+        return 0
+    if normalized == "low":
+        return 512
+    if normalized == "medium":
+        return 1024
+    if normalized == "high":
+        return 2048
+    if normalized == "max":
+        return 4096
+    return 1024
+
+
+def apply_gemini_reasoning_controls(payload: dict[str, object], *, reasoning_profile: str | None) -> None:
+    budget = _gemini_thinking_budget(reasoning_profile)
+    if budget is None:
+        return
+    generation_config = cast(dict[str, object], payload.setdefault("generationConfig", {}))
+    generation_config["thinkingConfig"] = {
+        "includeThoughts": budget > 0,
+        "thinkingBudget": budget,
+    }
+
+
+def gemini_request_payload(messages: list[ChatMessagePayload], *, reasoning_profile: str | None = None) -> dict[str, object]:
     system_parts: list[dict[str, object]] = []
     contents: list[dict[str, object]] = []
 
@@ -58,6 +91,7 @@ def gemini_request_payload(messages: list[ChatMessagePayload]) -> dict[str, obje
     payload: dict[str, object] = {"contents": contents}
     if system_parts:
         payload["systemInstruction"] = {"parts": system_parts}
+    apply_gemini_reasoning_controls(payload, reasoning_profile=reasoning_profile)
     return payload
 
 
@@ -122,4 +156,3 @@ def _extract_gemini_output(payload: dict[str, object]) -> dict[str, str]:
         else:
             message_chunks.append(text)
     return {"message": "".join(message_chunks), "reasoning": "".join(reasoning_chunks)}
-
