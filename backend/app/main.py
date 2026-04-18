@@ -11,8 +11,8 @@ from .core.config import settings
 from .core.http import shared_http_clients
 from .core.logging import configure_logging
 from .core.model_cache import configure_model_cache_environment
-from .llm.catalog import ModelCatalogError, validate_model_catalog
-from .storage.database import ensure_schema_ready
+from .providers import ModelCatalogError, validate_model_catalog
+from .storage.database import initialize_storage
 from .storage.media import MEDIA_ROOT
 
 
@@ -38,7 +38,7 @@ def create_app() -> FastAPI:
         except ModelCatalogError as exc:
             raise RuntimeError(f"Model catalog validation failed: {exc}") from exc
         configure_model_cache_environment(settings.model_cache_root)
-        ensure_schema_ready()
+        initialize_storage()
         if settings.audio_transcription_enabled and settings.audio_transcription_eager_load:
             app.state.audio_services.transcriber.load()
 

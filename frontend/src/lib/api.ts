@@ -821,9 +821,9 @@ export async function streamChat(payload: ChatStreamRequest, options: StreamRequ
   if (payload.model) {
     formData.append("model", payload.model);
   }
-  formData.append("retrieval_mode", payload.retrieval_mode);
-  if (payload.thinking_enabled != null) {
-    formData.append("thinking_enabled", String(payload.thinking_enabled));
+  formData.append("tool_mode", payload.tool_mode);
+  if (payload.reasoning_profile) {
+    formData.append("reasoning_profile", payload.reasoning_profile);
   }
   payload.files?.forEach((file) => formData.append("files", file));
 

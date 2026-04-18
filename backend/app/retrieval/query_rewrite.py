@@ -6,7 +6,7 @@ from typing import Sequence
 
 from ..chat.types import ChatMessagePayload
 from ..core.config import Settings
-from ..llm import complete_chat
+from ..runtime.model_runner import complete_model_response
 
 REWRITE_SYSTEM_PROMPT = """You rewrite the latest user request into a standalone retrieval query for searching a private Markdown knowledge base.
 Preserve the user's intent, entities, filenames, dates, version numbers, error messages, APIs, and code symbols.
@@ -69,9 +69,9 @@ class RagQueryRewriter:
 
         context_messages = self._select_context_messages(history_messages)
         rewritten = _normalize_rewritten_query(
-            await complete_chat(
+            await complete_model_response(
                 model=self._model,
-                thinking_enabled=False,
+                requested_reasoning=False,
                 messages=[
                     ChatMessagePayload(role="system", content=REWRITE_SYSTEM_PROMPT),
                     ChatMessagePayload(

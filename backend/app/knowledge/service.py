@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from fastapi import UploadFile
-from sqlalchemy import case, delete, func, select
+from sqlalchemy import and_, case, delete, func, literal_column, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from ..core.config import Settings
@@ -17,8 +17,10 @@ from ..retrieval.rag.chunking import build_chunk_specs_for_document
 from ..retrieval.rag.embedder import build_knowledge_embedder
 from ..retrieval.rag.model_reranker import ModelReranker
 from ..retrieval.rag.neighbors import expand_neighbor_chunks
+from ..retrieval.rag.query_filters import chunk_matches_filters, parse_query_filters
 from ..retrieval.rag.retriever import HybridRetriever
-from ..retrieval.rag.types import MarkdownDocument, QueryFilters, RagChunk
+from ..retrieval.rag.text import tokenize_text
+from ..retrieval.rag.types import MarkdownDocument, QueryFilters, RagChunk, RetrievalCandidate
 from ..retrieval.types import ContextEntry, ContextPayload, SourceItem
 from ..storage.database import SessionLocal
 from ..storage.models import KnowledgeChunk, KnowledgeDocument
@@ -59,6 +61,7 @@ class KnowledgeService:
         self._min_score = max(0.0, settings.knowledge_min_score)
         self._embedder = build_knowledge_embedder(settings, settings.knowledge_embedding_model)
         self._retriever = HybridRetriever()
+        self._vector_weight = getattr(self._retriever, "_vector_weight", 0.72)
         self._reranker = ModelReranker(settings, rerank_window=self._rerank_window)
         self._reindex_tasks: dict[int, asyncio.Task[None]] = {}
         self._reindex_lock = asyncio.Lock()
@@ -190,10 +193,20 @@ class KnowledgeService:
                 return document
 
             self._mark_document_indexing(db=db, document=document)
-            task = asyncio.create_task(self._run_reindex_documents(user_id=user_id, document_ids=[document.id]))
-            self._register_reindex_task(user_id=user_id, task=task)
-            db.refresh(document)
-            return document
+            try:
+                indexed = await self._index_document(
+                    db=db,
+                    document=document,
+                    content=file_path.read_text(encoding="utf-8", errors="ignore"),
+                )
+            except Exception as exc:
+                indexed = self._mark_document_failed(
+                    db=db,
+                    document=document,
+                    error_message=str(exc).strip() or exc.__class__.__name__,
+                )
+            db.refresh(indexed)
+            return indexed
 
     async def reindex_pending_documents(
         self,
@@ -424,6 +437,8 @@ class KnowledgeService:
         cleaned_query = query.strip()
         if not cleaned_query:
             return ContextPayload()
+        query_filters = parse_query_filters(cleaned_query)
+        retrieval_query = query_filters.cleaned_query or cleaned_query
 
         documents = self.list_documents(db=db, user_id=user_id)
         ready_documents = [document for document in documents if document.status == "ready"]
@@ -434,22 +449,35 @@ class KnowledgeService:
                 debug={"rag_ready": False, "rag_reason": "no_ready_documents"},
             )
 
-        chunks = self._build_runtime_chunks(ready_documents)
-        if not chunks:
-            return ContextPayload(
-                should_refuse=True,
-                refusal_message=self._missing_documents_message(query),
-                debug={"rag_ready": False, "rag_reason": "no_chunks"},
+        query_embedding = await self._embedder.embed_query(retrieval_query)
+        using_postgres = db.bind is not None and db.bind.dialect.name == "postgresql"
+        candidate_chunks: list[RagChunk]
+        context_chunk_pool: list[RagChunk]
+        if using_postgres:
+            candidates = self._retrieve_postgres_candidates(
+                db=db,
+                user_id=user_id,
+                query_filters=query_filters,
+                query_embedding=query_embedding,
             )
-
-        self._retriever.set_chunks(chunks)
-        query_embedding = await self._embedder.embed_query(cleaned_query)
-        candidates = self._retriever.retrieve(
-            query_filters=QueryFilters(cleaned_query=cleaned_query),
-            query_embedding=query_embedding,
-            top_k=self._top_k,
-            candidate_limit=self._candidate_limit,
-        )
+            candidate_chunks = [candidate.chunk for candidate in candidates]
+            context_chunk_pool = []
+        else:
+            candidate_chunks = self._build_runtime_chunks(ready_documents)
+            if not candidate_chunks:
+                return ContextPayload(
+                    should_refuse=True,
+                    refusal_message=self._missing_documents_message(query),
+                    debug={"rag_ready": False, "rag_reason": "no_chunks"},
+                )
+            self._retriever.set_chunks(candidate_chunks)
+            candidates = self._retriever.retrieve(
+                query_filters=query_filters,
+                query_embedding=query_embedding,
+                top_k=self._top_k,
+                candidate_limit=self._candidate_limit,
+            )
+            context_chunk_pool = candidate_chunks
         if not candidates:
             return ContextPayload(
                 should_refuse=True,
@@ -470,10 +498,18 @@ class KnowledgeService:
                 debug={"rag_ready": True, "rag_reason": "low_score"},
             )
 
-        chunks_by_path: dict[str, list[RagChunk]] = {}
-        for chunk in chunks:
-            chunks_by_path.setdefault(chunk.path, []).append(chunk)
         context_limit = max(self._top_k, self._top_k * (1 + self._neighbor_window * 2))
+        if using_postgres:
+            context_chunk_pool = self._load_postgres_context_chunk_pool(
+                db=db,
+                user_id=user_id,
+                primary_candidates=primary_candidates,
+                limit=context_limit,
+            )
+
+        chunks_by_path: dict[str, list[RagChunk]] = {}
+        for chunk in context_chunk_pool:
+            chunks_by_path.setdefault(chunk.path, []).append(chunk)
         context_chunks = expand_neighbor_chunks(
             primary_candidates=primary_candidates,
             chunks_by_path=chunks_by_path,
@@ -519,9 +555,11 @@ class KnowledgeService:
             debug={
                 "rag_ready": True,
                 "rag_reason": "ok",
+                "rag_backend": "pgvector" if using_postgres else "hybrid_in_memory",
                 "knowledge_ready_documents": len(ready_documents),
                 "knowledge_total_documents": len(documents),
-                "knowledge_chunk_count": len(chunks),
+                "knowledge_candidate_count": len(candidates),
+                "knowledge_context_chunk_count": len(context_chunk_pool),
                 "knowledge_rerank_enabled": self._reranker.enabled,
                 "knowledge_rerank_reason": self._reranker.disabled_reason or "active",
             },
@@ -582,7 +620,7 @@ class KnowledgeService:
                     content=chunk.content,
                     token_count=max(1, len(chunk.content) // 4),
                     tags_json=json.dumps(chunk.tags, ensure_ascii=False),
-                    embedding_json=json.dumps(chunk.embedding),
+                    embedding=chunk.embedding,
                 )
             )
 
@@ -618,19 +656,238 @@ class KnowledgeService:
         chunks: list[RagChunk] = []
         for document in documents:
             for chunk in document.chunks:
-                chunks.append(
-                    RagChunk(
-                        id=chunk.chunk_key,
-                        path=chunk.path,
-                        directory=chunk.directory,
-                        heading=chunk.heading,
-                        content=chunk.content,
-                        order=chunk.chunk_index,
-                        embedding=chunk.embedding,
-                        tags=chunk.tags,
-                    )
-                )
+                chunks.append(self._runtime_chunk_from_model(chunk))
         return sorted(chunks, key=lambda item: (item.path, item.order, item.id))
+
+    def _retrieve_postgres_candidates(
+        self,
+        *,
+        db: Session,
+        user_id: int,
+        query_filters: QueryFilters,
+        query_embedding: list[float],
+    ) -> list[RetrievalCandidate]:
+        filter_clauses = self._build_postgres_filter_clauses(user_id=user_id, query_filters=query_filters)
+        distance_expr = KnowledgeChunk.embedding.cosine_distance(query_embedding)
+        vector_rows = db.execute(
+            select(KnowledgeChunk, distance_expr.label("distance"))
+            .where(*filter_clauses)
+            .order_by(distance_expr.asc(), KnowledgeChunk.chunk_index.asc(), KnowledgeChunk.id.asc())
+            .limit(self._candidate_limit)
+        ).all()
+
+        keyword_terms = self._keyword_terms(query_filters.cleaned_query)
+        keyword_rows: list[tuple[KnowledgeChunk, float]] = []
+        if keyword_terms:
+            search_text_expr = self._knowledge_search_text_expr()
+            keyword_match_clauses = [
+                search_text_expr.like(self._like_pattern(term), escape="\\")
+                for term in keyword_terms
+            ]
+            keyword_score_expr = case((keyword_match_clauses[0], 1.0), else_=0.0)
+            for clause in keyword_match_clauses[1:]:
+                keyword_score_expr = keyword_score_expr + case((clause, 1.0), else_=0.0)
+            keyword_score_expr = (keyword_score_expr / len(keyword_terms)).label("keyword_score")
+
+            keyword_rows = [
+                (chunk, float(score or 0.0))
+                for chunk, score in db.execute(
+                    select(KnowledgeChunk, keyword_score_expr)
+                    .where(*filter_clauses, or_(*keyword_match_clauses))
+                    .order_by(keyword_score_expr.desc(), KnowledgeChunk.chunk_index.asc(), KnowledgeChunk.id.asc())
+                    .limit(self._candidate_limit)
+                ).all()
+            ]
+
+        merged_rows: dict[int, dict[str, object]] = {}
+
+        for chunk, distance in vector_rows:
+            merged_rows[chunk.id] = {
+                "chunk": chunk,
+                "vector_raw": max(0.0, 1.0 - float(distance or 1.0)),
+                "keyword_raw": 0.0,
+            }
+
+        for chunk, keyword_score in keyword_rows:
+            item = merged_rows.setdefault(
+                chunk.id,
+                {
+                    "chunk": chunk,
+                    "vector_raw": 0.0,
+                    "keyword_raw": 0.0,
+                },
+            )
+            item["keyword_raw"] = max(float(item["keyword_raw"]), keyword_score)
+
+        merged_items = list(merged_rows.values())
+        vector_scores = self._min_max_normalize([float(item["vector_raw"]) for item in merged_items])
+        keyword_scores = self._min_max_normalize([float(item["keyword_raw"]) for item in merged_items])
+
+        candidates: list[RetrievalCandidate] = []
+        for index, item in enumerate(merged_items):
+            runtime_chunk = self._runtime_chunk_from_model(item["chunk"])
+            if not runtime_chunk.embedding or not chunk_matches_filters(runtime_chunk, query_filters):
+                continue
+            hybrid_score = (
+                self._vector_weight * vector_scores[index]
+                + (1.0 - self._vector_weight) * keyword_scores[index]
+            )
+            candidates.append(
+                RetrievalCandidate(
+                    chunk=runtime_chunk,
+                    vector_score=vector_scores[index],
+                    keyword_score=keyword_scores[index],
+                    hybrid_score=hybrid_score,
+                    final_score=hybrid_score,
+                )
+            )
+        candidates.sort(key=lambda item: item.hybrid_score, reverse=True)
+        return candidates[: self._candidate_limit]
+
+    def _load_postgres_context_chunk_pool(
+        self,
+        *,
+        db: Session,
+        user_id: int,
+        primary_candidates: list[RetrievalCandidate],
+        limit: int,
+    ) -> list[RagChunk]:
+        if self._neighbor_window <= 0:
+            return [candidate.chunk for candidate in primary_candidates[:limit]]
+
+        path_windows: dict[str, set[int]] = {}
+        for candidate in primary_candidates:
+            indices = path_windows.setdefault(candidate.chunk.path, set())
+            for offset in range(-self._neighbor_window, self._neighbor_window + 1):
+                sibling_index = candidate.chunk.order + offset
+                if sibling_index >= 0:
+                    indices.add(sibling_index)
+
+        if not path_windows:
+            return []
+
+        window_clauses = [
+            and_(
+                KnowledgeChunk.path == path,
+                KnowledgeChunk.chunk_index.in_(sorted(indices)),
+            )
+            for path, indices in path_windows.items()
+            if indices
+        ]
+        if not window_clauses:
+            return []
+
+        rows = db.scalars(
+            select(KnowledgeChunk)
+            .where(KnowledgeChunk.user_id == user_id, or_(*window_clauses))
+            .order_by(KnowledgeChunk.path.asc(), KnowledgeChunk.chunk_index.asc(), KnowledgeChunk.id.asc())
+        ).all()
+        return [self._runtime_chunk_from_model(chunk) for chunk in rows]
+
+    def _runtime_chunk_from_model(self, chunk: KnowledgeChunk) -> RagChunk:
+        embedding = list(chunk.embedding) if chunk.embedding is not None else []
+        return RagChunk(
+            id=chunk.chunk_key,
+            path=chunk.path,
+            directory=chunk.directory,
+            heading=chunk.heading,
+            content=chunk.content,
+            order=chunk.chunk_index,
+            embedding=embedding,
+            tags=chunk.tags,
+        )
+
+    def _build_postgres_filter_clauses(
+        self,
+        *,
+        user_id: int,
+        query_filters: QueryFilters,
+    ) -> list[object]:
+        clauses: list[object] = [KnowledgeChunk.user_id == user_id]
+        lower_path = func.lower(KnowledgeChunk.path)
+        lower_directory = func.lower(KnowledgeChunk.directory)
+        lower_tags = func.lower(KnowledgeChunk.tags_json)
+
+        if query_filters.folders:
+            clauses.append(
+                or_(
+                    *[
+                        or_(
+                            lower_directory == folder,
+                            lower_directory.like(self._folder_prefix_pattern(folder), escape="\\"),
+                        )
+                        for folder in query_filters.folders
+                    ]
+                )
+            )
+
+        if query_filters.paths:
+            clauses.append(
+                or_(
+                    *[
+                        lower_path.like(self._like_pattern(path), escape="\\")
+                        for path in query_filters.paths
+                    ]
+                )
+            )
+
+        if query_filters.tags:
+            for tag in query_filters.tags:
+                clauses.append(lower_tags.like(self._json_tag_pattern(tag), escape="\\"))
+
+        return clauses
+
+    def _knowledge_search_text_expr(self):
+        blank = literal_column("''")
+        space = literal_column("' '")
+        return func.lower(
+            func.coalesce(KnowledgeChunk.path, blank)
+            .op("||")(space)
+            .op("||")(func.coalesce(KnowledgeChunk.directory, blank))
+            .op("||")(space)
+            .op("||")(func.coalesce(KnowledgeChunk.heading, blank))
+            .op("||")(space)
+            .op("||")(func.coalesce(KnowledgeChunk.tags_json, blank))
+            .op("||")(space)
+            .op("||")(func.coalesce(KnowledgeChunk.content, blank))
+        )
+
+    def _keyword_terms(self, query: str) -> list[str]:
+        terms: list[str] = []
+        for token in tokenize_text(query):
+            normalized = token.strip().lower()
+            if not normalized or normalized in terms:
+                continue
+            terms.append(normalized)
+            if len(terms) >= 12:
+                break
+        return terms
+
+    def _min_max_normalize(self, values: list[float]) -> list[float]:
+        if not values:
+            return []
+        min_value = min(values)
+        max_value = max(values)
+        if min_value == max_value:
+            if max_value <= 0:
+                return [0.0 for _ in values]
+            if 0.0 <= max_value <= 1.0:
+                return [max_value for _ in values]
+            return [1.0 for _ in values]
+        scale = max_value - min_value
+        return [(value - min_value) / scale for value in values]
+
+    def _escape_like_value(self, value: str) -> str:
+        return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+    def _like_pattern(self, value: str) -> str:
+        return f"%{self._escape_like_value(value)}%"
+
+    def _folder_prefix_pattern(self, value: str) -> str:
+        return f"{self._escape_like_value(value)}/%"
+
+    def _json_tag_pattern(self, value: str) -> str:
+        return f'%"{self._escape_like_value(value)}"%'
 
     def _truncate_excerpt(self, content: str, limit: int = 280) -> str:
         normalized = " ".join(content.split())

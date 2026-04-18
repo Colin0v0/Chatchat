@@ -6,7 +6,8 @@ from typing import Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 
-RetrievalMode = Literal["none", "rag", "web"]
+ToolMode = Literal["none", "knowledge", "search"]
+ReasoningProfileValue = Literal["off", "auto", "low", "medium", "high", "max", "provider_default"]
 FeedbackValue = Literal["up", "down"]
 MemoryScope = Literal["working", "global", "conversation"]
 MemoryKind = Literal["profile", "preference", "goal", "project", "fact", "constraint"]
@@ -61,8 +62,8 @@ class RegenerateRequest(BaseModel):
     conversation_id: int
     assistant_message_id: int
     model: Optional[str] = None
-    retrieval_mode: RetrievalMode = "none"
-    thinking_enabled: Optional[bool] = None
+    tool_mode: ToolMode = "none"
+    reasoning_profile: Optional[ReasoningProfileValue] = None
 
 
 class MessageFeedbackUpdate(BaseModel):
@@ -106,7 +107,8 @@ class MessageContextSectionOut(BaseModel):
 class MessageContextOut(BaseModel):
     query: str = ""
     strategy: str = "balanced"
-    retrieval_mode: RetrievalMode = "none"
+    tool_mode: ToolMode = "none"
+    tool_plan: list[str] = Field(default_factory=list)
     older_message_count: int = 0
     recent_message_count: int = 0
     memory_count: int = 0
@@ -178,7 +180,7 @@ class DebateSessionCreateIn(BaseModel):
     style: str = ""
     pro_style: str = ""
     con_style: str = ""
-    retrieval_mode: RetrievalMode = "none"
+    tool_mode: ToolMode = "none"
     free_debate_enabled: bool = True
     opening_duration_sec: int = Field(default=10, ge=5, le=120)
     rebuttal_duration_sec: int = Field(default=10, ge=5, le=120)

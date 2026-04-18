@@ -42,7 +42,7 @@ class ThinkingNormalizerTests(unittest.TestCase):
         injected = inject_thinking_system_prompt(
             model="openai_local:claude-sonnet-4-6",
             messages=messages,
-            thinking_enabled=True,
+            reasoning_profile="medium",
         )
 
         self.assertEqual(injected[0].role, "system")
@@ -58,7 +58,7 @@ class ThinkingNormalizerTests(unittest.TestCase):
         injected = inject_thinking_system_prompt(
             model="openai_local:claude-sonnet-4-6",
             messages=messages,
-            thinking_enabled=True,
+            reasoning_profile="medium",
         )
 
         self.assertEqual(len(injected), 2)
@@ -72,7 +72,7 @@ class ThinkingNormalizerTests(unittest.TestCase):
         injected = inject_thinking_system_prompt(
             model="openai_local:claude-sonnet-4-6",
             messages=messages,
-            thinking_enabled=None,
+            reasoning_profile="auto",
         )
 
         self.assertEqual(injected[0].role, "system")
@@ -85,12 +85,12 @@ class ThinkingNormalizerTests(unittest.TestCase):
         disabled = inject_thinking_system_prompt(
             model="openai_local:claude-sonnet-4-6",
             messages=messages,
-            thinking_enabled=False,
+            reasoning_profile="off",
         )
         other_model = inject_thinking_system_prompt(
             model="openai_local:claude-haiku-4-5",
             messages=messages,
-            thinking_enabled=True,
+            reasoning_profile="medium",
         )
 
         self.assertEqual(disabled, messages)

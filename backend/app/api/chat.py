@@ -6,10 +6,10 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Uplo
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from ..application import chat_stream_response, regenerate_chat_response
 from ..auth import require_current_user
 from ..chat.state import ChatServices, get_chat_services
-from ..chat.workflow import chat_stream_response, regenerate_chat_response
-from ..schemas import MessageFeedbackUpdate, RegenerateRequest, RetrievalMode
+from ..schemas import MessageFeedbackUpdate, ReasoningProfileValue, RegenerateRequest, ToolMode
 from ..storage.database import get_db
 from ..storage.models import Conversation, Message, User
 
@@ -39,8 +39,8 @@ async def chat_stream(
     conversation_id: Optional[int] = Form(None),
     message: str = Form(""),
     model: Optional[str] = Form(None),
-    retrieval_mode: RetrievalMode = Form("none"),
-    thinking_enabled: Optional[bool] = Form(None),
+    tool_mode: ToolMode = Form("none"),
+    reasoning_profile: Optional[ReasoningProfileValue] = Form(None),
     files: Optional[list[UploadFile]] = File(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_current_user),
@@ -54,8 +54,8 @@ async def chat_stream(
         conversation_id=conversation_id,
         message=message,
         model=model,
-        retrieval_mode=retrieval_mode,
-        thinking_enabled=thinking_enabled,
+        tool_mode=tool_mode,
+        reasoning_profile=reasoning_profile,
         files=files,
     )
 

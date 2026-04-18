@@ -20,7 +20,10 @@ class QueryRewriteTests(unittest.IsolatedAsyncioTestCase):
             {"role": "user", "content": "WSL2 连接模型那段"},
         ]
 
-        with patch("app.retrieval.query_rewrite.complete_chat", return_value="search query: WSL2 连接模型 部署文档"):
+        with patch(
+            "app.retrieval.query_rewrite.complete_model_response",
+            return_value="search query: WSL2 连接模型 部署文档",
+        ):
             result = await rewriter.rewrite(query="WSL2 那一段怎么配", history_messages=history)
 
         self.assertTrue(result.applied)
@@ -35,7 +38,10 @@ class QueryRewriteTests(unittest.IsolatedAsyncioTestCase):
         )
         rewriter = RagQueryRewriter(settings)
 
-        with patch("app.retrieval.query_rewrite.complete_chat", return_value="Here is a standalone retrieval query for you"):
+        with patch(
+            "app.retrieval.query_rewrite.complete_model_response",
+            return_value="Here is a standalone retrieval query for you",
+        ):
             result = await rewriter.rewrite(query="部署文档", history_messages=[])
 
         self.assertFalse(result.applied)

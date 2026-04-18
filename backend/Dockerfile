@@ -27,6 +27,8 @@ COPY requirements.txt .
 RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
     pip install -r requirements.txt
 
+COPY alembic.ini .
+COPY alembic ./alembic
 COPY app ./app
 COPY app.py .
 COPY model_catalog.json .

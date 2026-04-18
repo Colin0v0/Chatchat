@@ -18,6 +18,51 @@ Chatchat 是一个面向个人/小团队的聊天工作台，当前提供：
 
 详细开发说明见 [开发文档.md](开发文档.md)。
 
+## 开发环境
+
+当前推荐的本地开发形态是：
+
+- `backend`：在 VSCode / 宿主机 Python 里直接运行
+- `postgres-dev`：通过 Docker 单独启动开发数据库
+- `redis-dev`：通过 Docker 单独启动开发缓存
+
+启动开发基建：
+
+```powershell
+docker-compose -f docker-compose.dev-infra.yml up -d
+```
+
+如果本机拉不到 `docker.io`，先覆盖镜像地址再启动：
+
+```powershell
+$env:DEV_POSTGRES_IMAGE = "你的可用镜像仓库/pgvector/pgvector:pg16"
+$env:DEV_REDIS_IMAGE = "你的可用镜像仓库/redis:7-alpine"
+docker-compose -f docker-compose.dev-infra.yml up -d
+```
+
+如果你已经在 Docker Desktop 配好了镜像代理或镜像加速器，这两项不用设置。
+
+启动后端开发服务：
+
+```powershell
+cd backend
+.\scripts\run_dev_backend.ps1
+```
+
+首次启动空的开发库时，脚本会自动：
+
+- 创建 `vector` / `pg_trgm` 扩展
+- 按当前 ORM 建表
+- 补知识库检索索引
+- `stamp` 到当前 Alembic head
+
+这套开发环境默认使用：
+
+- PostgreSQL：`127.0.0.1:5433` / `chatchat_dev`
+- Redis：`127.0.0.1:6380`
+
+生产环境仍然保持单独的 Docker 栈，不和开发库共用容器、端口或数据卷。
+
 ## 当前架构
 
 ```text
@@ -151,11 +196,6 @@ python app.py
 ```bash
 CHATCHAT_ENV=deploy.wsl python app.py
 ```
-
-常用模板：
-
-- `backend/.env.dev.windows.example`
-- `backend/.env.deploy.wsl.example`
 
 ### 关键环境变量
 

@@ -11,8 +11,8 @@ from ..multimodal.attachment import AttachmentContextService
 from ..multimodal.file_parser import FileParser
 from ..multimodal.image import ImageTextService
 from ..retrieval.file_context import ConversationFileContextService
-from ..retrieval import RetrievalService
 from ..retrieval.websearch import WebSearchService
+from ..tools import ToolRuntimeService
 from .model_queue import ModelExecutionCoordinator
 
 
@@ -22,7 +22,7 @@ class ChatServices:
     web_search_service: WebSearchService
     memory_service: MemoryService
     attachment_context_service: AttachmentContextService
-    retrieval_service: RetrievalService
+    tool_runtime: ToolRuntimeService
     history_message_limit: int
     history_token_budget: int
     summary_token_budget: int
@@ -52,7 +52,7 @@ def build_chat_services(settings: Settings) -> ChatServices:
         ),
         max_concurrency=settings.attachment_processing_max_concurrency,
     )
-    retrieval_service = RetrievalService(
+    tool_runtime = ToolRuntimeService(
         settings,
         knowledge_service,
         web_search_service,
@@ -64,7 +64,7 @@ def build_chat_services(settings: Settings) -> ChatServices:
         web_search_service=web_search_service,
         memory_service=memory_service,
         attachment_context_service=attachment_context_service,
-        retrieval_service=retrieval_service,
+        tool_runtime=tool_runtime,
         history_message_limit=max(1, settings.chat_history_message_limit),
         history_token_budget=max(256, settings.chat_history_token_budget),
         summary_token_budget=max(128, settings.chat_summary_token_budget),

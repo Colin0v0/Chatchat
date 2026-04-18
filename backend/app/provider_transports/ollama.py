@@ -1,20 +1,18 @@
 from __future__ import annotations
 
 import asyncio
-import base64
-import io
 import json
 import time
 from collections.abc import AsyncIterator
 
 import httpx
-from PIL import Image
 
-from ..chat.types import ChatImagePayload, ChatMessagePayload
+from ..chat.types import ChatMessagePayload
 from ..core.config import settings
 from ..core.http import limited_request, shared_http_clients
-from .ollama_runtime import log_ollama_request, ollama_keep_alive_value
-from .capabilities import (
+from ..provider_codecs.ollama import ollama_message_payload, ollama_think_setting
+from ..llm.ollama_runtime import log_ollama_request, ollama_keep_alive_value
+from ..llm.capabilities import (
     DiscoveredModel,
     OLLAMA_CAPABILITY_CACHE,
     filter_chat_model_names,
@@ -102,34 +100,11 @@ def ollama_supports_thinking(model_name: str) -> bool:
     return "thinking" in OLLAMA_CAPABILITY_CACHE.get(model_name, set())
 
 
-def ollama_image_base64(image: ChatImagePayload) -> str:
-    encoded = image.data_url.split(",", 1)[1]
-    if image.mime_type == "image/jpeg":
-        return encoded
-
-    raw = base64.b64decode(encoded)
-    with Image.open(io.BytesIO(raw)) as decoded:
-        frame = decoded.convert("RGB")
-        buffer = io.BytesIO()
-        frame.save(buffer, format="JPEG", quality=92)
-    return base64.b64encode(buffer.getvalue()).decode("ascii")
-
-
-def ollama_message_payload(message: ChatMessagePayload) -> dict[str, object]:
-    payload: dict[str, object] = {
-        "role": message.role,
-        "content": message.content,
-    }
-    if message.images:
-        payload["images"] = [ollama_image_base64(image) for image in message.images]
-    return payload
-
-
 async def stream_ollama_chat(
     *,
     model: str,
     messages: list[ChatMessagePayload],
-    thinking_enabled: bool | None = None,
+    reasoning_profile: str | None = None,
     base_url_override: str | None = None,
     context_window: int | None = None,
 ) -> AsyncIterator[dict]:
@@ -141,7 +116,7 @@ async def stream_ollama_chat(
         "keep_alive": keep_alive,
     }
     if ollama_supports_thinking(model):
-        payload["think"] = True if thinking_enabled is None else thinking_enabled
+        payload["think"] = ollama_think_setting(reasoning_profile)
     if isinstance(context_window, int) and context_window > 0:
         payload["options"] = {"num_ctx": context_window}
 

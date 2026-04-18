@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ..retrieval import RetrievalMode
+from ..schemas import ToolMode
 
 
 @dataclass(frozen=True)
@@ -16,7 +16,7 @@ class ContextStrategy:
 def choose_context_strategy(
     *,
     query: str,
-    retrieval_mode: RetrievalMode,
+    tool_mode: ToolMode,
     has_conversation_attachments: bool,
     default_history_budget: int,
     default_summary_budget: int,
@@ -24,17 +24,17 @@ def choose_context_strategy(
     normalized_query = query.strip()
     is_long_query = len(normalized_query) >= 120
 
-    if retrieval_mode == "web":
+    if tool_mode == "search":
         return ContextStrategy(
-            name="web-grounded",
+            name="search-grounded",
             history_token_budget=max(900, int(default_history_budget * 0.75)),
             summary_token_budget=max(400, int(default_summary_budget * 0.75)),
             file_retrieval_enabled=has_conversation_attachments,
         )
 
-    if retrieval_mode == "rag":
+    if tool_mode == "knowledge":
         return ContextStrategy(
-            name="note-grounded",
+            name="knowledge-grounded",
             history_token_budget=max(1100, int(default_history_budget * 0.82)),
             summary_token_budget=max(500, int(default_summary_budget * 0.82)),
             file_retrieval_enabled=has_conversation_attachments,

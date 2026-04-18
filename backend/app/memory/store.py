@@ -5,7 +5,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from sqlalchemy import and_, desc, or_, select, text
+from sqlalchemy import and_, case, desc, func, literal, or_, select, text
 from sqlalchemy.exc import DatabaseError
 from sqlalchemy.orm import Session
 
@@ -127,6 +127,14 @@ def memory_similarity(
 class MemoryStore:
     def __init__(self, db: Session):
         self._db = db
+
+    @property
+    def _dialect_name(self) -> str:
+        bind = self._db.get_bind()
+        return bind.dialect.name if bind is not None else ""
+
+    def _uses_sqlite_memory_search(self) -> bool:
+        return self._dialect_name == "sqlite"
 
     def list_collection(self, *, user_id: int, conversation_id: int | None) -> MemoryCollection:
         workspace = self.list_workspace(user_id=user_id, conversation_id=conversation_id)
@@ -462,18 +470,29 @@ class MemoryStore:
         self.expire_stale_working_memory(user_id=user_id)
         tokens = self._search_tokens(query)
         if not tokens:
-            items = self._db.scalars(
-                select(MemoryItem.id)
-                .where(*self._active_scope_filters(user_id=user_id, conversation_id=conversation_id))
-                .order_by(
-                    desc(MemoryItem.pinned),
-                    desc(MemoryItem.last_used_at),
-                    desc(MemoryItem.updated_at),
-                    desc(MemoryItem.id),
-                )
-                .limit(limit)
-            ).all()
+            items = self._list_ranked_active_memory_ids(
+                user_id=user_id,
+                conversation_id=conversation_id,
+                limit=limit,
+            )
             return [MemoryMatch(memory_id=item, score=0.0) for item in items]
+
+        if not self._uses_sqlite_memory_search():
+            try:
+                return self._recall_with_database_search(
+                    tokens=tokens,
+                    user_id=user_id,
+                    conversation_id=conversation_id,
+                    limit=limit,
+                )
+            except DatabaseError:
+                self._db.rollback()
+                return self._recall_without_sqlite_fts(
+                    tokens=tokens,
+                    user_id=user_id,
+                    conversation_id=conversation_id,
+                    limit=limit,
+                )
 
         match_query = " OR ".join(tokens)
         try:
@@ -563,6 +582,8 @@ class MemoryStore:
         return json.dumps(normalize_tags(tags), ensure_ascii=False)
 
     def reindex_memory(self, memory: MemoryItem) -> None:
+        if not self._uses_sqlite_memory_search():
+            return
         self._delete_search_document(memory.id)
         self._db.execute(
             text(
@@ -579,6 +600,8 @@ class MemoryStore:
         )
 
     def _delete_search_document(self, memory_id: int) -> None:
+        if not self._uses_sqlite_memory_search():
+            return
         self._db.execute(
             text("DELETE FROM memory_search WHERE rowid = :rowid"),
             {"rowid": memory_id},
@@ -647,6 +670,8 @@ class MemoryStore:
         ).mappings().all()
 
     def _rebuild_search_index(self) -> None:
+        if not self._uses_sqlite_memory_search():
+            return
         self._db.execute(text("DROP TABLE IF EXISTS memory_search"))
         self._db.execute(
             text(
@@ -669,6 +694,130 @@ class MemoryStore:
             )
         )
         self._db.flush()
+
+    def _list_ranked_active_memory_ids(
+        self,
+        *,
+        user_id: int,
+        conversation_id: int,
+        limit: int,
+    ) -> list[int]:
+        return self._db.scalars(
+            select(MemoryItem.id)
+            .where(*self._active_scope_filters(user_id=user_id, conversation_id=conversation_id))
+            .order_by(
+                desc(MemoryItem.pinned),
+                desc(MemoryItem.last_used_at),
+                desc(MemoryItem.updated_at),
+                desc(MemoryItem.id),
+            )
+            .limit(limit)
+        ).all()
+
+    def _recall_with_database_search(
+        self,
+        *,
+        tokens: list[str],
+        user_id: int,
+        conversation_id: int,
+        limit: int,
+    ) -> list[MemoryMatch]:
+        lowered_title = func.lower(func.coalesce(MemoryItem.title, ""))
+        lowered_detail = func.lower(func.coalesce(MemoryItem.detail, ""))
+        lowered_tags = func.lower(func.coalesce(MemoryItem.tags_json, ""))
+        lowered_scope = func.lower(func.coalesce(MemoryItem.scope, ""))
+        lowered_kind = func.lower(func.coalesce(MemoryItem.kind, ""))
+
+        score_expr = (
+            case((MemoryItem.pinned.is_(True), 100.0), else_=0.0)
+            + case(
+                (MemoryItem.scope == "working", 18.0),
+                (MemoryItem.scope == "conversation", 9.0),
+                else_=0.0,
+            )
+        )
+        token_filters = []
+        for token in tokens:
+            pattern = f"%{token.casefold()}%"
+            title_match = lowered_title.like(pattern)
+            detail_match = lowered_detail.like(pattern)
+            tags_match = lowered_tags.like(pattern)
+            scope_match = lowered_scope.like(pattern)
+            kind_match = lowered_kind.like(pattern)
+            token_filters.append(or_(title_match, detail_match, tags_match, scope_match, kind_match))
+            score_expr = (
+                score_expr
+                + case((title_match, 8.0), else_=0.0)
+                + case((detail_match, 4.0), else_=0.0)
+                + case((tags_match, 3.0), else_=0.0)
+                + case((scope_match, 2.0), else_=0.0)
+                + case((kind_match, 1.5), else_=0.0)
+            )
+
+        rows = self._db.execute(
+            select(
+                MemoryItem.id.label("memory_id"),
+                score_expr.label("score"),
+            )
+            .where(
+                *self._active_scope_filters(user_id=user_id, conversation_id=conversation_id),
+                or_(*token_filters),
+            )
+            .order_by(
+                desc(literal(1) * score_expr),
+                desc(MemoryItem.updated_at),
+                desc(MemoryItem.id),
+            )
+            .limit(limit)
+        ).mappings().all()
+        return [MemoryMatch(memory_id=int(row["memory_id"]), score=float(row["score"] or 0.0)) for row in rows]
+
+    def _recall_without_sqlite_fts(
+        self,
+        *,
+        tokens: list[str],
+        user_id: int,
+        conversation_id: int,
+        limit: int,
+    ) -> list[MemoryMatch]:
+        items = self._db.scalars(
+            select(MemoryItem).where(*self._active_scope_filters(user_id=user_id, conversation_id=conversation_id))
+        ).all()
+        if not items:
+            return []
+
+        token_set = set(tokens)
+        scored_matches: list[MemoryMatch] = []
+        for item in items:
+            item_tokens = memory_token_set(
+                item.scope or "",
+                item.kind or "",
+                item.title or "",
+                item.detail or "",
+                " ".join(item.tags),
+            )
+            if not item_tokens:
+                continue
+            overlap = token_set & item_tokens
+            if not overlap:
+                continue
+
+            score = float(len(overlap) * 12.0)
+            if item.pinned:
+                score += 100.0
+            if item.scope == "working":
+                score += 18.0
+            elif item.scope == "conversation":
+                score += 9.0
+            if item.last_used_at is not None:
+                score += 1.5
+            if item.updated_at is not None:
+                score += 0.5
+
+            scored_matches.append(MemoryMatch(memory_id=item.id, score=score))
+
+        scored_matches.sort(key=lambda item: (item.score, item.memory_id), reverse=True)
+        return scored_matches[:limit]
 
     def _list_items(
         self,

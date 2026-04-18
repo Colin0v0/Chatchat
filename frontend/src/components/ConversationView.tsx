@@ -1,7 +1,13 @@
 import { useEffect, useRef } from "react";
 
 import type { ComposerAttachmentDraft } from "../app/useComposerAttachments";
-import type { ConversationDetail, FeedbackValue, ModelOption, RetrievalMode } from "../types";
+import type {
+  ConversationDetail,
+  FeedbackValue,
+  ModelOption,
+  ReasoningProfileValue,
+  ToolMode,
+} from "../types";
 import { ChatComposer } from "./ChatComposer";
 import { MessageList } from "./MessageList";
 
@@ -19,12 +25,14 @@ interface ConversationViewProps {
   isTranscribing: boolean;
   model: string;
   models: ModelOption[];
-  retrievalMode: RetrievalMode;
+  reasoningProfile: ReasoningProfileValue;
+  toolMode: ToolMode;
   submitBlocked: boolean;
   submitBlockedReason: string | null;
   streamingStatusLabel: string | null;
   onChangeDraft: (value: string) => void;
   onModelChange: (value: string) => void;
+  onReasoningProfileChange: (value: ReasoningProfileValue) => void;
   onLoadEarlierMessages: () => Promise<void> | void;
   onRemoveDraftAttachment: (attachmentId: string) => void;
   onFeedback: (messageId: number, value: FeedbackValue | null) => void;
@@ -52,12 +60,14 @@ export function ConversationView({
   isTranscribing,
   model,
   models,
-  retrievalMode,
+  reasoningProfile,
+  toolMode,
   submitBlocked,
   submitBlockedReason,
   streamingStatusLabel,
   onChangeDraft,
   onModelChange,
+  onReasoningProfileChange,
   onLoadEarlierMessages,
   onRemoveDraftAttachment,
   onFeedback,
@@ -186,6 +196,7 @@ export function ConversationView({
           models={models}
           onChange={onChangeDraft}
           onModelChange={onModelChange}
+          onReasoningProfileChange={onReasoningProfileChange}
           onRemoveAttachment={onRemoveDraftAttachment}
           onSelectAttachments={onSelectAttachments}
           onStop={onStop}
@@ -193,7 +204,8 @@ export function ConversationView({
           onToggleRecording={onToggleRecording}
           onToggleRag={onToggleRag}
           onToggleWeb={onToggleWeb}
-          retrievalMode={retrievalMode}
+          reasoningProfile={reasoningProfile}
+          toolMode={toolMode}
           submitBlocked={submitBlocked}
           submitBlockedReason={submitBlockedReason}
           value={draft}

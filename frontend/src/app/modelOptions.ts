@@ -10,6 +10,8 @@ export function createModelOption(id: string): ModelOption {
       supports_thinking: false,
       supports_thinking_trace: false,
       supports_attachment_upload: true,
+      reasoning_control: "none",
+      default_reasoning_profile: "off",
       chat_model: null,
       reasoning_model: null,
     };
@@ -22,6 +24,8 @@ export function createModelOption(id: string): ModelOption {
       supports_thinking: true,
       supports_thinking_trace: true,
       supports_attachment_upload: true,
+      reasoning_control: "effort",
+      default_reasoning_profile: "medium",
       chat_model: null,
       reasoning_model: null,
     };
@@ -33,6 +37,8 @@ export function createModelOption(id: string): ModelOption {
     supports_thinking: false,
     supports_thinking_trace: false,
     supports_attachment_upload: true,
+    reasoning_control: "none",
+    default_reasoning_profile: "off",
     chat_model: null,
     reasoning_model: null,
   };

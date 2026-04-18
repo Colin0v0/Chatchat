@@ -3,20 +3,18 @@ from __future__ import annotations
 import json
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import StreamingResponse
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
+from ..application import (
+    advance_debate_session_response,
+    ask_debate_judge_question_response,
+    create_debate_judge_decision_response,
+)
 from ..auth import require_current_user
 from ..core.config import settings
-from ..debate.service import (
-    build_debate_session_detail,
-    debate_ask_event_stream,
-    debate_decision_event_stream,
-    debate_next_event_stream,
-    load_debate_session_for_user,
-)
-from ..llm.catalog import resolve_model_route
+from ..debate.common import build_debate_session_detail, load_debate_session_for_user
+from ..providers import resolve_model_profile
 from ..schemas import (
     DebateJudgeAskIn,
     DebateJudgeDecisionIn,
@@ -32,7 +30,7 @@ router = APIRouter(prefix="/api/debate", tags=["debate"])
 
 
 def _ensure_model_enabled(model_id: str) -> None:
-    if settings.model_catalog_strict and resolve_model_route(model_id) is None:
+    if settings.model_catalog_strict and resolve_model_profile(model_id) is None:
         raise HTTPException(status_code=400, detail=f"Model not enabled: {model_id}")
 
 
@@ -101,7 +99,7 @@ def create_debate_session(
                 "style": payload.style,
                 "pro_style": payload.pro_style,
                 "con_style": payload.con_style,
-                "retrieval_mode": payload.retrieval_mode,
+                "tool_mode": payload.tool_mode,
                 "judge_model_id": payload.judge_model_id,
                 "free_debate_enabled": payload.free_debate_enabled,
                 "opening_budget_ms": payload.opening_duration_sec * 1000,
@@ -212,9 +210,10 @@ async def advance_debate_session(
     current_user: User = Depends(require_current_user),
 ):
     session = load_debate_session_for_user(db=db, session_id=session_id, user_id=current_user.id)
-    return StreamingResponse(
-        debate_next_event_stream(db=db, request=request, session=session),
-        media_type="application/x-ndjson",
+    return advance_debate_session_response(
+        db=db,
+        request=request,
+        session=session,
     )
 
 
@@ -230,14 +229,11 @@ async def ask_debate_judge_question(
         raise HTTPException(status_code=400, detail="Question cannot be empty")
 
     session = load_debate_session_for_user(db=db, session_id=session_id, user_id=current_user.id)
-    return StreamingResponse(
-        debate_ask_event_stream(
-            db=db,
-            request=request,
-            session=session,
-            payload=payload,
-        ),
-        media_type="application/x-ndjson",
+    return ask_debate_judge_question_response(
+        db=db,
+        request=request,
+        session=session,
+        payload=payload,
     )
 
 
@@ -250,7 +246,9 @@ async def create_debate_judge_decision(
     current_user: User = Depends(require_current_user),
 ):
     session = load_debate_session_for_user(db=db, session_id=session_id, user_id=current_user.id)
-    return StreamingResponse(
-        debate_decision_event_stream(db=db, request=request, session=session, payload=payload),
-        media_type="application/x-ndjson",
+    return create_debate_judge_decision_response(
+        db=db,
+        request=request,
+        session=session,
+        payload=payload,
     )

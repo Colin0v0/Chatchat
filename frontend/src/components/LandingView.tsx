@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import type { ComposerAttachmentDraft } from "../app/useComposerAttachments";
-import type { ModelOption, RetrievalMode } from "../types";
+import type { ModelOption, ReasoningProfileValue, ToolMode } from "../types";
 import { ChatComposer } from "./ChatComposer";
 
 const BASE_TYPEWRITER_MS = 42;
@@ -18,7 +18,8 @@ interface LandingViewProps {
   isTranscribing: boolean;
   model: string;
   models: ModelOption[];
-  retrievalMode: RetrievalMode;
+  reasoningProfile: ReasoningProfileValue;
+  toolMode: ToolMode;
   submitBlocked: boolean;
   submitBlockedReason: string | null;
   shouldAnimate: boolean;
@@ -26,6 +27,7 @@ interface LandingViewProps {
   onAnimationComplete: () => void;
   onChangeDraft: (value: string) => void;
   onModelChange: (value: string) => void;
+  onReasoningProfileChange: (value: ReasoningProfileValue) => void;
   onRemoveDraftAttachment: (attachmentId: string) => void;
   onSelectAttachments: (files: FileList | File[]) => void;
   onSend: () => void;
@@ -51,7 +53,8 @@ export function LandingView({
   isTranscribing,
   model,
   models,
-  retrievalMode,
+  reasoningProfile,
+  toolMode,
   submitBlocked,
   submitBlockedReason,
   shouldAnimate,
@@ -59,6 +62,7 @@ export function LandingView({
   onAnimationComplete,
   onChangeDraft,
   onModelChange,
+  onReasoningProfileChange,
   onRemoveDraftAttachment,
   onSelectAttachments,
   onSend,
@@ -123,6 +127,7 @@ export function LandingView({
           models={models}
           onChange={onChangeDraft}
           onModelChange={onModelChange}
+          onReasoningProfileChange={onReasoningProfileChange}
           onRemoveAttachment={onRemoveDraftAttachment}
           onSelectAttachments={onSelectAttachments}
           onStop={onStop}
@@ -130,7 +135,8 @@ export function LandingView({
           onToggleRecording={onToggleRecording}
           onToggleRag={onToggleRag}
           onToggleWeb={onToggleWeb}
-          retrievalMode={retrievalMode}
+          reasoningProfile={reasoningProfile}
+          toolMode={toolMode}
           submitBlocked={submitBlocked}
           submitBlockedReason={submitBlockedReason}
           value={draft}

@@ -2,13 +2,13 @@ import os
 import unittest
 from unittest.mock import patch
 
-from app.llm.catalog import _parse_routes, _resolve_api_key, _resolve_env_value, resolve_native_multimodal_mode
+from app.providers.catalog import _parse_profiles, _resolve_api_key, _resolve_env_value, resolve_native_multimodal_mode
 
 
 class ModelCatalogConfigResolutionTests(unittest.TestCase):
     def test_resolve_env_value_uses_settings_when_os_env_missing(self):
         with patch.dict(os.environ, {}, clear=True), patch(
-            "app.llm.catalog.settings.openai_local_base_url",
+            "app.providers.catalog.settings.openai_local_base_url",
             "http://127.0.0.1:18000/v1",
         ):
             self.assertEqual(
@@ -18,7 +18,7 @@ class ModelCatalogConfigResolutionTests(unittest.TestCase):
 
     def test_resolve_env_value_prefers_os_env_over_settings(self):
         with patch.dict(os.environ, {"OPENAI_LOCAL_BASE_URL": "http://localhost:19000/v1"}, clear=True), patch(
-            "app.llm.catalog.settings.openai_local_base_url",
+            "app.providers.catalog.settings.openai_local_base_url",
             "http://127.0.0.1:18000/v1",
         ):
             self.assertEqual(
@@ -28,7 +28,7 @@ class ModelCatalogConfigResolutionTests(unittest.TestCase):
 
     def test_resolve_api_key_uses_settings_when_os_env_missing(self):
         with patch.dict(os.environ, {}, clear=True), patch(
-            "app.llm.catalog.settings.openai_local_api_key",
+            "app.providers.catalog.settings.openai_local_api_key",
             "sk-local-from-settings",
         ):
             self.assertEqual(
@@ -38,7 +38,7 @@ class ModelCatalogConfigResolutionTests(unittest.TestCase):
 
     def test_resolve_env_value_reads_codex_base_url_from_settings(self):
         with patch.dict(os.environ, {}, clear=True), patch(
-            "app.llm.catalog.settings.codex_base_url",
+            "app.providers.catalog.settings.codex_base_url",
             "https://api.openai.com/v1",
         ):
             self.assertEqual(
@@ -48,7 +48,7 @@ class ModelCatalogConfigResolutionTests(unittest.TestCase):
 
     def test_resolve_env_value_reads_trio_base_url_from_settings(self):
         with patch.dict(os.environ, {}, clear=True), patch(
-            "app.llm.catalog.settings.trio_base_url",
+            "app.providers.catalog.settings.trio_base_url",
             "https://pytrio.cn/api/v1",
         ):
             self.assertEqual(
@@ -56,12 +56,12 @@ class ModelCatalogConfigResolutionTests(unittest.TestCase):
                 "https://pytrio.cn/api/v1",
             )
 
-    def test_parse_routes_supports_trio_provider_preset(self):
+    def test_parse_profiles_supports_trio_provider_preset(self):
         with patch.dict(os.environ, {}, clear=True), patch(
-            "app.llm.catalog.settings.trio_model_path",
+            "app.providers.catalog.settings.trio_model_path",
             "your-model-path",
         ):
-            routes = _parse_routes(
+            profiles = _parse_profiles(
                 {
                     "providers": {
                         "trio_default": {
@@ -75,24 +75,96 @@ class ModelCatalogConfigResolutionTests(unittest.TestCase):
                             "id": "trio:your-model-path",
                             "provider_ref": "trio_default",
                             "upstream_model": "${TRIO_MODEL_PATH}",
-                            "native_multimodal": "false",
+                            "runtime": {
+                                "native_multimodal_mode": "false"
+                            },
+                            "capabilities": {
+                                "input": {
+                                    "text": True,
+                                    "image": False,
+                                    "pdf": False,
+                                    "other_file": False,
+                                    "audio": False
+                                },
+                                "transport": {
+                                    "inline_data": False,
+                                    "file_upload": False,
+                                    "remote_url": True
+                                },
+                                "reasoning": {
+                                    "control": "none",
+                                    "default_profile": "off",
+                                    "visible_trace": False,
+                                    "summary_only": False
+                                },
+                                "tools": {
+                                    "function_calling": False,
+                                    "parallel_calls": False,
+                                    "forced_call": False
+                                },
+                                "stream": {
+                                    "text": True,
+                                    "reasoning": False,
+                                    "tool_call": False,
+                                    "usage": False
+                                },
+                                "state": {
+                                    "previous_response": False
+                                }
+                            }
                         }
                     ],
                 }
             )
 
-        self.assertEqual(routes[0]["provider"], "trio")
-        self.assertEqual(routes[0]["upstream_model"], "your-model-path")
+        self.assertEqual(profiles[0].provider_name, "trio")
+        self.assertEqual(profiles[0].upstream_model, "your-model-path")
 
-    def test_parse_routes_requires_string_native_multimodal_mode(self):
-        with self.assertRaisesRegex(RuntimeError, "native_multimodal must be string"):
-            _parse_routes(
+    def test_parse_profiles_requires_string_native_multimodal_mode(self):
+        with self.assertRaisesRegex(RuntimeError, "runtime.native_multimodal_mode"):
+            _parse_profiles(
                 {
                     "models": [
                         {
                             "id": "codex:gpt-5.4",
                             "provider": "codex",
-                            "native_multimodal": True,
+                            "runtime": {
+                                "native_multimodal_mode": True
+                            },
+                            "capabilities": {
+                                "input": {
+                                    "text": True,
+                                    "image": True,
+                                    "pdf": True,
+                                    "other_file": True,
+                                    "audio": True
+                                },
+                                "transport": {
+                                    "inline_data": True,
+                                    "file_upload": True,
+                                    "remote_url": True
+                                },
+                                "reasoning": {
+                                    "control": "effort",
+                                    "default_profile": "off",
+                                    "visible_trace": False,
+                                    "summary_only": True
+                                },
+                                "tools": {
+                                    "function_calling": True,
+                                    "parallel_calls": True,
+                                    "forced_call": True
+                                },
+                                "stream": {
+                                    "text": True,
+                                    "reasoning": True,
+                                    "tool_call": True,
+                                    "usage": True
+                                },
+                                "state": {
+                                    "previous_response": True
+                                }
+                            }
                         }
                     ]
                 }

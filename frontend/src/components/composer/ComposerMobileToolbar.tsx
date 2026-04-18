@@ -2,7 +2,8 @@ import { BookOpen, Check, Globe, Paperclip, Plus } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { ModelSelect } from "../ModelSelect";
-import type { ModelOption, RetrievalMode } from "../../types";
+import { ReasoningProfileSelect } from "../ReasoningProfileSelect";
+import type { ModelOption, ReasoningProfileValue, ToolMode } from "../../types";
 
 interface ComposerMobileToolbarProps {
   attachmentUploadAvailable: boolean;
@@ -12,7 +13,10 @@ interface ComposerMobileToolbarProps {
   models: ModelOption[];
   onAddAttachment: () => void;
   onModelChange: (value: string) => void;
-  retrievalMode: RetrievalMode;
+  onReasoningProfileChange: (value: ReasoningProfileValue) => void;
+  reasoningProfile: ReasoningProfileValue;
+  selectedModelOption: ModelOption;
+  toolMode: ToolMode;
   onToggleRag: () => void;
   onToggleWeb: () => void;
 }
@@ -65,15 +69,18 @@ export function ComposerMobileToolbar({
   models,
   onAddAttachment,
   onModelChange,
-  retrievalMode,
+  onReasoningProfileChange,
+  reasoningProfile,
+  selectedModelOption,
+  toolMode,
   onToggleRag,
   onToggleWeb,
 }: ComposerMobileToolbarProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const addDisabled = isStreaming || !attachmentUploadAvailable;
-  const ragEnabled = retrievalMode === "rag";
-  const webEnabled = retrievalMode === "web";
+  const ragEnabled = toolMode === "knowledge";
+  const webEnabled = toolMode === "search";
 
   useEffect(() => {
     function handlePointerDown(event: MouseEvent) {
@@ -135,6 +142,17 @@ export function ComposerMobileToolbar({
         </div>
 
         <ModelSelect compact model={model} models={models} onChange={onModelChange} />
+      </div>
+      <div className="mt-2">
+        <ReasoningProfileSelect
+          compact
+          fullWidth
+          label="Think"
+          menuPlacement="top"
+          modelOption={selectedModelOption}
+          onChange={onReasoningProfileChange}
+          value={reasoningProfile}
+        />
       </div>
       {attachmentsPresent ? <div className="sr-only">Attachments ready</div> : null}
     </div>

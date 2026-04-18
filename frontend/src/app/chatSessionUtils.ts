@@ -6,7 +6,7 @@ import type {
   ConversationSummary,
   MessageContext,
   MessageAttachment,
-  RetrievalMode,
+  ToolMode,
 } from "../types";
 import { ASSISTANT_DRAFT_ID } from "./constants";
 
@@ -79,11 +79,11 @@ export function stageFromStatusItems(items: string[]): StreamingStage | null {
   return null;
 }
 
-export function stageForRetrievalMode(mode: RetrievalMode): StreamingStage | null {
-  if (mode === "rag") {
+export function stageForToolMode(mode: ToolMode): StreamingStage | null {
+  if (mode === "knowledge") {
     return "reading_notes";
   }
-  if (mode === "web") {
+  if (mode === "search") {
     return "searching";
   }
   return null;

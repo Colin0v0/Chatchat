@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import re
+from typing import cast
 
 import httpx
 
@@ -11,17 +12,19 @@ from ...chat.types import ChatMessagePayload
 from ...core.config import Settings
 from ...core.http import limited_request, shared_http_clients
 from ...llm.capabilities import Provider, model_provider_and_name, normalize_base_url
-from ...llm.catalog import resolve_model_route
-from ...llm.openai_client import (
+from ...provider_transports.openai import (
     _extract_responses_output,
     _parse_openai_json_response,
-    apply_reasoning_controls,
-    apply_responses_reasoning_controls,
     openai_base_url,
     openai_headers,
-    responses_message_payload,
 )
 from ...llm.ollama_runtime import ollama_keep_alive_value
+from ...provider_codecs.openai import (
+    apply_reasoning_controls,
+    apply_responses_reasoning_controls,
+    responses_message_payload,
+)
+from ...providers import resolve_model_profile
 from .types import RetrievalCandidate
 
 JSON_SCORE_PATTERN = re.compile(r'"score"\s*:\s*([01](?:\.\d+)?)')
@@ -100,13 +103,13 @@ class ModelReranker:
         self,
         model_id: str,
     ) -> tuple[Provider, str, str | None, str | None]:
-        route = resolve_model_route(model_id) if model_id else None
-        if route is not None:
+        profile = resolve_model_profile(model_id) if model_id else None
+        if profile is not None:
             return (
-                route["provider"],
-                route["upstream_model"],
-                route.get("base_url"),
-                route.get("api_key"),
+                cast(Provider, profile.provider_name),
+                profile.upstream_model,
+                profile.chat_base_url,
+                profile.api_key,
             )
 
         provider, model_name = model_provider_and_name(model_id)
@@ -246,7 +249,7 @@ class ModelReranker:
             "temperature": 0,
             "max_tokens": 24,
         }
-        apply_reasoning_controls(payload, provider=self._provider, thinking_enabled=False)
+        apply_reasoning_controls(payload, provider=self._provider, reasoning_profile="off")
         return payload
 
     def _build_codex_payload(self, prompt: str) -> dict[str, object]:
@@ -272,7 +275,7 @@ class ModelReranker:
             "max_output_tokens": 64,
             "text": {"format": {"type": "json_object"}},
         }
-        apply_responses_reasoning_controls(payload, thinking_enabled=False)
+        apply_responses_reasoning_controls(payload, reasoning_profile="off")
         return payload
 
     def _extract_codex_content(self, payload: dict[str, object]) -> str:

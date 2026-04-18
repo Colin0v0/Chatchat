@@ -7,23 +7,21 @@ from fastapi import HTTPException, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from ..core.config import settings
-from ..llm.catalog import resolve_model_route
-from ..llm import normalize_model
-from ..retrieval import RetrievalMode
-from ..schemas import RegenerateRequest
-from ..storage.access import get_user_conversation
-from ..storage.media import persist_uploaded_attachments, remove_media_files
-from ..storage.models import Conversation, Message, User
-from .context import (
+from ..chat.context import (
     append_message_attachments,
     clone_message_attachments,
     conversation_options,
     conversation_title,
     history_message_ids,
 )
-from .state import ChatServices
-from .streamer import response_event_stream
+from ..chat.state import ChatServices
+from ..core.config import settings
+from ..providers import normalize_model, resolve_model_profile
+from ..runtime.modes import get_mode_runtime
+from ..schemas import RegenerateRequest
+from ..storage.access import get_user_conversation
+from ..storage.media import persist_uploaded_attachments, remove_media_files
+from ..storage.models import Conversation, Message, User
 
 
 async def regenerate_chat_response(
@@ -43,16 +41,19 @@ async def regenerate_chat_response(
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    if settings.model_catalog_strict and resolve_model_route(conversation.model) is None:
-        raise HTTPException(status_code=400, detail=f"Model not enabled: {conversation.model}")
-
-    if payload.model and conversation.model != payload.model:
-        if settings.model_catalog_strict and resolve_model_route(payload.model) is None:
+    if payload.model:
+        profile = resolve_model_profile(payload.model)
+        if profile is None:
             raise HTTPException(status_code=400, detail=f"Model not enabled: {payload.model}")
-        conversation.model = payload.model
-        db.add(conversation)
-        db.commit()
-        db.refresh(conversation)
+        if conversation.model != profile.id:
+            conversation.model = profile.id
+            db.add(conversation)
+            db.commit()
+            db.refresh(conversation)
+    else:
+        profile = resolve_model_profile(conversation.model)
+        if profile is None:
+            raise HTTPException(status_code=400, detail=f"Model not enabled: {conversation.model}")
 
     target_index = next(
         (
@@ -92,8 +93,10 @@ async def regenerate_chat_response(
     db.commit()
     db.refresh(regenerated_user_message)
 
+    chat_mode = get_mode_runtime("chat")
     return StreamingResponse(
-        response_event_stream(
+        chat_mode.stream(
+            "run",
             services=services,
             request=request,
             conversation_id=conversation.id,
@@ -101,8 +104,8 @@ async def regenerate_chat_response(
             model=conversation.model,
             history_message_ids=history_message_ids(history_messages),
             query=source_user.content,
-            retrieval_mode=payload.retrieval_mode,
-            thinking_enabled=payload.thinking_enabled,
+            tool_mode=payload.tool_mode,
+            requested_reasoning_profile=payload.reasoning_profile,
         ),
         media_type="application/x-ndjson",
     )
@@ -117,14 +120,16 @@ async def chat_stream_response(
     conversation_id: Optional[int],
     message: str,
     model: Optional[str],
-    retrieval_mode: RetrievalMode,
-    thinking_enabled: Optional[bool],
+    tool_mode,
+    reasoning_profile,
     files,
 ) -> StreamingResponse:
     content = message.strip()
     uploads = files or []
-    target_model = model or normalize_model(settings.default_model)
-    if settings.model_catalog_strict and resolve_model_route(target_model) is None:
+    target_model = normalize_model((model or "").strip() or settings.default_model)
+
+    profile = resolve_model_profile(target_model)
+    if profile is None:
         raise HTTPException(status_code=400, detail=f"Model not enabled: {target_model}")
 
     if not content and not uploads:
@@ -154,13 +159,13 @@ async def chat_stream_response(
             conversation = Conversation(
                 user_id=current_user.id,
                 title=conversation_title(content, len(uploaded_attachments)),
-                model=target_model,
+                model=profile.id,
             )
             db.add(conversation)
             db.flush()
 
-        if model and conversation.model != model:
-            conversation.model = model
+        if conversation.model != profile.id:
+            conversation.model = profile.id
 
         user_message = Message(
             conversation_id=conversation.id,
@@ -186,8 +191,10 @@ async def chat_stream_response(
     )
     assert conversation is not None
 
+    chat_mode = get_mode_runtime("chat")
     return StreamingResponse(
-        response_event_stream(
+        chat_mode.stream(
+            "run",
             services=services,
             request=request,
             conversation_id=conversation.id,
@@ -195,8 +202,8 @@ async def chat_stream_response(
             model=conversation.model,
             history_message_ids=history_message_ids(list(conversation.messages)),
             query=content,
-            retrieval_mode=retrieval_mode,
-            thinking_enabled=thinking_enabled,
+            tool_mode=tool_mode,
+            requested_reasoning_profile=reasoning_profile,
         ),
         media_type="application/x-ndjson",
     )

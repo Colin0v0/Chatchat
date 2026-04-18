@@ -9,8 +9,7 @@ from sqlalchemy.orm import Session
 from ..auth import require_current_user
 from ..chat.context import conversation_media_paths, conversation_options, message_preview
 from ..core.config import settings
-from ..llm.catalog import resolve_model_route
-from ..llm import normalize_model
+from ..providers import normalize_model, resolve_model_profile
 from ..schemas import (
     ConversationCreate,
     ConversationDetail,
@@ -54,7 +53,7 @@ def create_conversation(
     current_user: User = Depends(require_current_user),
 ):
     target_model = payload.model or normalize_model(settings.default_model)
-    if settings.model_catalog_strict and resolve_model_route(target_model) is None:
+    if settings.model_catalog_strict and resolve_model_profile(target_model) is None:
         raise HTTPException(status_code=400, detail=f"Model not enabled: {target_model}")
 
     conversation = Conversation(

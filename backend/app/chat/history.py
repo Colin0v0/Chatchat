@@ -9,8 +9,8 @@ from sqlalchemy.orm import Session
 from .types import ChatDocumentPayload, ChatFileReferencePayload, ChatImagePayload, ChatMessagePayload
 from .upstream_files import ensure_upstream_file_id
 from ..llm.capabilities import NativeMultimodalMode
-from ..llm.catalog import resolve_native_multimodal_mode
 from ..multimodal.attachment import AttachmentContextService
+from ..providers import resolve_native_multimodal_mode
 from ..storage.media import MEDIA_ROOT, read_image_data_url
 from ..storage.models import Message, MessageAttachment
 

@@ -5,9 +5,9 @@ from typing import Literal
 
 from ..chat.types import ChatMessagePayload
 from ..memory.types import MemoryPromptPayload
-from ..retrieval import RetrievalPlan
 from ..retrieval.types import PromptContextPayload
 from ..storage.models import Message
+from ..tools import ToolContextPlan
 from .strategy import ContextStrategy
 from .token_budget import estimate_text_tokens, truncate_text_to_token_budget
 
@@ -53,7 +53,7 @@ def build_prompt_composition(
     history_window: HistoryWindow,
     strategy: ContextStrategy,
     memory_prompt: MemoryPromptPayload,
-    retrieval_plan: RetrievalPlan,
+    tool_plan: ToolContextPlan,
     retrieval_payload: PromptContextPayload,
 ) -> PromptComposition:
     sections: list[PromptSection] = []
@@ -99,7 +99,8 @@ def build_prompt_composition(
     inspection = {
         "query": query,
         "strategy": strategy.name,
-        "retrieval_mode": retrieval_plan.mode,
+        "tool_mode": tool_plan.mode,
+        "tool_plan": list(tool_plan.requested_tools),
         "older_message_count": older_turn_count,
         "recent_message_count": recent_turn_count,
         "memory_count": int(

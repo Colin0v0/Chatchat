@@ -1,11 +1,13 @@
 import { ArrowUp, BookOpen, Globe, LoaderCircle, Mic, Plus, Square } from "lucide-react";
 import { useRef, useState, type ClipboardEvent, type ChangeEvent, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
 
+import { findModelOption } from "../app/modelOptions";
 import type { ComposerAttachmentDraft } from "../app/useComposerAttachments";
-import type { ModelOption, RetrievalMode } from "../types";
+import type { ModelOption, ReasoningProfileValue, ToolMode } from "../types";
 import { ComposerAttachmentStrip } from "./composer/ComposerAttachmentStrip";
 import { ComposerMobileToolbar } from "./composer/ComposerMobileToolbar";
 import { ModelSelect } from "./ModelSelect";
+import { ReasoningProfileSelect } from "./ReasoningProfileSelect";
 
 const ATTACHMENT_ACCEPT = [
   "image/png",
@@ -46,7 +48,9 @@ interface ChatComposerProps {
   model: string;
   models: ModelOption[];
   onModelChange: (value: string) => void;
-  retrievalMode: RetrievalMode;
+  reasoningProfile: ReasoningProfileValue;
+  onReasoningProfileChange: (value: ReasoningProfileValue) => void;
+  toolMode: ToolMode;
   submitBlocked: boolean;
   submitBlockedReason: string | null;
   attachmentUploadAvailable: boolean;
@@ -147,7 +151,9 @@ export function ChatComposer({
   model,
   models,
   onModelChange,
-  retrievalMode,
+  reasoningProfile,
+  onReasoningProfileChange,
+  toolMode,
   submitBlocked,
   submitBlockedReason,
   attachmentUploadAvailable,
@@ -160,9 +166,10 @@ export function ChatComposer({
   const [dragActive, setDragActive] = useState(false);
   const hasDraft = value.trim().length > 0 || attachments.length > 0;
   const canSubmit = !submitBlocked && hasDraft;
-  const ragEnabled = retrievalMode === "rag";
-  const webEnabled = retrievalMode === "web";
+  const ragEnabled = toolMode === "knowledge";
+  const webEnabled = toolMode === "search";
   const voiceDisabled = isStreaming || isTranscribing;
+  const selectedModelOption = findModelOption(models, model);
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
@@ -291,6 +298,11 @@ export function ChatComposer({
             <ToggleChip active={ragEnabled} icon={<BookOpen className="size-4" />} label="RAG" onClick={onToggleRag} />
             <ToggleChip active={webEnabled} icon={<Globe className="size-4" />} label="Search" onClick={onToggleWeb} />
             <ModelSelect model={model} models={models} onChange={onModelChange} />
+            <ReasoningProfileSelect
+              modelOption={selectedModelOption}
+              onChange={onReasoningProfileChange}
+              value={reasoningProfile}
+            />
           </div>
 
           <ComposerVoiceButton
@@ -328,9 +340,12 @@ export function ChatComposer({
                 models={models}
                 onAddAttachment={() => inputRef.current?.click()}
                 onModelChange={onModelChange}
+                onReasoningProfileChange={onReasoningProfileChange}
                 onToggleRag={onToggleRag}
                 onToggleWeb={onToggleWeb}
-                retrievalMode={retrievalMode}
+                reasoningProfile={reasoningProfile}
+                selectedModelOption={selectedModelOption}
+                toolMode={toolMode}
               />
             </div>
 

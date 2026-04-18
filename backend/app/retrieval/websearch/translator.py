@@ -5,7 +5,7 @@ import re
 from .classifier import extract_latin_subject
 from ...chat.types import ChatMessagePayload
 from ...core.config import Settings
-from ...llm import complete_chat
+from ...runtime.model_runner import complete_model_response
 
 TRANSLATION_SYSTEM_PROMPT = '''You are a professional Chinese (zh-Hans) to English (en) translator.
 Accurately translate the user's Chinese search query into natural English.
@@ -40,7 +40,7 @@ class WebSearchTranslationError(RuntimeError):
 
 async def translate_query_for_search(query: str, settings: Settings) -> str:
     translated = _normalize_translation(
-        await complete_chat(
+        await complete_model_response(
             model=settings.web_search_translation_model,
             messages=[
                 ChatMessagePayload(role='system', content=TRANSLATION_SYSTEM_PROMPT),

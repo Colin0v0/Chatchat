@@ -35,7 +35,8 @@ import type {
   DebateSessionDetail,
   DebateSessionSummary,
   ModelOption,
-  RetrievalMode,
+  ReasoningProfileValue,
+  ToolMode,
 } from "../types";
 import { deriveConversationTitle, INITIAL_CHAT_MODEL, pickLandingTitle } from "./constants";
 import { useAudioRecorder } from "./useAudioRecorder";
@@ -47,7 +48,7 @@ import {
   createUserDraftMessage,
   labelForStage,
   restoreAttachmentFiles,
-  stageForRetrievalMode,
+  stageForToolMode,
 } from "./chatSessionUtils";
 import { useMemoryManager } from "./useMemoryManager";
 import {
@@ -57,6 +58,12 @@ import {
   findModelOption,
   resolveInitialSelectedModel,
 } from "./modelOptions";
+import {
+  normalizeReasoningProfileForModel,
+  reasoningRequestValueForModel,
+  resolveModelDefaultReasoningProfile,
+  resolveModelReasoningControl,
+} from "./reasoningProfiles";
 
 type UseChatAppOptions = {
   closeMobileSidebar: () => void;
@@ -68,7 +75,7 @@ type UseChatAppOptions = {
 const CONVERSATION_VIEW_MESSAGE_LIMIT = 10;
 const CONVERSATION_EXPORT_MESSAGE_LIMIT = 100;
 
-function toggleRetrievalMode(current: RetrievalMode, next: Exclude<RetrievalMode, "none">): RetrievalMode {
+function toggleToolMode(current: ToolMode, next: Exclude<ToolMode, "none">): ToolMode {
   return current === next ? "none" : next;
 }
 
@@ -105,8 +112,9 @@ export function useChatApp({
   const [draft, setDraft] = useState("");
   const [models, setModels] = useState<ModelOption[]>(() => createInitialModelOptions());
   const [selectedModel, setSelectedModel] = useState(INITIAL_CHAT_MODEL);
+  const [reasoningProfile, setReasoningProfile] = useState<ReasoningProfileValue>("off");
   const [collapsedMessageIds, setCollapsedMessageIds] = useState<Set<number | string>>(new Set());
-  const [retrievalMode, setRetrievalMode] = useState<RetrievalMode>("none");
+  const [toolMode, setToolMode] = useState<ToolMode>("none");
   const [landingHeroAnimated, setLandingHeroAnimated] = useState(false);
   const [landingTitle] = useState(() => pickLandingTitle());
   const [error, setError] = useState<string | null>(null);
@@ -133,12 +141,22 @@ export function useChatApp({
   const debateLoadGuard = useLatestRequestGuard();
   const modelsLoadGuard = useLatestRequestGuard();
   const deferredQuery = useDeferredValue(query);
+  const reasoningSyncKeyRef = useRef<string | null>(null);
 
   const selectedModelOption = useMemo(
     () => findModelOption(models, selectedModel),
     [models, selectedModel],
   );
   const attachmentUploadAvailable = selectedModelOption.supports_attachment_upload;
+  const selectedModelReasoningKey = useMemo(
+    () =>
+      [
+        selectedModelOption.id,
+        resolveModelReasoningControl(selectedModelOption),
+        resolveModelDefaultReasoningProfile(selectedModelOption),
+      ].join(":"),
+    [selectedModelOption],
+  );
 
   const clearTransientAttachmentUrls = useCallback(() => {
     transientAttachmentUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
@@ -357,6 +375,19 @@ export function useChatApp({
   }, [clearTransientAttachmentUrls]);
 
   useEffect(() => {
+    if (reasoningSyncKeyRef.current === selectedModelReasoningKey) {
+      return;
+    }
+    reasoningSyncKeyRef.current = selectedModelReasoningKey;
+    setReasoningProfile(
+      normalizeReasoningProfileForModel(
+        selectedModelOption,
+        resolveModelDefaultReasoningProfile(selectedModelOption),
+      ),
+    );
+  }, [selectedModelOption, selectedModelReasoningKey]);
+
+  useEffect(() => {
     if (!error) {
       return;
     }
@@ -375,6 +406,10 @@ export function useChatApp({
   const handleModelChange = useCallback((model: string) => {
     setSelectedModel(model);
   }, []);
+
+  const handleReasoningProfileChange = useCallback((value: ReasoningProfileValue) => {
+    setReasoningProfile(normalizeReasoningProfileForModel(selectedModelOption, value));
+  }, [selectedModelOption]);
 
   const handleStartRecording = useCallback(async () => {
     if (isStreaming || isTranscribing) {
@@ -535,7 +570,7 @@ export function useChatApp({
           pro_model_id: payload.proModelId,
           con_model_id: payload.conModelId,
           judge_model_id: payload.judgeModelId,
-          retrieval_mode: "none",
+          tool_mode: "none",
           pro_style: payload.proStyle,
           con_style: payload.conStyle,
           style: "",
@@ -756,10 +791,11 @@ export function useChatApp({
     }
 
     const effectiveModel = selectedModel;
+    const effectiveReasoningProfile = reasoningRequestValueForModel(selectedModelOption, reasoningProfile);
     const tempConversationId =
       activeConversation?.id != null ? activeConversation.id : -Date.now();
     const initialStage =
-      pendingFiles.length > 0 ? "analyzing_attachments" : stageForRetrievalMode(retrievalMode);
+      pendingFiles.length > 0 ? "analyzing_attachments" : stageForToolMode(toolMode);
     const tempAttachments = createTransientAttachments(pendingFiles);
     transientAttachmentUrlsRef.current.push(...tempAttachments.map((item) => item.url));
     const tempUserMessageId = `user-${Date.now()}`;
@@ -804,7 +840,8 @@ export function useChatApp({
             message,
             files: pendingFiles,
             model: effectiveModel,
-            retrieval_mode: retrievalMode,
+            reasoning_profile: effectiveReasoningProfile,
+            tool_mode: toolMode,
           },
           { onEvent, signal },
         ),
@@ -822,9 +859,11 @@ export function useChatApp({
     isStreaming,
     isTranscribing,
     refreshConversations,
-    retrievalMode,
+    reasoningProfile,
+    toolMode,
     runStream,
     selectedModel,
+    selectedModelOption,
     setError,
   ]);
 
@@ -860,6 +899,7 @@ export function useChatApp({
       }
 
       const effectiveModel = selectedModel;
+      const effectiveReasoningProfile = reasoningRequestValueForModel(selectedModelOption, reasoningProfile);
       const retryUserDraftId = `retry-user-${messageId}-${Date.now()}`;
       const nextConversation = appendRetryDraft(
         activeConversation,
@@ -879,7 +919,7 @@ export function useChatApp({
       const result = await runStream({
         conversation: retryConversation,
         errorMessage: "Failed to regenerate response.",
-        initialStage: stageForRetrievalMode(retrievalMode),
+        initialStage: stageForToolMode(toolMode),
         restoreInput: {
           content: sourceUser.content,
           loadFiles: () => restoreAttachmentFiles(sourceUser.attachments ?? []),
@@ -892,7 +932,8 @@ export function useChatApp({
                 conversation_id: activeConversation.id,
                 assistant_message_id: messageId,
                 model: effectiveModel,
-                retrieval_mode: retrievalMode,
+                reasoning_profile: effectiveReasoningProfile,
+                tool_mode: toolMode,
               },
               { onEvent, signal },
             );
@@ -905,7 +946,8 @@ export function useChatApp({
               message: sourceUser.content,
               files: restoredFiles,
               model: effectiveModel,
-              retrieval_mode: retrievalMode,
+              reasoning_profile: effectiveReasoningProfile,
+              tool_mode: toolMode,
             },
             { onEvent, signal },
           );
@@ -920,9 +962,11 @@ export function useChatApp({
       activeConversation,
       isStreaming,
       refreshConversations,
-      retrievalMode,
+      reasoningProfile,
+      toolMode,
       runStream,
       selectedModel,
+      selectedModelOption,
       setError,
     ],
   );
@@ -950,11 +994,11 @@ export function useChatApp({
   }, [setError]);
 
   const handleSelectRag = useCallback(() => {
-    setRetrievalMode((current) => toggleRetrievalMode(current, "rag"));
+    setToolMode((current) => toggleToolMode(current, "knowledge"));
   }, []);
 
   const handleSelectWeb = useCallback(() => {
-    setRetrievalMode((current) => toggleRetrievalMode(current, "web"));
+    setToolMode((current) => toggleToolMode(current, "search"));
   }, []);
 
   const handleLandingAnimationComplete = useCallback(() => {
@@ -1000,11 +1044,13 @@ export function useChatApp({
           isTranscribing,
           model: selectedModel,
           models: availableModels,
+          reasoningProfile,
           onChangeDraft: setDraft,
           onFeedback: (messageId: number, value: "up" | "down" | null) =>
             void handleMessageFeedback(messageId, value),
           onLoadEarlierMessages: () => void handleLoadEarlierMessages(),
           onModelChange: handleModelChange,
+          onReasoningProfileChange: handleReasoningProfileChange,
           onRemoveDraftAttachment: removeAttachment,
           onRetry: handleRetryAssistant,
           onReuseUserMessage: handleReuseUserMessage,
@@ -1014,7 +1060,7 @@ export function useChatApp({
           onToggleRecording: handleToggleRecording,
           onToggleRag: handleSelectRag,
           onToggleWeb: handleSelectWeb,
-          retrievalMode,
+          toolMode,
           submitBlocked,
           submitBlockedReason,
           streamingStatusLabel: visibleStreaming ? labelForStage(activeSession?.stage ?? null) : null,
@@ -1059,9 +1105,11 @@ export function useChatApp({
       isTranscribing,
       model: selectedModel,
       models: availableModels,
+      reasoningProfile,
       onAnimationComplete: handleLandingAnimationComplete,
       onChangeDraft: setDraft,
       onModelChange: handleModelChange,
+      onReasoningProfileChange: handleReasoningProfileChange,
       onRemoveDraftAttachment: removeAttachment,
       onSelectAttachments: addAttachments,
       onSend: () => void handleSend(),
@@ -1069,7 +1117,7 @@ export function useChatApp({
       onToggleRecording: handleToggleRecording,
       onToggleRag: handleSelectRag,
       onToggleWeb: handleSelectWeb,
-      retrievalMode,
+      toolMode,
       submitBlocked,
       submitBlockedReason,
       shouldAnimate: !landingHeroAnimated,

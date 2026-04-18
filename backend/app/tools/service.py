@@ -5,28 +5,27 @@ from typing import TYPE_CHECKING
 
 from ..chat.types import ChatMessagePayload
 from ..core.config import Settings
-from .language import prefers_simplified_chinese, response_language_instruction
-from .plan import RetrievalMode, RetrievalPlan, build_retrieval_plan
-from .query_rewrite import QueryRewriteResult, RagQueryRewriter
-from .strategy import RetrievalStrategy
-from .types import ContextEntry, ContextPayload, PromptContextPayload
+from ..retrieval.file_context import ConversationFileContextService
+from ..retrieval.language import prefers_simplified_chinese, response_language_instruction
+from ..retrieval.query_rewrite import QueryRewriteResult, RagQueryRewriter
+from ..retrieval.types import ContextEntry, ContextPayload, PromptContextPayload
+from .plan import ToolContextPlan, build_tool_context_plan
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
     from ..knowledge import KnowledgeService
-    from .websearch import WebSearchService
-    from .file_context import ConversationFileContextService
+    from ..retrieval.websearch import WebSearchService
     from ..storage.models import Message
 
 
-class RetrievalService:
+class ToolRuntimeService:
     def __init__(
         self,
         settings: Settings,
         knowledge_service: "KnowledgeService",
         web_search_service: "WebSearchService",
-        file_context_service: "ConversationFileContextService",
+        file_context_service: ConversationFileContextService,
     ):
         self._knowledge_service = knowledge_service
         self._web_search_service = web_search_service
@@ -34,13 +33,13 @@ class RetrievalService:
         self._context_top_k = max(1, settings.retrieval_context_top_k)
         self._rag_query_rewriter = RagQueryRewriter(settings)
 
-    def plan_retrieval(
+    def plan_context(
         self,
         *,
         query: str,
-        retrieval_mode: RetrievalMode,
-    ) -> RetrievalPlan:
-        return build_retrieval_plan(query=query, mode=retrieval_mode)
+        tool_mode,
+    ) -> ToolContextPlan:
+        return build_tool_context_plan(query=query, mode=tool_mode)
 
     async def build_context_payload(
         self,
@@ -48,14 +47,14 @@ class RetrievalService:
         db: "Session",
         user_id: int,
         query: str,
-        plan: RetrievalPlan,
+        plan: ToolContextPlan,
         retrieval_messages: list[dict[str, str]],
         conversation_messages: list["Message"],
         include_file_context: bool,
         include_image_context: bool,
     ) -> PromptContextPayload:
         rewrite_result = await self._rewrite_query(plan=plan, retrieval_messages=retrieval_messages)
-        debug = self._base_debug(plan=plan, rewrite_result=rewrite_result)
+        debug = self._base_debug(plan=plan, rewrite_result=rewrite_result, include_file_context=include_file_context)
         configuration_refusal = self._resolve_configuration_refusal(query=query, plan=plan)
         if configuration_refusal:
             return PromptContextPayload(
@@ -65,11 +64,11 @@ class RetrievalService:
                 debug=debug,
             )
 
-        if plan.mode == "none":
+        if plan.mode == "none" and not include_file_context:
             return PromptContextPayload(context_message=None, debug=debug)
 
         tasks: list[asyncio.Future | asyncio.Task | object] = []
-        if plan.mode == "rag":
+        if "knowledge" in plan.requested_tools:
             tasks.append(
                 self._knowledge_service.retrieve_context(
                     db=db,
@@ -77,7 +76,7 @@ class RetrievalService:
                     query=rewrite_result.effective_query,
                 )
             )
-        if plan.mode == "web":
+        if "search" in plan.requested_tools:
             tasks.append(self._web_search_service.retrieve_context(plan.query))
         if include_file_context:
             tasks.append(
@@ -93,7 +92,12 @@ class RetrievalService:
         merged_sources = self._merge_sources(results)
         merged_entries = self._merge_entries(results, strategy=plan.strategy)
         refusal_message = self._resolve_refusal_message(results, query=query)
-        merged_debug = self._merge_debug(results, plan=plan, rewrite_result=rewrite_result)
+        merged_debug = self._merge_debug(
+            results,
+            plan=plan,
+            rewrite_result=rewrite_result,
+            include_file_context=include_file_context,
+        )
         merged_instructions = self._merge_instructions(results)
 
         if not merged_entries:
@@ -110,7 +114,7 @@ class RetrievalService:
                 query=query,
                 entries=merged_entries,
                 instructions=merged_instructions,
-                strategy=plan.strategy,
+                plan=plan,
             ),
             sources=[source.to_payload() for source in merged_sources],
             debug=merged_debug,
@@ -128,7 +132,7 @@ class RetrievalService:
         ranked = sorted(unique.values(), key=lambda item: item.score or 0.0, reverse=True)
         return ranked[: self._context_top_k]
 
-    def _merge_entries(self, results: list[ContextPayload], *, strategy: RetrievalStrategy) -> list[ContextEntry]:
+    def _merge_entries(self, results: list[ContextPayload], *, strategy) -> list[ContextEntry]:
         weighted_entries: list[tuple[float, ContextEntry]] = []
         for result in results:
             for entry in result.entries:
@@ -155,10 +159,10 @@ class RetrievalService:
     async def _rewrite_query(
         self,
         *,
-        plan: RetrievalPlan,
+        plan: ToolContextPlan,
         retrieval_messages: list[dict[str, str]],
     ) -> QueryRewriteResult:
-        if plan.mode != "rag":
+        if "knowledge" not in plan.requested_tools:
             return QueryRewriteResult(
                 original_query=plan.query,
                 effective_query=plan.query,
@@ -171,18 +175,28 @@ class RetrievalService:
             history_messages=retrieval_messages,
         )
 
-    def _base_debug(self, *, plan: RetrievalPlan, rewrite_result: QueryRewriteResult) -> dict[str, object]:
+    def _base_debug(
+        self,
+        *,
+        plan: ToolContextPlan,
+        rewrite_result: QueryRewriteResult,
+        include_file_context: bool,
+    ) -> dict[str, object]:
+        requested_tools = list(plan.requested_tools)
+        if include_file_context:
+            requested_tools.append("attachments")
         return {
-            "retrieval_strategy": plan.strategy.name,
-            "retrieval_mode": plan.mode,
-            "retrieval_reason": plan.reason,
-            "retrieval_query": rewrite_result.effective_query,
-            "retrieval_query_original": rewrite_result.original_query,
-            "rag_query_rewrite_applied": rewrite_result.applied,
-            "rag_query_rewrite_model": rewrite_result.model,
-            "rag_query_rewrite_context_messages": rewrite_result.context_message_count,
-            "rag_executed": False,
-            "web_executed": False,
+            "tool_strategy": plan.strategy.name,
+            "tool_mode": plan.mode,
+            "tool_reason": plan.reason,
+            "tool_query": rewrite_result.effective_query,
+            "tool_query_original": rewrite_result.original_query,
+            "tool_plan": requested_tools,
+            "knowledge_query_rewrite_applied": rewrite_result.applied,
+            "knowledge_query_rewrite_model": rewrite_result.model,
+            "knowledge_query_rewrite_context_messages": rewrite_result.context_message_count,
+            "knowledge_executed": False,
+            "search_executed": False,
             "file_executed": False,
         }
 
@@ -190,12 +204,17 @@ class RetrievalService:
         self,
         results: list[ContextPayload],
         *,
-        plan: RetrievalPlan,
+        plan: ToolContextPlan,
         rewrite_result: QueryRewriteResult,
+        include_file_context: bool,
     ) -> dict[str, object]:
-        merged = self._base_debug(plan=plan, rewrite_result=rewrite_result)
-        merged["rag_executed"] = plan.mode == "rag"
-        merged["web_executed"] = plan.mode == "web"
+        merged = self._base_debug(
+            plan=plan,
+            rewrite_result=rewrite_result,
+            include_file_context=include_file_context,
+        )
+        merged["knowledge_executed"] = "knowledge" in plan.requested_tools
+        merged["search_executed"] = "search" in plan.requested_tools
         merged["file_executed"] = any(result.debug.get("file_hits") is not None for result in results if result.debug)
         for result in results:
             if not result.debug:
@@ -209,14 +228,14 @@ class RetrievalService:
             if result.refusal_message:
                 return result.refusal_message
         if prefers_simplified_chinese(query):
-            return "我没有找到足够可靠的依据来回答这个问题。可以缩小范围，或者切换检索模式。"
+            return "我没有找到足够可靠的依据来回答这个问题。可以缩小范围，或者调整工具模式。"
         return (
             "I could not find enough reliable supporting material for this question. "
-            "Try narrowing the request or switching retrieval mode."
+            "Try narrowing the request or changing tool mode."
         )
 
-    def _resolve_configuration_refusal(self, *, query: str, plan: RetrievalPlan) -> str | None:
-        if plan.mode != "web":
+    def _resolve_configuration_refusal(self, *, query: str, plan: ToolContextPlan) -> str | None:
+        if "search" not in plan.requested_tools:
             return None
 
         try:
@@ -233,19 +252,13 @@ class RetrievalService:
         query: str,
         entries: list[ContextEntry],
         instructions: tuple[str, ...],
-        strategy: RetrievalStrategy,
+        plan: ToolContextPlan,
     ) -> ChatMessagePayload:
         blocks: list[str] = []
         for index, entry in enumerate(entries, start=1):
             source = entry.source
             fields = [f"[Source {index}]", f"type: {source.type}"]
-            if source.type == "note":
-                fields.append(f"path: {source.path}")
-                if source.title:
-                    fields.append(f"title: {source.title}")
-                if source.heading:
-                    fields.append(f"heading: {source.heading}")
-            elif source.type == "file":
+            if source.type in {"note", "file"}:
                 fields.append(f"path: {source.path}")
                 if source.title:
                     fields.append(f"title: {source.title}")
@@ -277,7 +290,7 @@ class RetrievalService:
             "Do not cite the synthetic [Source N] labels in the final answer. "
             + response_language_instruction(query)
             + "\n"
-            + strategy.instruction
+            + plan.strategy.instruction
         )
         if instruction_block:
             content += "\nFollow these answer-mode instructions:\n" + instruction_block

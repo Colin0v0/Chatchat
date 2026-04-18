@@ -4,7 +4,6 @@ import re
 from dataclasses import replace
 
 from ..chat.types import ChatMessagePayload
-from .catalog import resolve_effective_thinking, resolve_model_route
 
 
 THINK_BLOCK_PATTERN = re.compile(r"<think>(.*?)</think>", flags=re.IGNORECASE | re.DOTALL)
@@ -27,15 +26,9 @@ def inject_thinking_system_prompt(
     *,
     model: str,
     messages: list[ChatMessagePayload],
-    thinking_enabled: bool | None,
+    reasoning_profile: str,
 ) -> list[ChatMessagePayload]:
-    route = resolve_model_route(model)
-    effective_thinking = resolve_effective_thinking(
-        model,
-        thinking_enabled,
-        thinking_mode=route["thinking_mode"] if route else None,
-    )
-    if effective_thinking is not True or not _uses_gemma_thinking_prompt(model):
+    if reasoning_profile == "off" or not _uses_gemma_thinking_prompt(model):
         return messages
 
     if messages and messages[0].role == "system":

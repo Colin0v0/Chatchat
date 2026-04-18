@@ -1,0 +1,40 @@
+services:
+  postgres-dev:
+    image: ${DEV_POSTGRES_IMAGE:-pgvector/pgvector:pg16}
+    container_name: chatchat-postgres-dev
+    environment:
+      POSTGRES_DB: ${DEV_POSTGRES_DB:-chatchat_dev}
+      POSTGRES_USER: ${DEV_POSTGRES_USER:-chatchat_dev}
+      POSTGRES_PASSWORD: ${DEV_POSTGRES_PASSWORD:-chatchat_dev}
+    ports:
+      - "${DEV_POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - postgres-dev-data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${DEV_POSTGRES_USER:-chatchat_dev} -d ${DEV_POSTGRES_DB:-chatchat_dev}",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis-dev:
+    image: ${DEV_REDIS_IMAGE:-redis:7-alpine}
+    container_name: chatchat-redis-dev
+    ports:
+      - "${DEV_REDIS_PORT:-6380}:6379"
+    volumes:
+      - redis-dev-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  postgres-dev-data:
+  redis-dev-data:
