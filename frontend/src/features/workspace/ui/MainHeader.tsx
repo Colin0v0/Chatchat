@@ -1,8 +1,9 @@
-import { Download, MoreHorizontal, PanelLeftOpen, Pencil, Trash2 } from "lucide-react";
+import { Download, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { ModelSelect } from "../../models/ui/ModelSelect";
 import type { ModelOption } from "../../../types";
+import { AppLogo } from "../../../shared/ui/AppLogo";
 
 interface MainHeaderProps {
   title: string;
@@ -143,10 +144,26 @@ export function MainHeader({
     <>
       <header className="relative flex h-[68px] items-center justify-between px-4 md:px-6">
         {showTitle ? (
-          <div className="flex min-w-0 max-w-[calc(100%-6rem)] items-center gap-1.5 py-1 md:max-w-none">
-            <div className="min-w-0 text-[20px] font-semibold leading-none tracking-[-0.04em] text-app-text md:text-[24px]">
-              <span className="truncate">{title}</span>
-            </div>
+          <div className="flex min-w-0 max-w-[calc(100%-4rem)] items-center gap-2 py-1 md:max-w-none">
+            {!isDesktop ? (
+              <button
+                aria-label={sidebarOpen ? "Close sidebar" : "Open sidebar"}
+                className="flex min-w-0 items-center gap-2.5 rounded-lg text-app-text transition hover:text-app-text focus:outline-none focus-visible:ring-2 focus-visible:ring-app-border-strong"
+                onClick={onToggleSidebar}
+                type="button"
+              >
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[8px] bg-[#201f1d] text-[#f7f1e6]">
+                  <AppLogo className="h-[15px] w-[15px]" />
+                </span>
+                <span className="truncate text-[20px] font-semibold leading-none tracking-[-0.04em] text-app-text">
+                  {title}
+                </span>
+              </button>
+            ) : (
+              <div className="min-w-0 text-[20px] font-semibold leading-none tracking-[-0.04em] text-app-text md:text-[24px]">
+                <span className="truncate">{title}</span>
+              </div>
+            )}
             {!isDesktop && mobileModel && mobileModels.length > 0 && onMobileModelChange ? (
               <div className="shrink-0">
                 <ModelSelect
@@ -164,21 +181,7 @@ export function MainHeader({
           <div />
         )}
 
-        {isDesktop ? <div className="flex items-center gap-2">{actionMenu}</div> : null}
-
-        {!isDesktop ? (
-          <div className="fixed top-4 right-4 z-30 flex items-center gap-1.5">
-            {!sidebarOpen ? actionMenu : null}
-            <button
-              aria-label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
-              className="flex h-9 w-9 items-center justify-center rounded-lg text-app-muted transition hover:text-app-text focus:outline-none focus-visible:ring-2 focus-visible:ring-app-border-strong"
-              onClick={onToggleSidebar}
-              type="button"
-            >
-              <PanelLeftOpen className={`size-4 transition-transform ${sidebarOpen ? "rotate-180" : ""}`} />
-            </button>
-          </div>
-        ) : null}
+        <div className="flex items-center gap-2">{actionMenu}</div>
       </header>
 
       {dialogState && hasActiveItem ? (

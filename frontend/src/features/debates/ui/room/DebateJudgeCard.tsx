@@ -94,6 +94,8 @@ export function DebateJudgeCard({
   analysisMarkdown,
   expanded,
   judgeComment,
+  partial = false,
+  pending = false,
   onToggle,
   stageScores,
   winner,
@@ -102,6 +104,8 @@ export function DebateJudgeCard({
   analysisMarkdown: string;
   expanded: boolean;
   judgeComment: string;
+  partial?: boolean;
+  pending?: boolean;
   onToggle: () => void;
   stageScores: Array<{
     key: DebateStageScoreKey;
@@ -129,6 +133,11 @@ export function DebateJudgeCard({
         <span className="flex items-center gap-2 text-[15px] font-semibold text-app-text">
           <Sparkles className="size-4 text-app-muted" />
           AI评委
+          {partial ? (
+            <span className="inline-flex items-center rounded-full bg-[#f4e7db] px-2 py-0.5 text-[11px] font-medium text-[#8a5b33]">
+              未完成
+            </span>
+          ) : null}
         </span>
         <div className="flex items-center">
           <ChevronDown
@@ -141,6 +150,11 @@ export function DebateJudgeCard({
       >
         <div className="overflow-hidden">
           <div className="space-y-5 px-6 py-3">
+            {partial ? (
+              <div className="rounded-[8px] border border-[#ead8c8] bg-[#fdf5ef] px-4 py-3 text-[13px] leading-6 text-[#8a5b33]">
+                这份讲评没有拿到最终评分结果，当前只保留已收到的部分内容；可继续评分补全。
+              </div>
+            ) : null}
             {hasMarkdown ? (
               <div className="prose-debate text-[14px] leading-7 text-app-text">
                 <MarkdownMessage content={analysisMarkdown} />

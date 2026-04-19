@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
@@ -8,12 +10,14 @@ from ..application import (
     advance_debate_session_response,
     ask_debate_judge_question_response,
     create_debate_judge_decision_response,
+    stream_active_debate_session_response,
 )
 from ..auth import require_current_user
 from ..core.config import settings
 from ..debate.common import build_debate_session_detail, load_debate_session_for_user
 from ..debate.config import DebateSessionConfig
 from ..providers import resolve_model_profile
+from ..runtime.debate_runs import get_debate_run_registry
 from ..schemas import (
     DebateJudgeAskIn,
     DebateJudgeDecisionIn,
@@ -26,6 +30,10 @@ from ..storage.database import get_db
 from ..storage.models import DebateParticipant, DebateSession, DebateTurn, User
 
 router = APIRouter(prefix="/api/debate", tags=["debate"])
+
+
+async def _debate_active_run_payload(request: Request, session_id: int) -> dict[str, str] | None:
+    return await get_debate_run_registry(request).describe(session_id)
 
 
 def _ensure_model_enabled(model_id: str) -> None:
@@ -121,13 +129,17 @@ def create_debate_session(
 
 
 @router.get("/sessions/{session_id}", response_model=DebateSessionDetailOut)
-def get_debate_session(
+async def get_debate_session(
     session_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_current_user),
 ):
     session = load_debate_session_for_user(db=db, session_id=session_id, user_id=current_user.id)
-    return build_debate_session_detail(session)
+    return build_debate_session_detail(
+        session,
+        active_run=await _debate_active_run_payload(request, session.id),
+    )
 
 
 @router.patch("/sessions/{session_id}", response_model=DebateSessionSummaryOut)
@@ -195,7 +207,7 @@ async def advance_debate_session(
     current_user: User = Depends(require_current_user),
 ):
     session = load_debate_session_for_user(db=db, session_id=session_id, user_id=current_user.id)
-    return advance_debate_session_response(
+    return await advance_debate_session_response(
         db=db,
         request=request,
         session=session,
@@ -214,7 +226,7 @@ async def ask_debate_judge_question(
         raise HTTPException(status_code=400, detail="Question cannot be empty")
 
     session = load_debate_session_for_user(db=db, session_id=session_id, user_id=current_user.id)
-    return ask_debate_judge_question_response(
+    return await ask_debate_judge_question_response(
         db=db,
         request=request,
         session=session,
@@ -231,9 +243,38 @@ async def create_debate_judge_decision(
     current_user: User = Depends(require_current_user),
 ):
     session = load_debate_session_for_user(db=db, session_id=session_id, user_id=current_user.id)
-    return create_debate_judge_decision_response(
+    return await create_debate_judge_decision_response(
         db=db,
         request=request,
         session=session,
         payload=payload,
+    )
+
+
+@router.get("/sessions/{session_id}/stream/active")
+async def stream_active_debate_run(
+    session_id: int,
+    request: Request,
+    run_id: Optional[str] = Query(default=None),
+    after_seq: Optional[int] = Query(default=None, ge=0),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
+    session = load_debate_session_for_user(db=db, session_id=session_id, user_id=current_user.id)
+    active_run = await _debate_active_run_payload(request, session.id)
+    if active_run is None:
+        raise HTTPException(status_code=404, detail="No active debate run")
+    current_run_id = active_run.get("run_id")
+    if run_id and isinstance(current_run_id, str) and current_run_id != run_id:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "ActiveRunMismatch",
+                "message": "Active debate run changed. Refresh the session and reconnect.",
+            },
+        )
+    return await stream_active_debate_session_response(
+        request=request,
+        session=session,
+        after_seq=after_seq,
     )

@@ -21,6 +21,8 @@ from ..debate.config import (
     DebateSessionConfig,
 )
 from ..schemas import (
+    DebateAiSuggestionOut,
+    DebateActiveRunOut,
     DebateFreeDebateStateOut,
     DebateJudgeDecisionIn,
     DebateJudgeDecisionOut,
@@ -196,6 +198,48 @@ def _decision_payload(decision: DebateJudgeDecision | None) -> DebateJudgeDecisi
     )
 
 
+def _pending_ai_suggestion_payload(session: DebateSession) -> DebateAiSuggestionOut | None:
+    payload = _config(session).get("ai_suggestion")
+    if not isinstance(payload, dict):
+        return None
+
+    scoring_json = payload.get("scoring_json") if isinstance(payload.get("scoring_json"), dict) else {}
+    winner, normalized_scoring = _normalize_decision_scoring(
+        winner_side=str(payload.get("winner") or "").strip() or None,
+        scoring_json=scoring_json,
+    )
+
+    return DebateAiSuggestionOut(
+        winner=winner,  # type: ignore[arg-type]
+        pro_score=_score_to_int(payload.get("pro_score") if payload.get("pro_score") is not None else normalized_scoring.get("pro_score")),
+        con_score=_score_to_int(payload.get("con_score") if payload.get("con_score") is not None else normalized_scoring.get("con_score")),
+        judge_comment=str(payload.get("judge_comment") or "").strip(),
+        scoring_json=normalized_scoring,
+    )
+
+
+def _save_pending_ai_suggestion(session: DebateSession, suggestion: dict[str, Any] | None) -> None:
+    payload = _config(session)
+    if not suggestion:
+        payload.pop("ai_suggestion", None)
+        _save_config(session, payload)
+        return
+
+    scoring_json = suggestion.get("scoring_json") if isinstance(suggestion.get("scoring_json"), dict) else {}
+    winner, normalized_scoring = _normalize_decision_scoring(
+        winner_side=str(suggestion.get("winner") or "").strip() or None,
+        scoring_json=scoring_json,
+    )
+    payload["ai_suggestion"] = {
+        "winner": winner,
+        "pro_score": _score_to_int(suggestion.get("pro_score") if suggestion.get("pro_score") is not None else normalized_scoring.get("pro_score")),
+        "con_score": _score_to_int(suggestion.get("con_score") if suggestion.get("con_score") is not None else normalized_scoring.get("con_score")),
+        "judge_comment": str(suggestion.get("judge_comment") or "").strip(),
+        "scoring_json": normalized_scoring,
+    }
+    _save_config(session, payload)
+
+
 def _turn_meta(turn: DebateTurn) -> dict[str, Any]:
     payload = _safe_json_loads(turn.sources_json, {})
     return payload if isinstance(payload, dict) else {}
@@ -236,7 +280,21 @@ def _ordered_turns(session: DebateSession) -> list[DebateTurn]:
     )
 
 
-def build_debate_session_detail(session: DebateSession) -> DebateSessionDetailOut:
+def build_debate_session_detail(
+    session: DebateSession,
+    *,
+    active_run: dict[str, str] | None = None,
+) -> DebateSessionDetailOut:
+    active_run_started_at = None
+    active_run_id = ""
+    if active_run is not None:
+        started_at_raw = active_run.get("started_at")
+        if isinstance(started_at_raw, str) and started_at_raw.strip():
+            active_run_started_at = started_at_raw.strip()
+        run_id_raw = active_run.get("run_id")
+        if isinstance(run_id_raw, str) and run_id_raw.strip():
+            active_run_id = run_id_raw.strip()
+
     return DebateSessionDetailOut(
         id=session.id,
         topic=session.topic,
@@ -248,10 +306,20 @@ def build_debate_session_detail(session: DebateSession) -> DebateSessionDetailOu
         participants=[DebateParticipantOut.model_validate(item) for item in session.participants],
         turns=[_turn_payload(turn) for turn in _ordered_turns(session)],
         judge_decision=_decision_payload(session.judge_decision),
+        ai_suggestion=_pending_ai_suggestion_payload(session),
         summary=_summary_text(session),
         free_debate_enabled=_free_debate_enabled(session),
         free_debate_state=_free_debate_clock_payload(session),
         stage_time_limits_ms=_stage_time_limits_ms(session),
+        active_run=(
+            DebateActiveRunOut(
+                action=str(active_run.get("action", "")).strip(),
+                run_id=active_run_id,
+                started_at=active_run_started_at,
+            )
+            if active_run
+            else None
+        ),
     )
 
 
@@ -1070,6 +1138,56 @@ def _build_ai_evaluation_messages(
     ]
 
 
+def _build_ai_single_pass_evaluation_messages(session: DebateSession) -> list[ChatMessagePayload]:
+    transcript = _recent_transcript(session, limit=999)
+    return [
+        ChatMessagePayload(
+            role="system",
+            content=(
+                "你是公正且严格遵守格式的辩论裁判。\n"
+                "你必须在同一次回复里，先输出完整 Markdown 讲评，再输出结构化 JSON 裁决。\n"
+                "输出格式必须严格是：\n"
+                "第一部分：Markdown 讲评正文\n"
+                "第二部分：单独一行 <AI_EVAL_JSON>\n"
+                "第三部分：单独一行合法 JSON\n"
+                "除了上述三部分，不要输出任何额外解释、前后缀、代码块或多余文字。\n"
+                "JSON 输出字段必须严格等于以下 7 个键，键名不能变，不能新增字段：\n"
+                '{"winner":"pro|con","pro_score":88,"con_score":82,"judge_comment":"这里写不超过80字的中文裁决摘要","analysis":{"pro_review":"...","con_review":"...","shared_feedback":"...","key_decision":"...","final_vote":"本场我投正方一票"},"stage_scores":{"opening":{"pro":22,"con":19},"rebuttal":{"pro":20,"con":21},"free_debate":{"pro":24,"con":22},"closing":{"pro":22,"con":20}},"issues":{"pro":["比较不足"],"con":["偏离主题"],"shared":["双方都有重复论述"]}}\n'
+                "规则：\n"
+                "1. winner 只能是 pro 或 con，禁止输出 draw 或平局，必须选出胜方。\n"
+                "2. pro_score 和 con_score 必须是 0 到 100 的整数，不能是字符串，不能带百分号。\n"
+                "3. Markdown 讲评正文必须严格包含下面 6 个二级标题：\n"
+                "## 裁决摘要\n## 正方评价\n## 反方评价\n## 双方共同表现\n## 关键胜负手\n## 最终投票\n"
+                "4. Markdown 讲评中的最终投票必须明确写“本场我投正方一票”或“本场我投反方一票”。\n"
+                "5. analysis 必须包含五个键：pro_review、con_review、shared_feedback、key_decision、final_vote，且其结论必须与前面的 Markdown 讲评保持一致。\n"
+                "6. stage_scores 必须包含四个阶段且只能包含四个阶段：opening、rebuttal、free_debate、closing，分别对应立论、驳论、自由辩、总结。\n"
+                "7. 每个阶段都必须是 {\"pro\":整数,\"con\":整数}，分值范围 0 到 25。\n"
+                "8. pro_score 必须等于四个阶段 pro 分之和；con_score 必须等于四个阶段 con 分之和。\n"
+                "9. 在 pro_review 和 con_review 中，要同时写该方做得好的点、要改进的点，并自然融入明显成立的问题检测，例如循环论证、偏离主题、偷换概念、没有回应对方核心点、比较不足、超时截断、重复车轱辘话。不要为了凑标签硬写。\n"
+                "10. shared_feedback 用来概括双方共同做得不错的地方，以及双方共同还可改进的地方。\n"
+                "11. issues 必须包含 pro、con、shared 三个数组，数组里只放明显成立的问题短语；若没有明显问题就返回空数组。\n"
+                "12. 若辩论记录里出现[超时截断]，应在对应一方的评价和 issues 中体现，并在该阶段分数里合理扣分，但不必直接判负。\n"
+                "13. judge_comment 必须是中文简短裁决摘要，不超过 80 字，且与前面 Markdown 讲评的“裁决摘要”一致。\n"
+                "14. 即使证据不足，也必须给出完整七个字段。\n"
+                "15. 前面的 Markdown 与后面的 JSON 结论必须一致。\n"
+                "16. JSON 里不要重复整段 Markdown 正文。\n"
+                "17. <AI_EVAL_JSON> 必须单独成行，且只出现一次。"
+            ),
+        ),
+        ChatMessagePayload(
+            role="user",
+            content="\n\n".join(
+                [
+                    f"辩题：{session.topic}",
+                    f"辩论记录：\n{transcript or '暂无'}",
+                    f"常见问题检测参考：{'、'.join(JUDGE_COMMON_ISSUES)}。",
+                    "请严格按三部分输出：先给 Markdown 讲评，再单独一行 <AI_EVAL_JSON>，最后单独一行 JSON。不要代码块，不要额外解释。",
+                ]
+            ),
+        ),
+    ]
+
+
 def _build_ai_commentary_messages(session: DebateSession) -> list[ChatMessagePayload]:
     transcript = _recent_transcript(session, limit=999)
     return [
@@ -1247,6 +1365,15 @@ def _parse_ai_evaluation(raw: str) -> dict | None:
         )
         or ""
     ).strip()
+    analysis_markdown = str(
+        _first_non_empty(
+            data.get("analysis_markdown"),
+            data.get("analysisMarkdown"),
+            scoring.get("analysis_markdown"),
+            result.get("analysis_markdown"),
+        )
+        or ""
+    ).strip()
 
     if not judge_comment:
         judge_comment = _first_text(
@@ -1265,8 +1392,59 @@ def _parse_ai_evaluation(raw: str) -> dict | None:
         scoring_json["analysis"] = analysis
     if any(issues.values()):
         scoring_json["issues"] = issues
+    if analysis_markdown:
+        scoring_json["analysis_markdown"] = analysis_markdown
 
     winner, scoring_json = _normalize_decision_scoring(winner_side=winner, scoring_json=scoring_json)
+
+    return {
+        "winner": winner,
+        "pro_score": _score_to_int(scoring_json.get("pro_score")),
+        "con_score": _score_to_int(scoring_json.get("con_score")),
+        "judge_comment": judge_comment,
+        "scoring_json": scoring_json,
+    }
+
+
+def _fallback_ai_evaluation_from_commentary(commentary_markdown: str) -> dict | None:
+    text = str(commentary_markdown or "").strip()
+    if not text:
+        return None
+
+    heading_matches = list(re.finditer(r"^##\s+(.+?)\s*$", text, re.MULTILINE))
+    sections: dict[str, str] = {}
+    for index, match in enumerate(heading_matches):
+        title = match.group(1).strip()
+        start = match.end()
+        end = heading_matches[index + 1].start() if index + 1 < len(heading_matches) else len(text)
+        sections[title] = text[start:end].strip()
+
+    winner = _winner_from_vote_text(sections.get("最终投票")) or _winner_from_vote_text(text) or "pro"
+    judge_comment = re.sub(r"\s+", " ", sections.get("裁决摘要", "")).strip()[:80]
+
+    analysis = {
+        "pro_review": sections.get("正方评价", ""),
+        "con_review": sections.get("反方评价", ""),
+        "shared_feedback": sections.get("双方共同表现", ""),
+        "key_decision": sections.get("关键胜负手", ""),
+        "final_vote": sections.get("最终投票", ""),
+    }
+
+    scoring_json: dict[str, Any] = {}
+    if all(title in sections for title in ("裁决摘要", "正方评价", "反方评价", "双方共同表现", "关键胜负手", "最终投票")):
+        scoring_json["analysis_markdown"] = text
+    if any(value.strip() for value in analysis.values()):
+        scoring_json["analysis"] = analysis
+
+    winner, scoring_json = _normalize_decision_scoring(
+        winner_side=winner,
+        scoring_json=scoring_json,
+    )
+    if not judge_comment:
+        judge_comment = _first_text(
+            analysis.get("key_decision"),
+            analysis.get("final_vote"),
+        )[:80]
 
     return {
         "winner": winner,
@@ -1356,8 +1534,10 @@ __all__ = [
     "_recent_transcript",
     "_decision_payload",
     "_build_ai_evaluation_messages",
+    "_build_ai_single_pass_evaluation_messages",
     "_normalize_decision_scoring",
     "_parse_ai_evaluation",
+    "_fallback_ai_evaluation_from_commentary",
     "_resolve_decision_winner_side",
     "_build_summary_messages",
     "build_debate_session_detail",

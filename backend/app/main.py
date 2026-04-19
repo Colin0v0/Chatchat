@@ -12,6 +12,8 @@ from .core.http import shared_http_clients
 from .core.logging import configure_logging
 from .core.model_cache import configure_model_cache_environment
 from .providers import ModelCatalogError, validate_model_catalog
+from .runtime.chat_runs import ChatRunRegistry
+from .runtime.debate_runs import DebateRunRegistry
 from .storage.database import initialize_storage
 from .storage.media import MEDIA_ROOT
 
@@ -22,6 +24,8 @@ def create_app() -> FastAPI:
     app.mount("/media", StaticFiles(directory=MEDIA_ROOT), name="media")
     app.state.chat_services = build_chat_services(settings)
     app.state.audio_services = build_audio_services(settings)
+    app.state.chat_run_registry = ChatRunRegistry()
+    app.state.debate_run_registry = DebateRunRegistry()
 
     app.add_middleware(
         CORSMiddleware,

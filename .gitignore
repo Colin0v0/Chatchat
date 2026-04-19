@@ -1,8 +1,7 @@
 .venv/
-backend/.venv/
 backend/.env
-frontend/.env
-.env
+backend/.env.deploy.wsl
+backend/.env.dev.windows
 frontend/node_modules/
 frontend/dist/
 frontend/vite.config.js
@@ -12,3 +11,4 @@ __pycache__/
 *.pyc
 .claude/
 .pytest_cache/
+.claude/

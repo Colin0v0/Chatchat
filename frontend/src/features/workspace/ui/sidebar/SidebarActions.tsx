@@ -290,7 +290,7 @@ export function DesktopPinnedHeader({
   title: string;
 }) {
   return (
-    <div className="absolute top-4 right-2 left-[10px] z-10">
+    <div className="shrink-0 border-b border-app-border/70 px-[10px] pt-4 pb-3">
       <div className="relative h-9">
         <div className="absolute inset-y-0 left-0 flex items-center">
           <SidebarBrand compact title={title} />
@@ -361,33 +361,35 @@ export function DesktopSidebarFooter({
   onToggle: () => void;
 }) {
   return (
-    <div className="absolute right-[10px] bottom-4 left-[10px] z-20 h-9">
-      <button
-        aria-label={open ? "Collapse sidebar" : "Expand sidebar"}
-        className={cn(
-          sidebarIconButtonClass,
-          "text-app-text hover:text-app-text",
-          "absolute top-0 left-0 h-9 w-9",
-          SIDEBAR_MOTION,
-        )}
-        onClick={onToggle}
-        type="button"
-      >
-        <PanelLeftOpen className="size-4" />
-      </button>
-
-      {onLogout ? (
-        <SidebarFooterAction
-          icon={<LogOut className="size-4" />}
-          label="退出登录"
-          onClick={onLogout}
+    <div className="shrink-0 border-t border-app-border/70 px-[10px] pb-4 pt-3">
+      <div className="relative h-9">
+        <button
+          aria-label={open ? "Collapse sidebar" : "Expand sidebar"}
           className={cn(
-            "absolute top-0 right-0",
+            sidebarIconButtonClass,
+            "text-app-text hover:text-app-text",
+            "absolute top-0 left-0 h-9 w-9",
             SIDEBAR_MOTION,
-            open ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0",
           )}
-        />
-      ) : null}
+          onClick={onToggle}
+          type="button"
+        >
+          <PanelLeftOpen className="size-4" />
+        </button>
+
+        {onLogout ? (
+          <SidebarFooterAction
+            icon={<LogOut className="size-4" />}
+            label="退出登录"
+            onClick={onLogout}
+            className={cn(
+              "absolute top-0 right-0",
+              SIDEBAR_MOTION,
+              open ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0",
+            )}
+          />
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -398,8 +400,8 @@ export function MobileSidebarFooter({ onLogout }: { onLogout?: () => void }) {
   }
 
   return (
-    <div className="px-4 pt-4">
-      <div className="flex justify-end">
+    <div className="shrink-0 border-t border-app-border/70 px-4 pt-3 pb-4">
+      <div className="flex min-h-9 items-center justify-end">
         <SidebarFooterAction
           icon={<LogOut className="size-4" />}
           label="退出登录"

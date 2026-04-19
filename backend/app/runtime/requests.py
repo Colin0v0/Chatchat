@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from fastapi import Request
-from sqlalchemy.orm import Session
 
-from ..chat.state import ChatServices
 from ..schemas import DebateJudgeAskIn, DebateJudgeDecisionIn
-from ..storage.models import DebateSession
-from ..tools.policy import ToolPolicy
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
+
+    from ..chat.state import ChatServices
+    from ..storage.models import DebateSession
+    from ..tools.policy import ToolPolicy
 
 
 class ModeActionRequest:

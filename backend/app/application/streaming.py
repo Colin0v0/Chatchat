@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi.responses import StreamingResponse
 
-from ..runtime.modes import get_mode_runtime
+from ..runtime.streaming import stream_mode_response
 from ..runtime.requests import ModeActionRequest
 
 
@@ -12,8 +12,8 @@ def stream_mode_action(
     action: str,
     request: ModeActionRequest,
 ) -> StreamingResponse:
-    runtime = get_mode_runtime(mode_name)
-    return StreamingResponse(
-        runtime.stream(action, request=request),
-        media_type="application/x-ndjson",
+    return stream_mode_response(
+        mode_name=mode_name,
+        action=action,
+        request=request,
     )

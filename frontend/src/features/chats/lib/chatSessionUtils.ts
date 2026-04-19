@@ -117,6 +117,20 @@ function normalizePreviewText(content: string) {
   return content.replace(/\s+/g, " ").trim();
 }
 
+function conversationActiveRunKey(
+  conversation: Pick<ConversationDetail, "id" | "active_run"> | null | undefined,
+) {
+  if (!conversation?.active_run) {
+    return null;
+  }
+
+  if (typeof conversation.active_run.run_id === "string" && conversation.active_run.run_id.trim()) {
+    return conversation.active_run.run_id.trim();
+  }
+
+  return `${conversation.id}:${conversation.active_run.action}:${conversation.active_run.started_at ?? "none"}`;
+}
+
 function conversationPreview(conversation: ConversationDetail) {
   const lastMessage = [...conversation.messages].reverse().find((item) => item.role !== "system");
   if (!lastMessage) {
@@ -140,6 +154,93 @@ function conversationPreview(conversation: ConversationDetail) {
   return lastMessage.attachments?.length === 1
     ? firstAttachment.original_name
     : `${lastMessage.attachments?.length ?? 0} attachments`;
+}
+
+function mergeMessageWithCache(serverMessage: ChatMessage, cachedMessage: ChatMessage): ChatMessage {
+  const serverContentLength = serverMessage.content.trim().length;
+  const cachedContentLength = cachedMessage.content.trim().length;
+  const serverReasoningLength = (serverMessage.reasoning ?? "").trim().length;
+  const cachedReasoningLength = (cachedMessage.reasoning ?? "").trim().length;
+
+  return {
+    ...serverMessage,
+    clientKey: serverMessage.clientKey ?? cachedMessage.clientKey,
+    content: cachedContentLength > serverContentLength ? cachedMessage.content : serverMessage.content,
+    reasoning:
+      cachedReasoningLength > serverReasoningLength ? cachedMessage.reasoning : serverMessage.reasoning,
+    model: serverMessage.model ?? cachedMessage.model,
+    attachments:
+      serverMessage.attachments && serverMessage.attachments.length > 0
+        ? serverMessage.attachments
+        : cachedMessage.attachments,
+    sources:
+      serverMessage.sources && serverMessage.sources.length > 0
+        ? serverMessage.sources
+        : cachedMessage.sources,
+    context: serverMessage.context ?? cachedMessage.context,
+    feedback: serverMessage.feedback ?? cachedMessage.feedback,
+    created_at: serverMessage.created_at ?? cachedMessage.created_at,
+    localStatus: serverMessage.localStatus ?? cachedMessage.localStatus,
+  };
+}
+
+export function mergeConversationWithCache(
+  serverConversation: ConversationDetail,
+  cachedConversation: ConversationDetail | null | undefined,
+): ConversationDetail {
+  if (!cachedConversation || cachedConversation.id !== serverConversation.id) {
+    return serverConversation;
+  }
+
+  const serverRunKey = conversationActiveRunKey(serverConversation);
+  const cachedRunKey = conversationActiveRunKey(cachedConversation);
+  if (serverRunKey && cachedRunKey && serverRunKey !== cachedRunKey) {
+    return serverConversation;
+  }
+
+  const cachedMessagesById = new Map(
+    cachedConversation.messages.map((message) => [String(message.id), message]),
+  );
+  const mergedMessages = serverConversation.messages.map((message) => {
+    const cachedMessage = cachedMessagesById.get(String(message.id));
+    if (!cachedMessage) {
+      return message;
+    }
+    return mergeMessageWithCache(message, cachedMessage);
+  });
+
+  const hasAssistantDraft = mergedMessages.some((message) => message.id === ASSISTANT_DRAFT_ID);
+  const cachedAssistantDraft = cachedConversation.messages.find(
+    (message) => message.id === ASSISTANT_DRAFT_ID,
+  );
+  if (!hasAssistantDraft && cachedAssistantDraft) {
+    mergedMessages.push(cachedAssistantDraft);
+  }
+
+  return {
+    ...serverConversation,
+    messages: mergedMessages,
+    total_message_count: Math.max(
+      serverConversation.total_message_count,
+      cachedConversation.total_message_count,
+    ),
+    loaded_message_count: Math.max(
+      serverConversation.loaded_message_count,
+      cachedConversation.loaded_message_count,
+    ),
+    active_run: serverConversation.active_run
+      ? {
+          ...serverConversation.active_run,
+          last_seq:
+            serverRunKey && cachedRunKey && serverRunKey === cachedRunKey
+              ? Math.max(
+                  serverConversation.active_run.last_seq ?? 0,
+                  cachedConversation.active_run?.last_seq ?? 0,
+                ) || null
+              : serverConversation.active_run.last_seq ?? null,
+        }
+      : serverConversation.active_run,
+  };
 }
 
 export function toConversationSummary(conversation: ConversationDetail): ConversationSummary {
@@ -358,6 +459,23 @@ export function appendRetryDraft(
     messages: [
       ...messages,
       createUserDraftMessage(userMessageId, content, attachments),
+      createAssistantDraftMessageForModel(model),
+    ],
+  };
+}
+
+export function ensureAssistantDraftMessage(
+  conversation: ConversationDetail,
+  model: string,
+): ConversationDetail {
+  if (conversation.messages.some((item) => item.id === ASSISTANT_DRAFT_ID)) {
+    return conversation;
+  }
+
+  return {
+    ...conversation,
+    messages: [
+      ...conversation.messages,
       createAssistantDraftMessageForModel(model),
     ],
   };

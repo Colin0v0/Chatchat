@@ -1,20 +1,43 @@
-function resolveDefaultApiBase(): string {
-  const explicit = import.meta.env.VITE_API_BASE?.trim();
-  if (explicit) {
-    return explicit;
-  }
+function isLoopbackHostname(hostname: string): boolean {
+  return hostname === "127.0.0.1" || hostname === "localhost";
+}
 
+function isProxyFrontendPort(port: string): boolean {
+  return port === "3300" || port === "5200";
+}
+
+function resolveDefaultApiBase(): string {
   if (typeof window === "undefined") {
     return "";
   }
 
+  const explicit = import.meta.env.VITE_API_BASE?.trim();
   const { hostname, port, protocol } = window.location;
-  const isLocalhost = hostname === "127.0.0.1" || hostname === "localhost";
-  if (!isLocalhost || port !== "3300") {
+
+  if (explicit) {
+    try {
+      const explicitUrl = new URL(explicit);
+      // When a mobile device opens a frontend that proxies /api and /media,
+      // a loopback API base would point back to the phone itself and break
+      // image/media loading. Fall back to same-origin relative paths instead.
+      if (isProxyFrontendPort(port) && !isLoopbackHostname(hostname) && isLoopbackHostname(explicitUrl.hostname)) {
+        return "";
+      }
+    } catch {
+      return explicit;
+    }
+    return explicit;
+  }
+
+  if (isProxyFrontendPort(port)) {
     return "";
   }
 
-  return `${protocol}//${hostname}:8050`;
+  if (isLoopbackHostname(hostname)) {
+    return `${protocol}//${hostname}:8050`;
+  }
+
+  return "";
 }
 
 const API_BASE = resolveDefaultApiBase();

@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from ...debate.common import (
     _normalize_decision_scoring,
+    _save_pending_ai_suggestion,
 )
 from ...schemas import DebateJudgeAskIn, DebateJudgeDecisionIn
 from ...runtime.run_trace import RunTraceRecorder
@@ -18,7 +19,7 @@ from .debate_policies import (
 )
 from .debate_runtime import DebateJudgeQuestionContext, DebateRuntimeContext
 from .debate_stage_handlers import stream_decision_summary_flow, stream_stage_followup_events
-from .debate_steps import DebateStreamInterrupted
+from .debate_steps import DebateStreamInterrupted, stream_judge_evaluation_events
 from .debate_state import (
     build_decision_saved_event,
     build_judge_question_event,
@@ -69,6 +70,42 @@ async def debate_next_event_stream(*, db: Session, request: Request, session: De
             failure_payload=_error_event_payload("Debate session already finished."),
         )
         if line:
+            yield line
+        return
+
+    if session.stage == "judge_decision":
+        _save_pending_ai_suggestion(session, None)
+        db.add(session)
+        db.commit()
+        db.refresh(session)
+        try:
+            async for event in stream_judge_evaluation_events(
+                request=request,
+                session=session,
+            ):
+                try:
+                    payload = json.loads(event)
+                except json.JSONDecodeError:
+                    payload = None
+                if isinstance(payload, dict) and payload.get("type") == "ai_suggestion":
+                    suggestion = payload.get("suggestion")
+                    if isinstance(suggestion, dict):
+                        _save_pending_ai_suggestion(session, suggestion)
+                        db.add(session)
+                        db.commit()
+                        db.refresh(session)
+                yield trace.emit_ndjson_line(event)
+        except DebateStreamInterrupted:
+            trace.persist_failure_payload(
+                error_code="DebateStreamInterrupted",
+                error_message="Debate next stream interrupted.",
+            )
+            return
+
+        for line in trace.persist_completion_payloads(
+            response_message_id=None,
+            terminal_payloads=[_done_event_payload(session)],
+        ):
             yield line
         return
 
@@ -204,6 +241,7 @@ async def debate_decision_event_stream(
 ):
     context = DebateRuntimeContext(db=db, request=request, session=session)
     trace = _debate_trace(db, session, "decision")
+    _save_pending_ai_suggestion(session, None)
     resolved_winner, resolved_scoring = _normalize_decision_scoring(
         winner_side=payload.winner_side,
         scoring_json=payload.scoring_json or {},

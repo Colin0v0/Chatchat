@@ -99,6 +99,17 @@
     background: rgba(95, 84, 72, 0.72);
     background-clip: padding-box;
   }
+
+  .sidebar-scrollbar-hidden {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .sidebar-scrollbar-hidden::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+    display: none;
+  }
 }
 
 @keyframes thinking-dot {

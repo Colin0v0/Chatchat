@@ -13,12 +13,12 @@ from sqlalchemy.orm import Session
 from ...chat.state import get_chat_services
 from ...core.config import settings
 from ...debate.common import (
-    _build_ai_commentary_messages,
-    _build_ai_evaluation_messages,
+    _build_ai_single_pass_evaluation_messages,
     _build_summary_messages,
     _build_turn_messages,
     _config,
     _ensure_free_debate_state,
+    _fallback_ai_evaluation_from_commentary,
     _free_debate_clock_event_line,
     _mark_free_debate_ended,
     _parse_ai_evaluation,
@@ -30,6 +30,9 @@ from ...debate.common import (
 )
 from ...runtime.model_runner import stream_model_response
 from ...storage.models import DebateParticipant, DebateSession, DebateTurn
+
+AI_EVALUATION_STRUCTURED_TIMEOUT_SECONDS = 35
+AI_EVALUATION_JSON_MARKER = "<AI_EVAL_JSON>"
 
 
 @asynccontextmanager
@@ -229,48 +232,121 @@ async def run_ai_evaluation(*, request: Request, session: DebateSession) -> Asyn
         return
     logger.info("debate ai eval: using model=%s", judge_model_id)
 
-    analysis_messages = _build_ai_commentary_messages(session)
+    eval_messages = _build_ai_single_pass_evaluation_messages(session)
     analysis_chunks: list[str] = []
-    try:
-        async with reserve_model_execution(request, judge_model_id):
-            async for chunk in stream_model_response(model=judge_model_id, messages=analysis_messages):
-                if await request.is_disconnected():
-                    return
-                delta = chunk.output_text_delta
-                if delta:
-                    analysis_chunks.append(delta)
-                    yield json.dumps({"type": "judge_analysis_token", "content": delta}, ensure_ascii=False) + "\n"
-    except Exception as exc:
-        logger.warning("debate ai commentary stream error: %s", exc, exc_info=True)
-
-    analysis_markdown = "".join(analysis_chunks).strip()
-    eval_messages = _build_ai_evaluation_messages(session, commentary_markdown=analysis_markdown)
     ai_eval_chunks: list[str] = []
+    stream_buffer = ""
+    saw_json_marker = False
+    model_stream = None
     try:
         async with reserve_model_execution(request, judge_model_id):
-            async for chunk in stream_model_response(model=judge_model_id, messages=eval_messages):
+            model_stream = stream_model_response(model=judge_model_id, messages=eval_messages)
+            iterator = model_stream.__aiter__()
+            started_at = time.monotonic()
+
+            while True:
                 if await request.is_disconnected():
                     return
+
+                remaining = AI_EVALUATION_STRUCTURED_TIMEOUT_SECONDS - (time.monotonic() - started_at)
+                if remaining <= 0:
+                    raise asyncio.TimeoutError
+
+                try:
+                    chunk = await asyncio.wait_for(iterator.__anext__(), timeout=remaining)
+                except StopAsyncIteration:
+                    break
+
+                if chunk.done:
+                    break
+
                 delta = chunk.output_text_delta
-                if delta:
-                    ai_eval_chunks.append(delta)
+                if not delta:
+                    continue
+
+                stream_buffer += delta
+
+                if saw_json_marker:
+                    ai_eval_chunks.append(stream_buffer)
+                    stream_buffer = ""
+                    continue
+
+                marker_index = stream_buffer.find(AI_EVALUATION_JSON_MARKER)
+                if marker_index != -1:
+                    commentary_delta = stream_buffer[:marker_index].rstrip("\r\n")
+                    if commentary_delta:
+                        analysis_chunks.append(commentary_delta)
+                        yield json.dumps(
+                            {"type": "judge_analysis_token", "content": commentary_delta},
+                            ensure_ascii=False,
+                        ) + "\n"
+                    json_remainder = stream_buffer[marker_index + len(AI_EVALUATION_JSON_MARKER):].lstrip("\r\n")
+                    if json_remainder:
+                        ai_eval_chunks.append(json_remainder)
+                    stream_buffer = ""
+                    saw_json_marker = True
+                    continue
+
+                safe_visible_length = len(stream_buffer) - (len(AI_EVALUATION_JSON_MARKER) - 1)
+                if safe_visible_length > 0:
+                    commentary_delta = stream_buffer[:safe_visible_length]
+                    analysis_chunks.append(commentary_delta)
+                    yield json.dumps(
+                        {"type": "judge_analysis_token", "content": commentary_delta},
+                        ensure_ascii=False,
+                    ) + "\n"
+                    stream_buffer = stream_buffer[safe_visible_length:]
+    except asyncio.TimeoutError:
+        logger.warning("debate ai eval: structured scoring timed out after %ss", AI_EVALUATION_STRUCTURED_TIMEOUT_SECONDS)
     except Exception as exc:
         logger.warning("debate ai eval stream error: %s", exc, exc_info=True)
-        return
+    finally:
+        aclose = getattr(model_stream, "aclose", None)
+        if callable(aclose):
+            try:
+                await aclose()
+            except Exception:
+                logger.debug("debate ai eval stream close failed", exc_info=True)
+    if saw_json_marker:
+        if stream_buffer:
+            ai_eval_chunks.append(stream_buffer)
+    elif stream_buffer:
+        analysis_chunks.append(stream_buffer)
+        yield json.dumps(
+            {"type": "judge_analysis_token", "content": stream_buffer},
+            ensure_ascii=False,
+        ) + "\n"
 
-    if not ai_eval_chunks:
-        logger.warning("debate ai eval: model returned empty response")
-        return
-
+    analysis_markdown = "".join(analysis_chunks).strip()
     raw = "".join(ai_eval_chunks).strip()
-    suggestion = _parse_ai_evaluation(raw)
-    if not suggestion:
+    suggestion = _parse_ai_evaluation(raw) if raw else None
+    if raw and not suggestion:
         logger.warning("debate ai eval: failed to parse suggestion from: %.200s", raw)
-        return
+    if suggestion is None:
+        if not raw and analysis_markdown:
+            if analysis_markdown.startswith("{"):
+                suggestion = _parse_ai_evaluation(analysis_markdown)
+                if suggestion is not None:
+                    logger.info("debate ai eval: recovered suggestion from JSON-only response without marker")
+                    analysis_markdown = ""
+            else:
+                trailing_json_start = analysis_markdown.rfind("\n{")
+                if trailing_json_start != -1:
+                    trailing_json = analysis_markdown[trailing_json_start + 1 :].strip()
+                    suggestion = _parse_ai_evaluation(trailing_json)
+                    if suggestion is not None:
+                        logger.info("debate ai eval: recovered suggestion from trailing JSON without marker")
+                        analysis_markdown = analysis_markdown[:trailing_json_start].rstrip()
+        if not ai_eval_chunks and suggestion is None:
+            logger.warning("debate ai eval: model returned empty response")
+        if suggestion is None:
+            suggestion = _fallback_ai_evaluation_from_commentary(analysis_markdown)
+            if suggestion is None:
+                return
 
     if analysis_markdown:
         scoring_json = suggestion.setdefault("scoring_json", {})
-        if isinstance(scoring_json, dict):
+        if isinstance(scoring_json, dict) and not str(scoring_json.get("analysis_markdown") or "").strip():
             scoring_json["analysis_markdown"] = analysis_markdown
 
     yield json.dumps({"type": "ai_suggestion", "suggestion": suggestion}, ensure_ascii=False) + "\n"

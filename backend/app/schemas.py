@@ -132,6 +132,12 @@ class MessageOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ChatActiveRunOut(BaseModel):
+    action: str
+    run_id: str = ""
+    started_at: Optional[datetime] = None
+
+
 class ConversationDetail(BaseModel):
     id: int
     title: str
@@ -140,6 +146,7 @@ class ConversationDetail(BaseModel):
     total_message_count: int = 0
     loaded_message_count: int = 0
     remaining_message_count: int = 0
+    active_run: Optional[ChatActiveRunOut] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -227,6 +234,14 @@ class DebateJudgeDecisionOut(BaseModel):
     created_at: Optional[datetime] = None
 
 
+class DebateAiSuggestionOut(BaseModel):
+    winner: DecisionWinner
+    pro_score: Optional[int] = None
+    con_score: Optional[int] = None
+    judge_comment: str = ""
+    scoring_json: dict[str, object] = Field(default_factory=dict)
+
+
 class DebateJudgeAskIn(BaseModel):
     question: str = Field(min_length=1, max_length=1000)
     ask_to: DebateAskTarget = "all"
@@ -236,6 +251,12 @@ class DebateJudgeDecisionIn(BaseModel):
     winner_side: DecisionWinner
     judge_comment: str = ""
     scoring_json: dict[str, object] = Field(default_factory=dict)
+
+
+class DebateActiveRunOut(BaseModel):
+    action: str
+    run_id: str = ""
+    started_at: Optional[datetime] = None
 
 
 class DebateSessionDetailOut(BaseModel):
@@ -249,10 +270,12 @@ class DebateSessionDetailOut(BaseModel):
     participants: list[DebateParticipantOut] = Field(default_factory=list)
     turns: list[DebateTurnOut] = Field(default_factory=list)
     judge_decision: Optional[DebateJudgeDecisionOut] = None
+    ai_suggestion: Optional[DebateAiSuggestionOut] = None
     summary: str = ""
     free_debate_enabled: bool = False
     free_debate_state: Optional[DebateFreeDebateStateOut] = None
     stage_time_limits_ms: dict[str, int] = Field(default_factory=dict)
+    active_run: Optional[DebateActiveRunOut] = None
 
     model_config = ConfigDict(from_attributes=True)
 

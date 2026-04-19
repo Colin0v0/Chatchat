@@ -15,6 +15,7 @@ import {
   appendAssistantDraftReasoning,
   ConversationActivity,
   ConversationUpdater,
+  ensureAssistantDraftMessage,
   isAbortError,
   markAssistantDraftStopped,
   mergeConversationSummaries,
@@ -87,6 +88,7 @@ function finalizeAssistantDraft(
   return {
     ...conversationWithMessageId,
     title: event.conversation_title ?? conversationWithMessageId.title,
+    active_run: null,
   };
 }
 
@@ -108,6 +110,15 @@ type StopStreamOptions = {
 };
 
 export type RunStreamResult = "aborted" | "completed" | "error";
+
+type AttachActiveStreamOptions = {
+  conversation: ConversationDetail;
+  errorMessage: string;
+  request: (handlers: {
+    onEvent: (event: ChatStreamEvent) => void;
+    signal: AbortSignal;
+  }) => Promise<void>;
+};
 
 export function useConversationStreams({
   activeConversation,
@@ -333,6 +344,34 @@ export function useConversationStreams({
 
   const handleStreamEvent = useCallback(
     (conversationId: number, event: ChatStreamEvent) => {
+      const currentSession = streamSessionsRef.current[streamSessionKey(conversationId)];
+      const currentLastSeq = currentSession?.conversation.active_run?.last_seq ?? 0;
+      if (
+        typeof event.seq === "number"
+        && Number.isFinite(event.seq)
+        && event.seq <= currentLastSeq
+      ) {
+        return;
+      }
+
+      if (
+        (typeof event.run_id === "string" && event.run_id.trim())
+        || (typeof event.seq === "number" && Number.isFinite(event.seq))
+      ) {
+        updateSessionConversation(conversationId, (current) => ({
+          ...current,
+          active_run: {
+            action: current.active_run?.action ?? "run",
+            started_at: current.active_run?.started_at ?? null,
+            run_id:
+              typeof event.run_id === "string" && event.run_id.trim()
+                ? event.run_id.trim()
+                : current.active_run?.run_id ?? null,
+            last_seq: Math.max(current.active_run?.last_seq ?? 0, event.seq ?? 0) || null,
+          },
+        }));
+      }
+
       if (event.type === "token") {
         const cleanContent = sanitizeTokenContent(event.content);
         updateStreamSession(conversationId, (session) =>
@@ -541,6 +580,37 @@ export function useConversationStreams({
     ],
   );
 
+  const attachActiveStream = useCallback(
+    async ({ conversation, errorMessage, request }: AttachActiveStreamOptions): Promise<RunStreamResult> => {
+      const existingSession = streamSessionsRef.current[streamSessionKey(conversation.id)];
+      if (existingSession?.status === "running") {
+        setActiveConversation(existingSession.conversation);
+        setSelectedModel(existingSession.conversation.model);
+        return "completed";
+      }
+
+      const attachedConversation = ensureAssistantDraftMessage(conversation, conversation.model);
+      setActiveConversation((current) =>
+        current && current.id === attachedConversation.id ? attachedConversation : current,
+      );
+      setSelectedModel(attachedConversation.model);
+
+      return runStream({
+        conversation: attachedConversation,
+        errorMessage,
+        initialStage: "waiting_for_model",
+        restoreInput: {
+          content: "",
+          loadFiles: async () => [],
+          restoreToComposerOnStop: false,
+        },
+        tempUserMessageId: "active-run-resume",
+        request,
+      });
+    },
+    [runStream, setActiveConversation, setSelectedModel],
+  );
+
   const stopStream = useCallback(
     async ({ conversationId, restoreAttachments, restoreDraft, getCurrentDraft }: StopStreamOptions) => {
       const key = streamSessionKey(conversationId);
@@ -686,6 +756,7 @@ export function useConversationStreams({
   return {
     abortAndRemoveSession,
     activeSession,
+    attachActiveStream,
     conversationActivity,
     getSessionConversation,
     isStreaming,

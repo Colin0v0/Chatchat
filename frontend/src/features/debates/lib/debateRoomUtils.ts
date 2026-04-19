@@ -17,6 +17,7 @@ export function normalizeRoomSession(session: DebateSessionDetail): DebateSessio
     summary: typeof session.summary === "string" ? session.summary : "",
     free_debate_enabled: session.free_debate_enabled === true,
     free_debate_state: session.free_debate_state ?? null,
+    active_run: session.active_run ?? null,
     stage_time_limits_ms:
       session.stage_time_limits_ms && typeof session.stage_time_limits_ms === "object"
         ? session.stage_time_limits_ms
@@ -154,12 +155,17 @@ export function applyStreamEvent(
     case "done":
       return {
         ...normalizedSession,
+        active_run: null,
         stage: event.stage,
         status: event.status,
       };
     case "ai_suggestion":
-    case "error":
       return normalizedSession;
+    case "error":
+      return {
+        ...normalizedSession,
+        active_run: null,
+      };
   }
 }
 
@@ -203,8 +209,86 @@ function readAnalysisText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+const JUDGE_MARKDOWN_SECTION_TITLES = [
+  "裁决摘要",
+  "正方评价",
+  "反方评价",
+  "双方共同表现",
+  "关键胜负手",
+  "最终投票",
+] as const;
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function normalizeJudgeAnalysisMarkdownContent(markdown: string) {
+  const trimmed = markdown.trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  const titlePattern = JUDGE_MARKDOWN_SECTION_TITLES.map(escapeRegExp).join("|");
+  const normalizedBreaks = trimmed
+    .replace(/\r\n?/g, "\n")
+    .replace(
+      new RegExp(`([^\\n])((?:#{1,6}\\s*)?(?:${titlePattern})(?:\\s|$))`, "g"),
+      "$1\n\n$2",
+    );
+  const sectionRegex = new RegExp(
+    `(?:^|\\n)\\s*(?:#{1,6}\\s*)?(${titlePattern})\\s*(?:\\n+|\\s+)`,
+    "g",
+  );
+
+  const matches = [...normalizedBreaks.matchAll(sectionRegex)];
+  if (matches.length < 2) {
+    return normalizedBreaks.trim();
+  }
+
+  const bestSections = new Map<
+    (typeof JUDGE_MARKDOWN_SECTION_TITLES)[number],
+    { body: string; index: number }
+  >();
+
+  matches.forEach((match, index) => {
+    const title = match[1] as (typeof JUDGE_MARKDOWN_SECTION_TITLES)[number];
+    const bodyStart = (match.index ?? 0) + match[0].length;
+    const bodyEnd = index + 1 < matches.length
+      ? (matches[index + 1].index ?? normalizedBreaks.length)
+      : normalizedBreaks.length;
+    const body = normalizedBreaks.slice(bodyStart, bodyEnd).trim();
+    if (!body) {
+      return;
+    }
+
+    const previous = bestSections.get(title);
+    if (!previous || body.length >= previous.body.length) {
+      bestSections.set(title, { body, index });
+    }
+  });
+
+  if (bestSections.size === 0) {
+    return normalizedBreaks.trim();
+  }
+
+  const dedupedSections = JUDGE_MARKDOWN_SECTION_TITLES
+    .map((title) => {
+      const entry = bestSections.get(title);
+      if (!entry) {
+        return null;
+      }
+
+      return `## ${title}\n\n${entry.body}`;
+    })
+    .filter((value): value is string => value !== null);
+
+  return dedupedSections.length > 0 ? dedupedSections.join("\n\n") : normalizedBreaks.trim();
+}
+
 export function extractJudgeAnalysisMarkdown(scoringJson: Record<string, unknown> | null | undefined) {
-  return typeof scoringJson?.analysis_markdown === "string" ? scoringJson.analysis_markdown.trim() : "";
+  return typeof scoringJson?.analysis_markdown === "string"
+    ? normalizeJudgeAnalysisMarkdownContent(scoringJson.analysis_markdown)
+    : "";
 }
 
 export function extractJudgeAnalysis(

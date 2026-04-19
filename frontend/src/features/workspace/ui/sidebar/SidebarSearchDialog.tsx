@@ -6,6 +6,7 @@ import { cn } from "./styles";
 
 interface SidebarSearchDialogProps {
   activity?: Record<number, { running: boolean; unread: boolean }>;
+  debateActivity?: Record<number, { running: boolean; unread: boolean }>;
   items: ConversationSummary[];
   debateItems: DebateSessionSummary[];
   open: boolean;
@@ -18,6 +19,7 @@ interface SidebarSearchDialogProps {
 
 export function SidebarSearchDialog({
   activity = {},
+  debateActivity = {},
   items,
   debateItems,
   open,
@@ -109,7 +111,7 @@ export function SidebarSearchDialog({
             ) : (
               <div className="flex flex-col gap-1">
                 {combinedItems.map((item) => {
-                  const itemActivity = item.kind === "chat" ? activity[item.id] : undefined;
+                  const itemActivity = item.kind === "chat" ? activity[item.id] : debateActivity[item.id];
 
                   return (
                     <button
@@ -138,7 +140,11 @@ export function SidebarSearchDialog({
                           {item.title}
                         </span>
                       </span>
-                      {itemActivity?.unread ? (
+                      {itemActivity?.running ? (
+                        <span className="ml-3 flex h-5 w-5 shrink-0 items-center justify-center text-app-muted">
+                          <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-app-muted/35 border-t-app-muted" />
+                        </span>
+                      ) : itemActivity?.unread ? (
                         <span className="ml-3 inline-flex h-2.5 w-2.5 shrink-0 rounded-full bg-app-accent-strong" />
                       ) : null}
                     </button>

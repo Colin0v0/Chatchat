@@ -8,13 +8,13 @@ export function DesktopSidebar({ open, onToggleSidebar, ...contentProps }: Sideb
     <>
       <div
         className={cn(
-          "relative hidden h-full overflow-visible border-r border-app-border bg-app-sidebar transition-[width] md:block",
+          "relative hidden h-full overflow-hidden border-r border-app-border bg-app-sidebar transition-[width] md:flex md:flex-col",
           SIDEBAR_MOTION,
           open ? "w-[280px]" : "w-[56px]",
         )}
       >
         <DesktopPinnedHeader open={open} title={contentProps.viewerName || "Chatchat"} />
-        <div className="h-full">
+        <div className="min-h-0 flex-1">
           <SidebarContent {...contentProps} mode="desktop" open={open} />
         </div>
         <DesktopSidebarFooter onLogout={contentProps.onLogout} onToggle={onToggleSidebar} open={open} />

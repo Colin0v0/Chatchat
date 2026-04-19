@@ -7,7 +7,6 @@ from .debate_runtime import DebateRuntimeContext, DebateStageTransition
 from .debate_state import emit_stage_events
 from .debate_steps import (
     stream_decision_summary_events,
-    stream_judge_evaluation_events,
 )
 
 
@@ -17,17 +16,6 @@ async def stream_stage_followup_events(
     transition: DebateStageTransition,
 ) -> AsyncIterator[str]:
     for event in emit_stage_events(context.session, transition):
-        yield event
-
-    if not transition.enters_judge_decision:
-        return
-
-    if transition.refresh_relations:
-        context.persistence.refresh_session_relations(context.session)
-    async for event in stream_judge_evaluation_events(
-        request=context.request,
-        session=context.session,
-    ):
         yield event
 
 

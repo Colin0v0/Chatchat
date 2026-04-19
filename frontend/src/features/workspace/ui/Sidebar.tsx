@@ -21,6 +21,7 @@ export function Sidebar(props: SidebarRootProps) {
       <MobileSidebar {...props} onOpenSearch={handleOpenSearch} />
       <SidebarSearchDialog
         activity={props.activity}
+        debateActivity={props.debateActivity}
         debateItems={props.debateItems}
         items={props.items}
         onClose={handleCloseSearch}

@@ -2,8 +2,6 @@ import { LoaderCircle, MessageSquare, MoreHorizontal, Pencil, Scale, Trash2 } fr
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
-  MobileSidebarFooter,
-  SidebarBrand,
   SidebarIcon,
   SidebarLoadingState,
   SidebarTooltip,
@@ -38,6 +36,7 @@ export function SidebarContent({
   items,
   debateItems,
   activity = {},
+  debateActivity = {},
   activeSection,
   activeConversationId,
   activeDebateId,
@@ -48,12 +47,10 @@ export function SidebarContent({
   onDelete,
   onRenameDebate,
   onDeleteDebate,
-  onLogout,
   onOpenSearch,
   onSelect,
   onSelectDebate,
   onSelectSection,
-  viewerName,
   mode,
   open = true,
 }: SidebarContentProps) {
@@ -67,8 +64,6 @@ export function SidebarContent({
   const showSecondaryContent = !isDesktop || open;
   const sectionPadding = isDesktop ? "px-2" : "px-4";
   const headingPadding = isDesktop ? "px-5" : "px-4";
-  const contentTopPadding = isDesktop ? "pt-[50px]" : "pt-4";
-  const contentBottomPadding = isDesktop ? "pb-[48px]" : "pb-4";
   const conversationMenuBufferHeight = isDesktop ? "h-[136px]" : "h-0";
   const emptyText = query.trim()
     ? "No sessions matched your search."
@@ -139,14 +134,8 @@ export function SidebarContent({
 
   return (
     <>
-      <div className={`flex h-full flex-col bg-app-sidebar ${contentTopPadding} ${contentBottomPadding}`}>
-        {isDesktop ? null : (
-          <div className="flex min-w-0 flex-col gap-4 px-4">
-            <SidebarBrand title={viewerName || "Chatchat"} />
-          </div>
-        )}
-
-        <div className="mt-4 flex min-h-0 flex-1 flex-col gap-2">
+      <div className="flex h-full min-h-0 flex-col bg-app-sidebar">
+        <div className={cn("flex shrink-0 flex-col gap-2", isDesktop ? "pt-3" : "pt-1")}>
           <div className={`flex flex-col gap-1 ${sectionPadding}`}>
             {SIDEBAR_PRIMARY_ITEMS.map((item) => {
               const isActive = item.kind === "section" && item.section === activeSection;
@@ -191,151 +180,150 @@ export function SidebarContent({
               );
             })}
           </div>
-
-          {showSecondaryContent ? (
-            <>
-              <div className={cn(headingPadding, "text-[13px] font-semibold tracking-[0.14em] text-app-muted uppercase")}>
-                Recents
-              </div>
-
-              <div className="app-scrollbar app-scrollbar-sidebar min-h-0 flex-1 overflow-y-auto">
-                {!conversationsLoaded || !debatesLoaded ? (
-                  <div className={sectionPadding}>
-                    <SidebarLoadingState />
-                  </div>
-                ) : null}
-
-                {conversationsLoaded && debatesLoaded ? (
-                  <div className={`flex flex-col gap-1 ${sectionPadding}`}>
-                    {combinedItems.length === 0 ? (
-                      <div className="overflow-hidden px-3 py-2 text-[14px] text-app-muted">{emptyText}</div>
-                    ) : null}
-
-                    {combinedItems.map((item) => {
-                      const active =
-                        item.kind === "chat"
-                          ? activeSection === "chats" && item.id === activeConversationId
-                          : activeSection === "debates" && item.id === activeDebateId;
-                      const itemActivity = item.kind === "chat" ? activity[item.id] : undefined;
-                      const itemKey = `${item.kind}:${item.id}`;
-
-                      return (
-                        <div
-                          className={cn(
-                            "group relative rounded-[8px] transition-colors",
-                            active
-                              ? "bg-app-panel-soft"
-                              : "hover:bg-app-panel-soft",
-                          )}
-                          key={itemKey}
-                        >
-                          <button
-                            className="flex w-full min-w-0 items-center rounded-[8px] px-3 py-2 pr-12 text-left focus:outline-none focus-visible:outline-none"
-                            onClick={() => (item.kind === "chat" ? onSelect(item.id) : onSelectDebate(item.id))}
-                            type="button"
-                          >
-                            <span className="flex min-w-0 items-center gap-2.5">
-                              {item.kind === "debate" ? (
-                                <Scale className="size-4 shrink-0 text-app-muted" />
-                              ) : (
-                                <MessageSquare className="size-4 shrink-0 text-app-muted" />
-                              )}
-                              <span className="truncate text-[15px] font-semibold tracking-[-0.02em] text-app-text">
-                                {item.title}
-                              </span>
-                              {itemActivity?.running ? (
-                                <span
-                                  aria-label="Conversation is running"
-                                  className="flex h-5 w-5 shrink-0 items-center justify-center text-app-muted"
-                                >
-                                  <LoaderCircle className="size-3.5 animate-spin" />
-                                </span>
-                              ) : itemActivity?.unread ? (
-                                <span
-                                  aria-label="Conversation has a new response"
-                                  className="inline-flex h-2.5 w-2.5 shrink-0 rounded-full bg-app-accent-strong"
-                                />
-                              ) : null}
-                            </span>
-                          </button>
-
-                          <div
-                            className="absolute inset-y-0 right-2 flex items-center"
-                            ref={menuItemKey === itemKey ? menuRef : null}
-                          >
-                            {isDesktop ? (
-                              <>
-                                <button
-                                  aria-label="Session actions"
-                                  className={cn(
-                                    "flex h-8 w-8 items-center justify-center rounded-[8px] text-app-muted transition-colors",
-                                    "hover:text-app-text focus:outline-none focus-visible:outline-none",
-                                    menuItemKey === itemKey ? "opacity-100" : "opacity-0 group-hover:opacity-100",
-                                  )}
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    setMenuItemKey((current) => (current === itemKey ? null : itemKey));
-                                  }}
-                                  type="button"
-                                >
-                                  <MoreHorizontal className="size-4" />
-                                </button>
-
-                                {menuItemKey === itemKey ? (
-                                  <div className={`absolute right-0 top-[calc(100%+6px)] z-30 py-1 ${sidebarMenuPanelClass}`}>
-                                    <button
-                                      className={`${sidebarMenuItemClass} text-app-text hover:text-app-accent-strong`}
-                                      onClick={(event) => {
-                                        event.stopPropagation();
-                                        setMenuItemKey(null);
-                                        setDialogState({
-                                          type: "rename",
-                                          kind: item.kind,
-                                          id: item.id,
-                                          title: item.title,
-                                          value: item.title,
-                                        });
-                                      }}
-                                      type="button"
-                                    >
-                                      <Pencil className="size-4 text-app-muted" />
-                                      <span>Rename</span>
-                                    </button>
-                                    <button
-                                      className={`${sidebarMenuItemClass} text-[#9d3d32] hover:text-[#8a3329]`}
-                                      onClick={(event) => {
-                                        event.stopPropagation();
-                                        setMenuItemKey(null);
-                                        setDialogState({
-                                          type: "delete",
-                                          kind: item.kind,
-                                          id: item.id,
-                                          title: item.title,
-                                        });
-                                      }}
-                                      type="button"
-                                    >
-                                      <Trash2 className="size-4" />
-                                      <span>Delete</span>
-                                    </button>
-                                  </div>
-                                ) : null}
-                              </>
-                            ) : null}
-                          </div>
-                        </div>
-                      );
-                    })}
-
-                    {combinedItems.length > 0 ? <div aria-hidden="true" className={conversationMenuBufferHeight} /> : null}
-                  </div>
-                ) : null}
-              </div>
-            </>
-          ) : null}
         </div>
 
-        {!isDesktop ? <MobileSidebarFooter onLogout={onLogout} /> : null}
+        {showSecondaryContent ? (
+          <>
+            <div className={cn("shrink-0 pt-3", headingPadding, "text-[13px] font-semibold tracking-[0.14em] text-app-muted uppercase")}>
+              Recents
+            </div>
+
+            <div className="sidebar-scrollbar-hidden min-h-0 flex-1 overflow-x-hidden overflow-y-auto pt-2">
+              {!conversationsLoaded || !debatesLoaded ? (
+                <div className={sectionPadding}>
+                  <SidebarLoadingState />
+                </div>
+              ) : null}
+
+              {conversationsLoaded && debatesLoaded ? (
+                <div className={`flex flex-col gap-1 ${sectionPadding}`}>
+                  {combinedItems.length === 0 ? (
+                    <div className="overflow-hidden px-3 py-2 text-[14px] text-app-muted">{emptyText}</div>
+                  ) : null}
+
+                  {combinedItems.map((item) => {
+                    const active =
+                      item.kind === "chat"
+                        ? activeSection === "chats" && item.id === activeConversationId
+                        : activeSection === "debates" && item.id === activeDebateId;
+                    const itemActivity = item.kind === "chat" ? activity[item.id] : debateActivity[item.id];
+                    const showActivityIndicator = !active && !!itemActivity && (itemActivity.running || itemActivity.unread);
+                    const itemKey = `${item.kind}:${item.id}`;
+
+                    return (
+                      <div
+                        className={cn(
+                          "group relative rounded-[8px] transition-colors",
+                          active
+                            ? "bg-app-panel-soft"
+                            : "hover:bg-app-panel-soft",
+                        )}
+                        key={itemKey}
+                      >
+                        <button
+                          className="flex w-full min-w-0 items-center rounded-[8px] px-3 py-2 pr-12 text-left focus:outline-none focus-visible:outline-none"
+                          onClick={() => (item.kind === "chat" ? onSelect(item.id) : onSelectDebate(item.id))}
+                          type="button"
+                        >
+                          <span className="flex min-w-0 items-center gap-2.5">
+                            {item.kind === "debate" ? (
+                              <Scale className="size-4 shrink-0 text-app-muted" />
+                            ) : (
+                              <MessageSquare className="size-4 shrink-0 text-app-muted" />
+                            )}
+                            <span className="truncate text-[15px] font-semibold tracking-[-0.02em] text-app-text">
+                              {item.title}
+                            </span>
+                            {showActivityIndicator && itemActivity?.running ? (
+                              <span
+                                aria-label={`${item.kind === "chat" ? "Conversation" : "Debate"} is running`}
+                                className="flex h-5 w-5 shrink-0 items-center justify-center text-app-muted"
+                              >
+                                <LoaderCircle className="size-3.5 animate-spin" />
+                              </span>
+                            ) : showActivityIndicator && itemActivity?.unread ? (
+                              <span
+                                aria-label={`${item.kind === "chat" ? "Conversation" : "Debate"} needs attention`}
+                                className="inline-flex h-2.5 w-2.5 shrink-0 rounded-full bg-app-accent-strong"
+                              />
+                            ) : null}
+                          </span>
+                        </button>
+
+                        <div
+                          className="absolute inset-y-0 right-2 flex items-center"
+                          ref={menuItemKey === itemKey ? menuRef : null}
+                        >
+                          {isDesktop ? (
+                            <>
+                              <button
+                                aria-label="Session actions"
+                                className={cn(
+                                  "flex h-8 w-8 items-center justify-center rounded-[8px] text-app-muted transition-colors",
+                                  "hover:text-app-text focus:outline-none focus-visible:outline-none",
+                                  menuItemKey === itemKey ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+                                )}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setMenuItemKey((current) => (current === itemKey ? null : itemKey));
+                                }}
+                                type="button"
+                              >
+                                <MoreHorizontal className="size-4" />
+                              </button>
+
+                              {menuItemKey === itemKey ? (
+                                <div className={`absolute right-0 top-[calc(100%+6px)] z-30 py-1 ${sidebarMenuPanelClass}`}>
+                                  <button
+                                    className={`${sidebarMenuItemClass} text-app-text hover:text-app-accent-strong`}
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      setMenuItemKey(null);
+                                      setDialogState({
+                                        type: "rename",
+                                        kind: item.kind,
+                                        id: item.id,
+                                        title: item.title,
+                                        value: item.title,
+                                      });
+                                    }}
+                                    type="button"
+                                  >
+                                    <Pencil className="size-4 text-app-muted" />
+                                    <span>Rename</span>
+                                  </button>
+                                  <button
+                                    className={`${sidebarMenuItemClass} text-[#9d3d32] hover:text-[#8a3329]`}
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      setMenuItemKey(null);
+                                      setDialogState({
+                                        type: "delete",
+                                        kind: item.kind,
+                                        id: item.id,
+                                        title: item.title,
+                                      });
+                                    }}
+                                    type="button"
+                                  >
+                                    <Trash2 className="size-4" />
+                                    <span>Delete</span>
+                                  </button>
+                                </div>
+                              ) : null}
+                            </>
+                          ) : null}
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {combinedItems.length > 0 ? <div aria-hidden="true" className={conversationMenuBufferHeight} /> : null}
+                </div>
+              ) : null}
+            </div>
+          </>
+        ) : null}
       </div>
 
       <SidebarDialog

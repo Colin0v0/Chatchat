@@ -59,6 +59,13 @@ export interface ConversationSummary {
   last_message_preview: string;
 }
 
+export interface ChatActiveRun {
+  action: "run";
+  started_at: string | null;
+  run_id?: string | null;
+  last_seq?: number | null;
+}
+
 export interface AuthUser {
   id: number;
   username: string;
@@ -91,6 +98,7 @@ export interface ConversationDetail {
   total_message_count: number;
   loaded_message_count: number;
   remaining_message_count: number;
+  active_run?: ChatActiveRun | null;
 }
 
 export interface ConversationMessagePage {
@@ -140,6 +148,13 @@ export interface DebateSessionSummary {
   last_turn_preview: string;
 }
 
+export interface DebateActiveRun {
+  action: "next" | "ask" | "decision";
+  started_at: string | null;
+  run_id?: string | null;
+  last_seq?: number | null;
+}
+
 export interface DebateSessionDetail {
   id: number;
   topic: string;
@@ -151,10 +166,12 @@ export interface DebateSessionDetail {
   participants: DebateParticipant[];
   turns: DebateTurn[];
   judge_decision: DebateJudgeDecision | null;
+  ai_suggestion?: DebateAiSuggestion | null;
   summary: string;
   free_debate_enabled: boolean;
   free_debate_state: DebateFreeDebateState | null;
   stage_time_limits_ms: Record<string, number>;
+  active_run: DebateActiveRun | null;
 }
 
 export interface DebateTurn {
@@ -418,13 +435,17 @@ export interface AudioTranscriptionResult {
   duration_ms: number;
 }
 
-export type ChatStreamEvent =
+type StreamResumeMetadata = {
+  run_id?: string;
+  seq?: number;
+};
+
+type ChatStreamEventPayload =
   | {
       type: "meta";
       conversation_id: number;
       message_id: number;
       model: string;
-      run_id?: number;
     }
   | {
       type: "reasoning";
@@ -457,7 +478,9 @@ export type ChatStreamEvent =
       message: string;
     };
 
-export type DebateStreamEvent =
+export type ChatStreamEvent = ChatStreamEventPayload & StreamResumeMetadata;
+
+type DebateStreamEventPayload =
   | {
       type: "stage_changed";
       stage: DebateStage;
@@ -516,3 +539,5 @@ export type DebateStreamEvent =
       type: "error";
       message: string;
     };
+
+export type DebateStreamEvent = DebateStreamEventPayload & StreamResumeMetadata;

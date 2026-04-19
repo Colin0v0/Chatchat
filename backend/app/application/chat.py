@@ -7,13 +7,14 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from ..chat.state import ChatServices
+from ..runtime.chat_runs import get_chat_run_registry
+from ..runtime.streaming import ndjson_stream_response
 from ..schemas import ReasoningProfileValue, RegenerateRequest, ToolMode
 from ..storage.models import User
 from .chat_preparation import (
     prepare_chat_stream_run_request,
     prepare_regeneration_run_request,
 )
-from .streaming import stream_mode_action
 
 
 async def regenerate_chat_response(
@@ -31,11 +32,11 @@ async def regenerate_chat_response(
         request=request,
         db=db,
     )
-    return stream_mode_action(
-        mode_name="chat",
-        action="run",
-        request=run_request,
+    stream = await get_chat_run_registry(request).start_or_attach(
+        app=request.app,
+        run_request=run_request,
     )
+    return ndjson_stream_response(stream)
 
 
 async def chat_stream_response(
@@ -63,8 +64,23 @@ async def chat_stream_response(
         reasoning_profile=reasoning_profile,
         files=files,
     )
-    return stream_mode_action(
-        mode_name="chat",
-        action="run",
-        request=run_request,
+    stream = await get_chat_run_registry(request).start_or_attach(
+        app=request.app,
+        run_request=run_request,
     )
+    return ndjson_stream_response(stream)
+
+
+async def stream_active_chat_response(
+    *,
+    request: Request,
+    conversation_id: int,
+    after_seq: int | None = None,
+) -> StreamingResponse:
+    stream = await get_chat_run_registry(request).attach_existing(
+        conversation_id,
+        after_seq=after_seq,
+    )
+    if stream is None:
+        raise RuntimeError("No active chat run.")
+    return ndjson_stream_response(stream)

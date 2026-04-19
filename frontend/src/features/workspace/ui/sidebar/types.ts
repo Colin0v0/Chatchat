@@ -7,6 +7,7 @@ export interface SidebarProps {
   items: ConversationSummary[];
   debateItems: DebateSessionSummary[];
   activity?: Record<number, { running: boolean; unread: boolean }>;
+  debateActivity?: Record<number, { running: boolean; unread: boolean }>;
   activeSection: WorkspaceSection;
   activeConversationId: number | null;
   activeDebateId: number | null;

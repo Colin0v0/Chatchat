@@ -10,17 +10,20 @@ export function DebateTurnCard({
   turn,
   participant,
   isStreaming = false,
+  isFinalizingTimeout = false,
   sequenceNumber = null,
 }: {
   turn: DebateTurn;
   participant: DebateParticipant | null;
   isStreaming?: boolean;
+  isFinalizingTimeout?: boolean;
   sequenceNumber?: number | null;
 }) {
   const [expanded, setExpanded] = useState(true);
   const [copied, setCopied] = useState(false);
   const hasContent = Boolean(turn.content);
-  const showStreamingState = isStreaming && turn.kind === "speaker_turn";
+  const showStreamingState = isStreaming && turn.kind === "speaker_turn" && !isFinalizingTimeout;
+  const showTimeoutFinalizingState = isFinalizingTimeout && turn.kind === "speaker_turn";
   const showSequenceBadge =
     turn.kind === "speaker_turn" && turn.stage === "free_debate" && sequenceNumber != null;
 
@@ -65,6 +68,11 @@ export function DebateTurnCard({
                   </span>
                 ) : null}
                 {showStreamingState ? <LoaderCircle className="size-3.5 animate-spin text-app-muted" /> : null}
+                {showTimeoutFinalizingState ? (
+                  <span className="inline-flex rounded-full bg-[#f7ebe8] px-2 py-1 text-[11px] font-semibold text-[#9d3d32]">
+                    截断收尾中
+                  </span>
+                ) : null}
                 {turn.elapsed_ms ? (
                   <span className="text-[12px] text-app-muted">{(turn.elapsed_ms / 1000).toFixed(1)}s</span>
                 ) : null}
@@ -111,6 +119,10 @@ export function DebateTurnCard({
             <div className="text-[15px] leading-8 text-app-text">
               {hasContent ? (
                 <MarkdownMessage content={turn.content} />
+              ) : showTimeoutFinalizingState ? (
+                <span className="inline-flex shrink-0 whitespace-nowrap text-[15px] leading-[1.4] tracking-[0.01em] text-[#9d3d32]/80">
+                  正在按时限截断...
+                </span>
               ) : showStreamingState ? (
                 <div className="inline-flex items-center gap-2.5 text-app-muted/80">
                   <span className="inline-flex shrink-0 whitespace-nowrap text-[15px] leading-[1.4] tracking-[0.01em]">
