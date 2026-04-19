@@ -58,10 +58,9 @@ def _resolve_env_files() -> tuple[str, ...]:
 class Settings(BaseSettings):
     app_env: str = "default"
     app_name: str = "Chatchat API"
-    cors_allowed_origins: str = "http://127.0.0.1:5200,http://localhost:5200"
-    database_url: str = "sqlite:///./storage/app.db"
-    sqlite_journal_mode: str = ""
-    sqlite_synchronous: str = ""
+    cors_allowed_origins: str = "http://127.0.0.1:5200,http://localhost:5200,http://127.0.0.1:3300,http://localhost:3300"
+    database_url: str = "postgresql+psycopg://chatchat:chatchat@127.0.0.1:5432/chatchat"
+    redis_url: str = "redis://127.0.0.1:6379/0"
     model_cache_root: str = ""
     media_root: str = "./storage/media"
     auth_session_cookie_name: str = "chatchat_session"
@@ -143,6 +142,7 @@ class Settings(BaseSettings):
     file_retrieval_min_score: float = 0.18
     knowledge_storage_root: str = "./storage/knowledge"
     knowledge_embedding_model: str = "qwen3-embedding:0.6b"
+    knowledge_embedding_dimensions: int = 1024
     knowledge_embedding_device: str = "auto"
     knowledge_embedding_batch_size: int = 8
     knowledge_embedding_max_length: int = 2048

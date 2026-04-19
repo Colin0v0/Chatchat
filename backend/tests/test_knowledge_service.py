@@ -10,7 +10,7 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.knowledge.service import KnowledgeService
-from app.retrieval.rag.types import RagChunk
+from app.retrieval.rag.types import RagChunk, RetrievalCandidate
 from app.storage.database import Base
 from app.storage.models import KnowledgeChunk, KnowledgeDocument, User
 
@@ -44,8 +44,10 @@ class _FakeEmbedder:
 class _FakeReranker:
     def __init__(self, settings, rerank_window):
         self.rerank_window = rerank_window
+        self.enabled = True
+        self.disabled_reason = None
 
-    def rerank(self, query, candidates):
+    async def rerank(self, query, candidates):
         return candidates
 
 
@@ -114,7 +116,7 @@ class KnowledgeServiceTests(unittest.IsolatedAsyncioTestCase):
                 content="old content",
                 token_count=2,
                 tags_json="[]",
-                embedding_json="[0.9]",
+                embedding=[0.9],
             )
         )
         self.db.commit()
@@ -179,6 +181,215 @@ class KnowledgeServiceTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(deleted_ids, [documents[0].id, documents[1].id])
             self.assertEqual(len(deleted_paths), 2)
             self.assertEqual(self.db.scalar(select(func.count(KnowledgeDocument.id))), 0)
+
+    async def test_retrieve_context_applies_query_filters_for_in_memory_rag(self):
+        user = User(username="carol", password_hash="hash", is_active=True)
+        self.db.add(user)
+        self.db.commit()
+        self.db.refresh(user)
+
+        agent_doc = KnowledgeDocument(
+            user_id=user.id,
+            title="agent-plan.md",
+            mime_type="text/markdown",
+            extension=".md",
+            size_bytes=64,
+            relative_path=f"{user.id}/agent-plan.md",
+            sha1="agent-plan",
+            status="ready",
+        )
+        daily_doc = KnowledgeDocument(
+            user_id=user.id,
+            title="daily-log.md",
+            mime_type="text/markdown",
+            extension=".md",
+            size_bytes=64,
+            relative_path=f"{user.id}/daily-log.md",
+            sha1="daily-log",
+            status="ready",
+        )
+        self.db.add_all([agent_doc, daily_doc])
+        self.db.commit()
+        self.db.refresh(agent_doc)
+        self.db.refresh(daily_doc)
+
+        self.db.add_all(
+            [
+                KnowledgeChunk(
+                    document_id=agent_doc.id,
+                    user_id=user.id,
+                    chunk_key="agent-0",
+                    chunk_index=0,
+                    path="agent-plan.md",
+                    directory="work",
+                    heading="Plan",
+                    content="KPI 改造方案需要拆成里程碑并推进执行。",
+                    token_count=10,
+                    tags_json='["agent"]',
+                    embedding=[0.1, 0.2, 0.3],
+                ),
+                KnowledgeChunk(
+                    document_id=daily_doc.id,
+                    user_id=user.id,
+                    chunk_key="daily-0",
+                    chunk_index=0,
+                    path="daily-log.md",
+                    directory="personal",
+                    heading="Notes",
+                    content="KPI 改造方案需要拆成里程碑并推进执行。",
+                    token_count=10,
+                    tags_json='["daily"]',
+                    embedding=[0.1, 0.2, 0.3],
+                ),
+            ]
+        )
+        self.db.commit()
+
+        settings = make_settings(self.temp_dir.name)
+        with patch("app.knowledge.service.build_knowledge_embedder", return_value=_FakeEmbedder(settings, settings.knowledge_embedding_model)), patch(
+            "app.knowledge.service.ModelReranker", _FakeReranker
+        ):
+            service = KnowledgeService(settings)
+            payload = await service.retrieve_context(
+                db=self.db,
+                user_id=user.id,
+                query="tag:agent KPI 改造方案",
+            )
+
+        self.assertFalse(payload.should_refuse)
+        self.assertEqual([entry.source.path for entry in payload.entries], ["agent-plan.md"])
+        self.assertEqual([source.path for source in payload.sources], ["agent-plan.md"])
+
+    async def test_retrieve_context_loads_postgres_neighbor_chunks_from_database_pool(self):
+        user = User(username="dave", password_hash="hash", is_active=True)
+        self.db.add(user)
+        self.db.commit()
+        self.db.refresh(user)
+
+        document = KnowledgeDocument(
+            user_id=user.id,
+            title="notes.md",
+            mime_type="text/markdown",
+            extension=".md",
+            size_bytes=96,
+            relative_path=f"{user.id}/notes.md",
+            sha1="notes",
+            status="ready",
+        )
+        self.db.add(document)
+        self.db.commit()
+        self.db.refresh(document)
+
+        self.db.add_all(
+            [
+                KnowledgeChunk(
+                    document_id=document.id,
+                    user_id=user.id,
+                    chunk_key="notes-0",
+                    chunk_index=0,
+                    path="notes.md",
+                    directory="work",
+                    heading="Intro",
+                    content="前置背景",
+                    token_count=4,
+                    tags_json='["debate"]',
+                    embedding=[0.1, 0.2, 0.3],
+                ),
+                KnowledgeChunk(
+                    document_id=document.id,
+                    user_id=user.id,
+                    chunk_key="notes-1",
+                    chunk_index=1,
+                    path="notes.md",
+                    directory="work",
+                    heading="Core",
+                    content="关键论点",
+                    token_count=4,
+                    tags_json='["debate"]',
+                    embedding=[0.1, 0.2, 0.3],
+                ),
+                KnowledgeChunk(
+                    document_id=document.id,
+                    user_id=user.id,
+                    chunk_key="notes-2",
+                    chunk_index=2,
+                    path="notes.md",
+                    directory="work",
+                    heading="Summary",
+                    content="总结结论",
+                    token_count=4,
+                    tags_json='["debate"]',
+                    embedding=[0.1, 0.2, 0.3],
+                ),
+            ]
+        )
+        self.db.commit()
+
+        settings = make_settings(self.temp_dir.name)
+        with patch("app.knowledge.service.build_knowledge_embedder", return_value=_FakeEmbedder(settings, settings.knowledge_embedding_model)), patch(
+            "app.knowledge.service.ModelReranker", _FakeReranker
+        ):
+            service = KnowledgeService(settings)
+            context_pool = [
+                RagChunk(
+                    id="notes-0",
+                    path="notes.md",
+                    directory="work",
+                    heading="Intro",
+                    content="前置背景",
+                    order=0,
+                    embedding=[0.1, 0.2, 0.3],
+                    tags=["debate"],
+                ),
+                RagChunk(
+                    id="notes-1",
+                    path="notes.md",
+                    directory="work",
+                    heading="Core",
+                    content="关键论点",
+                    order=1,
+                    embedding=[0.1, 0.2, 0.3],
+                    tags=["debate"],
+                ),
+                RagChunk(
+                    id="notes-2",
+                    path="notes.md",
+                    directory="work",
+                    heading="Summary",
+                    content="总结结论",
+                    order=2,
+                    embedding=[0.1, 0.2, 0.3],
+                    tags=["debate"],
+                ),
+            ]
+            primary_candidate = RetrievalCandidate(
+                chunk=context_pool[1],
+                vector_score=0.9,
+                keyword_score=0.7,
+                hybrid_score=0.85,
+                final_score=0.85,
+            )
+
+            original_dialect_name = self.db.bind.dialect.name
+            self.db.bind.dialect.name = "postgresql"
+            try:
+                with patch.object(service, "_retrieve_postgres_candidates", return_value=[primary_candidate]), patch.object(
+                    service,
+                    "_load_postgres_context_chunk_pool",
+                    return_value=context_pool,
+                ) as load_context_pool:
+                    payload = await service.retrieve_context(
+                        db=self.db,
+                        user_id=user.id,
+                        query="关键论点",
+                    )
+            finally:
+                self.db.bind.dialect.name = original_dialect_name
+
+        self.assertFalse(payload.should_refuse)
+        self.assertEqual([entry.source.heading for entry in payload.entries], ["Intro", "Core", "Summary"])
+        self.assertEqual(payload.debug["knowledge_context_chunk_count"], 3)
+        load_context_pool.assert_called_once()
 
 
 if __name__ == "__main__":

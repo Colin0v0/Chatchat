@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.storage.access import list_conversation_messages_window, list_user_conversation_summaries
 from app.storage.database import Base
-from app.storage.models import Conversation, Message, MessageAttachment, User
+from app.storage.models import Conversation, Message, MessageAttachment, Run, User
 
 
 class ConversationSummaryAccessTests(unittest.TestCase):
@@ -139,6 +139,48 @@ class ConversationSummaryAccessTests(unittest.TestCase):
         self.assertEqual(second_page.loaded_message_count, 2)
         self.assertEqual(second_page.remaining_message_count, 1)
         self.assertEqual(second_page.total_message_count, 6)
+
+    def test_list_conversation_messages_window_hydrates_assistant_model_from_runs(self):
+        user = User(username="model_tester", password_hash="hash", is_active=True)
+        self.db.add(user)
+        self.db.commit()
+        self.db.refresh(user)
+
+        conversation = Conversation(user_id=user.id, title="Models", model="codex:gpt-5.4")
+        self.db.add(conversation)
+        self.db.commit()
+        self.db.refresh(conversation)
+
+        user_message = Message(conversation_id=conversation.id, role="user", content="hello")
+        assistant_message = Message(conversation_id=conversation.id, role="assistant", content="hi")
+        self.db.add_all([user_message, assistant_message])
+        self.db.commit()
+        self.db.refresh(user_message)
+        self.db.refresh(assistant_message)
+
+        self.db.add(
+            Run(
+                conversation_id=conversation.id,
+                user_id=user.id,
+                request_message_id=user_message.id,
+                response_message_id=assistant_message.id,
+                mode="chat",
+                model_id="gemini:gemini-3.1-pro-high",
+                provider_family="gemini",
+                reasoning_profile="medium",
+                status="completed",
+            )
+        )
+        self.db.commit()
+
+        window = list_conversation_messages_window(
+            self.db,
+            conversation_id=conversation.id,
+            limit=10,
+        )
+
+        self.assertEqual(window.messages[0].model, None)
+        self.assertEqual(window.messages[1].model, "gemini:gemini-3.1-pro-high")
 
 
 if __name__ == "__main__":

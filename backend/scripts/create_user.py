@@ -8,7 +8,10 @@ import sys
 from pathlib import Path
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
-DEFAULT_DATABASE_URL = "sqlite:///../storage/app.db"
+DEFAULT_DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql+psycopg://chatchat_dev:chatchat_dev@127.0.0.1:5433/chatchat_dev",
+)
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
@@ -80,10 +83,15 @@ def main() -> int:
         )
 
     from app.auth import create_user, get_user_by_username, set_user_password
+    from app.storage.bootstrap import bootstrap_empty_postgres_database_from_models, stamp_existing_head_like_schema
     from app.storage.database import Base, SessionLocal, engine
     from app.storage.models import Conversation, MemoryItem
 
-    Base.metadata.create_all(bind=engine)
+    if engine.dialect.name == "postgresql":
+        if not bootstrap_empty_postgres_database_from_models():
+            stamp_existing_head_like_schema()
+    else:
+        Base.metadata.create_all(bind=engine)
     db = SessionLocal()
     try:
         user = get_user_by_username(db, args.username)

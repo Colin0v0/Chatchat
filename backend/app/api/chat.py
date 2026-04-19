@@ -2,14 +2,15 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from ..application import chat_stream_response, regenerate_chat_response, stream_active_chat_response
 from ..auth import require_current_user
 from ..chat.state import ChatServices, get_chat_services
-from ..chat.workflow import chat_stream_response, regenerate_chat_response
-from ..schemas import MessageFeedbackUpdate, RegenerateRequest, RetrievalMode
+from ..runtime.chat_runs import get_chat_run_registry
+from ..schemas import MessageFeedbackUpdate, ReasoningProfileValue, RegenerateRequest, ToolMode
 from ..storage.database import get_db
 from ..storage.models import Conversation, Message, User
 
@@ -39,8 +40,8 @@ async def chat_stream(
     conversation_id: Optional[int] = Form(None),
     message: str = Form(""),
     model: Optional[str] = Form(None),
-    retrieval_mode: RetrievalMode = Form("none"),
-    thinking_enabled: Optional[bool] = Form(None),
+    tool_mode: ToolMode = Form("none"),
+    reasoning_profile: Optional[ReasoningProfileValue] = Form(None),
     files: Optional[list[UploadFile]] = File(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_current_user),
@@ -54,9 +55,45 @@ async def chat_stream(
         conversation_id=conversation_id,
         message=message,
         model=model,
-        retrieval_mode=retrieval_mode,
-        thinking_enabled=thinking_enabled,
+        tool_mode=tool_mode,
+        reasoning_profile=reasoning_profile,
         files=files,
+    )
+
+
+@router.get("/stream/active")
+async def stream_active_chat(
+    request: Request,
+    conversation_id: int = Query(..., ge=1),
+    run_id: Optional[str] = Query(default=None),
+    after_seq: Optional[int] = Query(default=None, ge=0),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
+    conversation = db.scalar(
+        select(Conversation).where(
+            Conversation.id == conversation_id,
+            Conversation.user_id == current_user.id,
+        )
+    )
+    if conversation is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    active_run = await get_chat_run_registry(request).describe(conversation_id)
+    if active_run is None:
+        raise HTTPException(status_code=404, detail="No active chat run")
+    current_run_id = active_run.get("run_id")
+    if run_id and isinstance(current_run_id, str) and current_run_id != run_id:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "ActiveRunMismatch",
+                "message": "Active chat run changed. Refresh the conversation and reconnect.",
+            },
+        )
+    return await stream_active_chat_response(
+        request=request,
+        conversation_id=conversation_id,
+        after_seq=after_seq,
     )
 
 

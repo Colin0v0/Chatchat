@@ -37,9 +37,48 @@
       "display_name": "DeepSeek Chat",
       "provider_ref": "openai_default",
       "upstream_model": "deepseek-chat",
-      "thinking_mode": "force_off",
-      "context_window": 200000,
-      "native_multimodal": "false",
+      "limits": {
+        "context_window": 200000
+      },
+      "runtime": {
+        "native_multimodal_mode": "false"
+      },
+      "capabilities": {
+        "input": {
+          "text": true,
+          "image": true,
+          "pdf": true,
+          "other_file": true,
+          "audio": true
+        },
+        "transport": {
+          "inline_data": false,
+          "file_upload": false,
+          "remote_url": true
+        },
+        "reasoning": {
+          "control": "none",
+          "default_profile": "off",
+          "visibility": "summary",
+          "continuation": "signature",
+          "visible_trace": true,
+          "summary_only": true
+        },
+        "tools": {
+          "function_calling": true,
+          "parallel_calls": true,
+          "forced_call": true
+        },
+        "stream": {
+          "text": true,
+          "reasoning": false,
+          "tool_call": true,
+          "usage": true
+        },
+        "state": {
+          "previous_response": true
+        }
+      },
       "enabled": true
     },
     {
@@ -47,9 +86,48 @@
       "display_name": "DeepSeek Reasoner",
       "provider_ref": "openai_default",
       "upstream_model": "deepseek-reasoner",
-      "thinking_mode": "force_on",
-      "context_window": 200000,
-      "native_multimodal": "false",
+      "limits": {
+        "context_window": 200000
+      },
+      "runtime": {
+        "native_multimodal_mode": "false"
+      },
+      "capabilities": {
+        "input": {
+          "text": true,
+          "image": true,
+          "pdf": true,
+          "other_file": true,
+          "audio": true
+        },
+        "transport": {
+          "inline_data": false,
+          "file_upload": false,
+          "remote_url": true
+        },
+        "reasoning": {
+          "control": "none",
+          "default_profile": "off",
+          "visibility": "full",
+          "continuation": "stateful",
+          "visible_trace": true,
+          "summary_only": false
+        },
+        "tools": {
+          "function_calling": true,
+          "parallel_calls": true,
+          "forced_call": true
+        },
+        "stream": {
+          "text": true,
+          "reasoning": true,
+          "tool_call": true,
+          "usage": true
+        },
+        "state": {
+          "previous_response": true
+        }
+      },
       "enabled": true
     },
     {
@@ -57,9 +135,49 @@
       "display_name": "Trio-嬛嬛",
       "provider_ref": "trio_default",
       "upstream_model": "${TRIO_MODEL_PATH}",
-      "thinking_mode": "force_off",
-      "context_window": 32000,
-      "native_multimodal": "false",
+      "limits": {
+        "context_window": 32000
+      },
+      "runtime": {
+        "native_multimodal_mode": "false"
+      },
+      "capabilities": {
+        "input": {
+          "text": true,
+          "image": true,
+          "pdf": true,
+          "other_file": true,
+          "audio": true
+        },
+        "transport": {
+          "inline_data": false,
+          "file_upload": false,
+          "remote_url": true
+        },
+        "reasoning": {
+          "control": "budget",
+          "default_profile": "medium",
+          "supported_profiles": ["auto", "off", "low", "medium", "high", "max"],
+          "visibility": "summary",
+          "continuation": "signature",
+          "visible_trace": true,
+          "summary_only": true
+        },
+        "tools": {
+          "function_calling": true,
+          "parallel_calls": false,
+          "forced_call": false
+        },
+        "stream": {
+          "text": true,
+          "reasoning": false,
+          "tool_call": false,
+          "usage": false
+        },
+        "state": {
+          "previous_response": false
+        }
+      },
       "enabled": false
     },
     {
@@ -67,9 +185,46 @@
       "display_name": "Claude Opus 4.6",
       "provider_ref": "claude_default",
       "upstream_model": "claude-opus-4-6",
-      "thinking_mode": "force_off",
-      "context_window": 200000,
-      "native_multimodal": "claude",
+      "limits": {
+        "context_window": 200000
+      },
+      "runtime": {
+        "native_multimodal_mode": "claude"
+      },
+      "capabilities": {
+        "input": {
+          "text": true,
+          "image": true,
+          "pdf": true,
+          "other_file": true,
+          "audio": true
+        },
+        "transport": {
+          "inline_data": true,
+          "file_upload": false,
+          "remote_url": false
+        },
+        "reasoning": {
+          "control": "none",
+          "default_profile": "off",
+          "visible_trace": false,
+          "summary_only": false
+        },
+        "tools": {
+          "function_calling": true,
+          "parallel_calls": false,
+          "forced_call": false
+        },
+        "stream": {
+          "text": true,
+          "reasoning": true,
+          "tool_call": true,
+          "usage": false
+        },
+        "state": {
+          "previous_response": false
+        }
+      },
       "enabled": true
     },
     {
@@ -77,9 +232,46 @@
       "display_name": "Claude Sonnet 4.6",
       "provider_ref": "openai_local_router",
       "upstream_model": "claude-sonnet-4-6",
-      "thinking_mode": "force_off",
-      "context_window": 200000,
-      "native_multimodal": "local",
+      "limits": {
+        "context_window": 200000
+      },
+      "runtime": {
+        "native_multimodal_mode": "local"
+      },
+      "capabilities": {
+        "input": {
+          "text": true,
+          "image": true,
+          "pdf": true,
+          "other_file": true,
+          "audio": true
+        },
+        "transport": {
+          "inline_data": false,
+          "file_upload": true,
+          "remote_url": true
+        },
+        "reasoning": {
+          "control": "none",
+          "default_profile": "off",
+          "visible_trace": false,
+          "summary_only": false
+        },
+        "tools": {
+          "function_calling": true,
+          "parallel_calls": true,
+          "forced_call": false
+        },
+        "stream": {
+          "text": true,
+          "reasoning": false,
+          "tool_call": true,
+          "usage": true
+        },
+        "state": {
+          "previous_response": true
+        }
+      },
       "enabled": false
     },
     {
@@ -87,20 +279,99 @@
       "display_name": "Claude Haiku 4.5",
       "provider_ref": "openai_local_router",
       "upstream_model": "claude-haiku-4-5",
-      "thinking_mode": "force_on",
-      "context_window": 200000,
-      "native_multimodal": "false",
+      "limits": {
+        "context_window": 200000
+      },
+      "runtime": {
+        "native_multimodal_mode": "false"
+      },
+      "capabilities": {
+        "input": {
+          "text": true,
+          "image": true,
+          "pdf": true,
+          "other_file": true,
+          "audio": true
+        },
+        "transport": {
+          "inline_data": false,
+          "file_upload": false,
+          "remote_url": true
+        },
+        "reasoning": {
+          "control": "toggle",
+          "default_profile": "medium",
+          "supported_profiles": ["auto", "off", "medium"],
+          "visibility": "full",
+          "continuation": "stateful",
+          "visible_trace": true,
+          "summary_only": false
+        },
+        "tools": {
+          "function_calling": true,
+          "parallel_calls": true,
+          "forced_call": false
+        },
+        "stream": {
+          "text": true,
+          "reasoning": true,
+          "tool_call": true,
+          "usage": true
+        },
+        "state": {
+          "previous_response": true
+        }
+      },
       "enabled": false
-
     },
     {
       "id": "openai_local:claude-opus-4-6",
       "display_name": "Claude Opus 4.6",
       "provider_ref": "openai_local_router",
       "upstream_model": "claude-opus-4-6",
-      "thinking_mode": "force_on",
-      "context_window": 200000,
-      "native_multimodal": "false",
+      "limits": {
+        "context_window": 200000
+      },
+      "runtime": {
+        "native_multimodal_mode": "false"
+      },
+      "capabilities": {
+        "input": {
+          "text": true,
+          "image": true,
+          "pdf": true,
+          "other_file": true,
+          "audio": true
+        },
+        "transport": {
+          "inline_data": false,
+          "file_upload": false,
+          "remote_url": true
+        },
+        "reasoning": {
+          "control": "toggle",
+          "default_profile": "medium",
+          "supported_profiles": ["auto", "off", "medium"],
+          "visibility": "full",
+          "continuation": "stateful",
+          "visible_trace": true,
+          "summary_only": false
+        },
+        "tools": {
+          "function_calling": true,
+          "parallel_calls": true,
+          "forced_call": false
+        },
+        "stream": {
+          "text": true,
+          "reasoning": true,
+          "tool_call": true,
+          "usage": true
+        },
+        "state": {
+          "previous_response": true
+        }
+      },
       "enabled": false
     },
     {
@@ -108,9 +379,49 @@
       "display_name": "GPT-5.2",
       "provider_ref": "codex_default",
       "upstream_model": "gpt-5.2",
-      "thinking_mode": "force_off",
-      "context_window": 200000,
-      "native_multimodal": "codex",
+      "limits": {
+        "context_window": 200000
+      },
+      "runtime": {
+        "native_multimodal_mode": "codex"
+      },
+      "capabilities": {
+        "input": {
+          "text": true,
+          "image": true,
+          "pdf": true,
+          "other_file": true,
+          "audio": true
+        },
+        "transport": {
+          "inline_data": true,
+          "file_upload": true,
+          "remote_url": true
+        },
+        "reasoning": {
+          "control": "effort",
+          "default_profile": "medium",
+          "supported_profiles": ["auto", "low", "medium", "high", "max"],
+          "visibility": "summary",
+          "continuation": "stateful",
+          "visible_trace": true,
+          "summary_only": true
+        },
+        "tools": {
+          "function_calling": true,
+          "parallel_calls": true,
+          "forced_call": true
+        },
+        "stream": {
+          "text": true,
+          "reasoning": true,
+          "tool_call": true,
+          "usage": true
+        },
+        "state": {
+          "previous_response": true
+        }
+      },
       "enabled": true
     },
     {
@@ -118,19 +429,149 @@
       "display_name": "GPT-5.4",
       "provider_ref": "codex_default",
       "upstream_model": "gpt-5.4",
-      "thinking_mode": "force_off",
-      "context_window": 200000,
-      "native_multimodal": "codex",
+      "limits": {
+        "context_window": 200000
+      },
+      "runtime": {
+        "native_multimodal_mode": "codex"
+      },
+      "capabilities": {
+        "input": {
+          "text": true,
+          "image": true,
+          "pdf": true,
+          "other_file": true,
+          "audio": true
+        },
+        "transport": {
+          "inline_data": true,
+          "file_upload": true,
+          "remote_url": true
+        },
+        "reasoning": {
+          "control": "effort",
+          "default_profile": "medium",
+          "supported_profiles": ["auto", "low", "medium", "high", "max"],
+          "visibility": "summary",
+          "continuation": "stateful",
+          "visible_trace": true,
+          "summary_only": true
+        },
+        "tools": {
+          "function_calling": true,
+          "parallel_calls": true,
+          "forced_call": true
+        },
+        "stream": {
+          "text": true,
+          "reasoning": true,
+          "tool_call": true,
+          "usage": true
+        },
+        "state": {
+          "previous_response": true
+        }
+      },
       "enabled": true
     },
     {
-      "id": "gemini:gemini-3.1-pro-high ",
+      "id": "gemini:gemini-3.1-pro-high",
       "display_name": "Gemini 3.1 Pro High",
       "provider_ref": "gemini_default",
-      "upstream_model": "gemini-3.1-pro-high ",
-      "thinking_mode": "force_off",
-      "context_window": 200000,
-      "native_multimodal": "gemini",
+      "upstream_model": "gemini-3.1-pro-high",
+      "limits": {
+        "context_window": 200000
+      },
+      "runtime": {
+        "native_multimodal_mode": "gemini"
+      },
+      "capabilities": {
+        "input": {
+          "text": true,
+          "image": true,
+          "pdf": true,
+          "other_file": true,
+          "audio": true
+        },
+        "transport": {
+          "inline_data": true,
+          "file_upload": false,
+          "remote_url": false
+        },
+        "reasoning": {
+          "control": "effort",
+          "default_profile": "auto",
+          "supported_profiles": ["auto", "low", "high"],
+          "visibility": "summary",
+          "continuation": "signature",
+          "visible_trace": true,
+          "summary_only": true
+        },
+        "tools": {
+          "function_calling": true,
+          "parallel_calls": false,
+          "forced_call": true
+        },
+        "stream": {
+          "text": true,
+          "reasoning": true,
+          "tool_call": true,
+          "usage": false
+        },
+        "state": {
+          "previous_response": false
+        }
+      },
+      "enabled": true
+    },
+    {
+      "id": "gemini:gemini-3-flash",
+      "display_name": "Gemini 3 Flash",
+      "provider_ref": "gemini_default",
+      "upstream_model": "gemini-3-flash",
+      "limits": {
+        "context_window": 200000
+      },
+      "runtime": {
+        "native_multimodal_mode": "gemini"
+      },
+      "capabilities": {
+        "input": {
+          "text": true,
+          "image": true,
+          "pdf": true,
+          "other_file": true,
+          "audio": true
+        },
+        "transport": {
+          "inline_data": true,
+          "file_upload": false,
+          "remote_url": false
+        },
+        "reasoning": {
+          "control": "effort",
+          "default_profile": "auto",
+          "supported_profiles": ["auto", "low", "high"],
+          "visibility": "summary",
+          "continuation": "signature",
+          "visible_trace": true,
+          "summary_only": true
+        },
+        "tools": {
+          "function_calling": true,
+          "parallel_calls": false,
+          "forced_call": true
+        },
+        "stream": {
+          "text": true,
+          "reasoning": true,
+          "tool_call": true,
+          "usage": false
+        },
+        "state": {
+          "previous_response": false
+        }
+      },
       "enabled": true
     }
   ]

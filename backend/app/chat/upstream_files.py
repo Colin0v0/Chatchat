@@ -1,37 +1,52 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 from sqlalchemy.orm import Session
 
-from ..llm.catalog import resolve_model_route
-from ..llm.openai_client import upload_openai_file
+from ..providers import resolve_model_profile
+from ..provider_transports.openai import upload_openai_file
 from ..storage.media import MEDIA_ROOT
-from ..storage.models import MessageAttachment
+from ..storage.models import MessageAttachment, ProviderFileRef
+
+
+def _base_url_hash(value: str) -> str:
+    return hashlib.sha256(value.strip().lower().rstrip("/").encode("utf-8")).hexdigest()
 
 
 async def ensure_upstream_file_id(*, db: Session, model: str, attachment: MessageAttachment) -> str:
-    cached = (attachment.upstream_file_id or "").strip()
-    if cached:
-        return cached
-
-    route = resolve_model_route(model)
-    if route is None or route["native_multimodal"] not in ("local", "codex"):
+    profile = resolve_model_profile(model)
+    if profile is None or profile.provider_family != "openai" or not profile.file_base_url:
         raise RuntimeError(f"Model is not configured for native multimodal uploads: {model}")
-    upload_base_url = route.get("upstream_service_base_url") if route["native_multimodal"] == "local" else route.get("base_url")
-    if not upload_base_url:
-        raise RuntimeError(f"Native multimodal upload endpoint is not configured for model: {model}")
+    cache_key = _base_url_hash(profile.file_base_url)
+    cached_ref = next(
+        (
+            ref
+            for ref in attachment.provider_file_refs
+            if ref.provider_family == profile.provider_family and ref.base_url_hash == cache_key
+        ),
+        None,
+    )
+    if cached_ref is not None and cached_ref.remote_file_id.strip():
+        return cached_ref.remote_file_id
 
     file_id = await upload_openai_file(
         filename=attachment.original_name,
         mime_type=attachment.mime_type,
         file_path=MEDIA_ROOT / Path(attachment.relative_path),
-        provider=route["provider"],
-        base_url_override=upload_base_url,
-        api_key_override=route.get("api_key"),
+        provider=profile.provider_name,  # type: ignore[arg-type]
+        base_url_override=profile.file_base_url,
+        api_key_override=profile.api_key,
     )
-    attachment.upstream_file_id = file_id
-    db.add(attachment)
+    provider_file_ref = ProviderFileRef(
+        attachment_id=attachment.id,
+        provider_family=profile.provider_family,
+        base_url_hash=cache_key,
+        remote_file_id=file_id,
+        remote_purpose="user_data",
+    )
+    db.add(provider_file_ref)
     db.commit()
-    db.refresh(attachment)
+    db.refresh(provider_file_ref)
     return file_id

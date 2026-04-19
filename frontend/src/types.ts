@@ -1,5 +1,11 @@
 export type Role = "user" | "assistant" | "system";
 export type FeedbackValue = "up" | "down";
+export type ToolMode = "none" | "knowledge" | "search";
+export type ReasoningProfileValue = "off" | "auto" | "low" | "medium" | "high" | "max" | "provider_default";
+export type ReasoningControl = "none" | "toggle" | "effort" | "budget" | "prompt_tag";
+export type ReasoningVisibility = "none" | "summary" | "full";
+export type ReasoningContinuation = "none" | "stateful" | "signature";
+export type NativeMultimodalMode = "false" | "local" | "codex" | "gemini" | "claude";
 
 export interface MessageAttachment {
   id: number | string;
@@ -36,7 +42,8 @@ export interface MessageContextSection {
 export interface MessageContext {
   query: string;
   strategy: string;
-  retrieval_mode: RetrievalMode;
+  tool_mode: ToolMode;
+  tool_plan: string[];
   older_message_count: number;
   recent_message_count: number;
   memory_count: number;
@@ -52,6 +59,13 @@ export interface ConversationSummary {
   last_message_preview: string;
 }
 
+export interface ChatActiveRun {
+  action: "run";
+  started_at: string | null;
+  run_id?: string | null;
+  last_seq?: number | null;
+}
+
 export interface AuthUser {
   id: number;
   username: string;
@@ -63,9 +77,11 @@ export interface AuthSession {
 
 export interface ChatMessage {
   id: number | string;
+  clientKey?: string;
   role: Role;
   content: string;
   reasoning?: string;
+  model?: string | null;
   attachments?: MessageAttachment[];
   sources?: MessageSource[];
   context?: MessageContext | null;
@@ -82,6 +98,7 @@ export interface ConversationDetail {
   total_message_count: number;
   loaded_message_count: number;
   remaining_message_count: number;
+  active_run?: ChatActiveRun | null;
 }
 
 export interface ConversationMessagePage {
@@ -131,6 +148,13 @@ export interface DebateSessionSummary {
   last_turn_preview: string;
 }
 
+export interface DebateActiveRun {
+  action: "next" | "ask" | "decision";
+  started_at: string | null;
+  run_id?: string | null;
+  last_seq?: number | null;
+}
+
 export interface DebateSessionDetail {
   id: number;
   topic: string;
@@ -142,10 +166,12 @@ export interface DebateSessionDetail {
   participants: DebateParticipant[];
   turns: DebateTurn[];
   judge_decision: DebateJudgeDecision | null;
+  ai_suggestion?: DebateAiSuggestion | null;
   summary: string;
   free_debate_enabled: boolean;
   free_debate_state: DebateFreeDebateState | null;
   stage_time_limits_ms: Record<string, number>;
+  active_run: DebateActiveRun | null;
 }
 
 export interface DebateTurn {
@@ -191,6 +217,47 @@ export interface ModelOption {
   supports_thinking: boolean;
   supports_thinking_trace: boolean;
   supports_attachment_upload: boolean;
+  provider_name?: string;
+  provider_family?: string;
+  native_multimodal_mode?: NativeMultimodalMode;
+  reasoning_control?: ReasoningControl;
+  default_reasoning_profile?: ReasoningProfileValue;
+  capabilities?: {
+    input: {
+      text: boolean;
+      image: boolean;
+      pdf: boolean;
+      other_file: boolean;
+      audio: boolean;
+    };
+    transport: {
+      inline_data: boolean;
+      file_upload: boolean;
+      remote_url: boolean;
+    };
+    reasoning: {
+      control: ReasoningControl;
+      supported_profiles: ReasoningProfileValue[];
+      visibility: ReasoningVisibility;
+      continuation: ReasoningContinuation;
+      visible_trace: boolean;
+      summary_only: boolean;
+    };
+    tools: {
+      function_calling: boolean;
+      parallel_calls: boolean;
+      forced_call: boolean;
+    };
+    stream: {
+      text: boolean;
+      reasoning: boolean;
+      tool_call: boolean;
+      usage: boolean;
+    };
+    state: {
+      previous_response: boolean;
+    };
+  };
   chat_model: string | null;
   reasoning_model: string | null;
 }
@@ -200,15 +267,13 @@ export interface ModelsPayload {
   default_model: string;
 }
 
-export type RetrievalMode = "none" | "rag" | "web";
-
 export interface ChatStreamRequest {
   conversation_id?: number | null;
   message: string;
   files?: File[];
   model?: string | null;
-  retrieval_mode: RetrievalMode;
-  thinking_enabled?: boolean | null;
+  tool_mode: ToolMode;
+  reasoning_profile?: ReasoningProfileValue | null;
 }
 
 export interface DebateSessionCreateRequest {
@@ -219,7 +284,7 @@ export interface DebateSessionCreateRequest {
   style?: string;
   pro_style?: string;
   con_style?: string;
-  retrieval_mode?: RetrievalMode;
+  tool_mode?: ToolMode;
   free_debate_enabled?: boolean;
   opening_duration_sec?: number;
   rebuttal_duration_sec?: number;
@@ -241,9 +306,10 @@ export interface DebateDecisionRequest {
 export interface RegenerateChatRequest {
   conversation_id: number;
   assistant_message_id: number;
+  edited_content?: string | null;
   model?: string | null;
-  retrieval_mode: RetrievalMode;
-  thinking_enabled?: boolean | null;
+  tool_mode: ToolMode;
+  reasoning_profile?: ReasoningProfileValue | null;
 }
 
 export type KnowledgeDocumentStatus = "pending" | "indexing" | "ready" | "failed";
@@ -369,7 +435,12 @@ export interface AudioTranscriptionResult {
   duration_ms: number;
 }
 
-export type ChatStreamEvent =
+type StreamResumeMetadata = {
+  run_id?: string;
+  seq?: number;
+};
+
+type ChatStreamEventPayload =
   | {
       type: "meta";
       conversation_id: number;
@@ -407,7 +478,9 @@ export type ChatStreamEvent =
       message: string;
     };
 
-export type DebateStreamEvent =
+export type ChatStreamEvent = ChatStreamEventPayload & StreamResumeMetadata;
+
+type DebateStreamEventPayload =
   | {
       type: "stage_changed";
       stage: DebateStage;
@@ -466,3 +539,5 @@ export type DebateStreamEvent =
       type: "error";
       message: string;
     };
+
+export type DebateStreamEvent = DebateStreamEventPayload & StreamResumeMetadata;

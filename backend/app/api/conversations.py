@@ -2,16 +2,17 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import delete
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session
 
 from ..auth import require_current_user
 from ..chat.context import conversation_media_paths, conversation_options, message_preview
 from ..core.config import settings
-from ..llm.catalog import resolve_model_route
-from ..llm import normalize_model
+from ..providers import normalize_model, resolve_model_profile
+from ..runtime.chat_runs import get_chat_run_registry
 from ..schemas import (
+    ChatActiveRunOut,
     ConversationCreate,
     ConversationDetail,
     ConversationMessagePage,
@@ -25,9 +26,22 @@ from ..storage.access import (
 )
 from ..storage.database import get_db
 from ..storage.media import remove_media_files
-from ..storage.models import Conversation, MemoryItem, User
+from ..storage.models import Conversation, MemoryItem, Run, RunEvent, User
 
 router = APIRouter(prefix="/api/conversations", tags=["conversations"])
+
+
+async def _conversation_active_run(request: Request, conversation_id: int) -> ChatActiveRunOut | None:
+    payload = await get_chat_run_registry(request).describe(conversation_id)
+    if payload is None:
+        return None
+    started_at = payload.get("started_at")
+    run_id = payload.get("run_id")
+    return ChatActiveRunOut(
+        action=str(payload.get("action", "")).strip(),
+        run_id=run_id.strip() if isinstance(run_id, str) and run_id.strip() else "",
+        started_at=started_at.strip() if isinstance(started_at, str) and started_at.strip() else None,
+    )
 
 
 @router.get("", response_model=list[ConversationSummary])
@@ -54,7 +68,7 @@ def create_conversation(
     current_user: User = Depends(require_current_user),
 ):
     target_model = payload.model or normalize_model(settings.default_model)
-    if settings.model_catalog_strict and resolve_model_route(target_model) is None:
+    if settings.model_catalog_strict and resolve_model_profile(target_model) is None:
         raise HTTPException(status_code=400, detail=f"Model not enabled: {target_model}")
 
     conversation = Conversation(
@@ -75,8 +89,9 @@ def create_conversation(
 
 
 @router.get("/{conversation_id}", response_model=ConversationDetail)
-def get_conversation(
+async def get_conversation(
     conversation_id: int,
+    request: Request,
     message_limit: int = Query(default=settings.conversation_view_message_limit, ge=1, le=200),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_current_user),
@@ -101,6 +116,7 @@ def get_conversation(
         total_message_count=window.total_message_count,
         loaded_message_count=window.loaded_message_count,
         remaining_message_count=window.remaining_message_count,
+        active_run=await _conversation_active_run(request, conversation.id),
     )
 
 
@@ -180,6 +196,19 @@ def delete_conversation(
         raise HTTPException(status_code=404, detail="Conversation not found")
 
     remove_media_files(conversation_media_paths(conversation))
+    message_ids = [message.id for message in conversation.messages if getattr(message, "id", None) is not None]
+    run_filters = [Run.conversation_id == conversation_id]
+    if message_ids:
+        run_filters.extend(
+            [
+                Run.request_message_id.in_(message_ids),
+                Run.response_message_id.in_(message_ids),
+            ]
+        )
+    run_ids = list(db.scalars(select(Run.id).where(or_(*run_filters))))
+    if run_ids:
+        db.execute(delete(RunEvent).where(RunEvent.run_id.in_(run_ids)))
+        db.execute(delete(Run).where(Run.id.in_(run_ids)))
     db.execute(
         delete(MemoryItem).where(
             MemoryItem.conversation_id == conversation_id,

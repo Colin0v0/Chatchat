@@ -4,7 +4,6 @@ import re
 from dataclasses import replace
 
 from ..chat.types import ChatMessagePayload
-from .catalog import resolve_effective_thinking, resolve_model_route
 
 
 THINK_BLOCK_PATTERN = re.compile(r"<think>(.*?)</think>", flags=re.IGNORECASE | re.DOTALL)
@@ -15,6 +14,12 @@ Thinking is enabled for this conversation.
 First write your internal reasoning inside a single <think>...</think> block.
 Then write the final answer outside the think block.
 Do not mention these formatting instructions in the final answer."""
+VISIBLE_REASONING_SUMMARY_POLICY_MARKER = "Visible reasoning summary policy:"
+VISIBLE_REASONING_SUMMARY_CHINESE_SYSTEM_PROMPT = """Visible reasoning summary policy:
+- If you provide any client-visible reasoning or thinking summary, write that summary in Simplified Chinese.
+- Do not write the visible reasoning summary in English, except for code, formulas, API names, file paths, or short quoted source text that must stay unchanged.
+- Keep the final answer language aligned with the user's request. This rule only constrains the visible reasoning summary.
+- Do not mention this policy in the final answer."""
 
 
 def split_complete_think_blocks(text: str) -> tuple[str, str]:
@@ -27,36 +32,64 @@ def inject_thinking_system_prompt(
     *,
     model: str,
     messages: list[ChatMessagePayload],
-    thinking_enabled: bool | None,
+    reasoning_profile: str,
+    reasoning_visibility: str | None = None,
 ) -> list[ChatMessagePayload]:
-    route = resolve_model_route(model)
-    effective_thinking = resolve_effective_thinking(
-        model,
-        thinking_enabled,
-        thinking_mode=route["thinking_mode"] if route else None,
+    injected_messages = messages
+
+    if _should_force_chinese_reasoning_summary(
+        reasoning_profile=reasoning_profile,
+        reasoning_visibility=reasoning_visibility,
+    ):
+        injected_messages = _inject_system_prompt(
+            messages=injected_messages,
+            prompt=VISIBLE_REASONING_SUMMARY_CHINESE_SYSTEM_PROMPT,
+            marker=VISIBLE_REASONING_SUMMARY_POLICY_MARKER,
+        )
+
+    if reasoning_profile == "off" or not _uses_gemma_thinking_prompt(model):
+        return injected_messages
+
+    return _inject_system_prompt(
+        messages=injected_messages,
+        prompt=GEMMA_THINKING_SYSTEM_PROMPT,
+        marker=GEMMA_THINK_PREFIX,
     )
-    if effective_thinking is not True or not _uses_gemma_thinking_prompt(model):
-        return messages
-
-    if messages and messages[0].role == "system":
-        existing_content = messages[0].content.lstrip()
-        if existing_content.startswith(GEMMA_THINK_PREFIX):
-            return messages
-        return [
-            replace(
-                messages[0],
-                content=f"{GEMMA_THINKING_SYSTEM_PROMPT}\n\n{messages[0].content}",
-            ),
-            *messages[1:],
-        ]
-
-    return [ChatMessagePayload(role="system", content=GEMMA_THINKING_SYSTEM_PROMPT), *messages]
 
 
 def _uses_gemma_thinking_prompt(model: str) -> bool:
     normalized = model.strip().lower()
     model_name = normalized.split(":", 1)[-1]
     return any(model_name.startswith(prefix) for prefix in GEMMA_MAPPED_THINKING_MODELS)
+
+
+def _should_force_chinese_reasoning_summary(
+    *,
+    reasoning_profile: str,
+    reasoning_visibility: str | None,
+) -> bool:
+    return reasoning_profile != "off" and reasoning_visibility == "summary"
+
+
+def _inject_system_prompt(
+    *,
+    messages: list[ChatMessagePayload],
+    prompt: str,
+    marker: str,
+) -> list[ChatMessagePayload]:
+    if messages and messages[0].role == "system":
+        existing_content = messages[0].content.lstrip()
+        if existing_content.startswith(marker) or marker in existing_content:
+            return messages
+        return [
+            replace(
+                messages[0],
+                content=f"{prompt}\n\n{messages[0].content}",
+            ),
+            *messages[1:],
+        ]
+
+    return [ChatMessagePayload(role="system", content=prompt), *messages]
 
 
 class ThinkTagStreamNormalizer:

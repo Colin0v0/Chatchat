@@ -5,7 +5,7 @@ import logging
 import re
 
 from ..chat.types import ChatMessagePayload
-from ..llm import complete_chat
+from ..runtime.model_runner import complete_model_response
 from .types import MEMORY_KINDS, MEMORY_SCOPES, MemoryCandidate
 
 logger = logging.getLogger("chatchat.memory")
@@ -36,10 +36,10 @@ class MemoryExtractor:
             assistant_message=assistant_message,
             existing_memories=existing_memories,
         )
-        raw = await complete_chat(
+        raw = await complete_model_response(
             model=model,
             messages=prompt,
-            thinking_enabled=False,
+            requested_reasoning=False,
         )
         payload = self._parse_payload(raw)
         if payload is None:

@@ -100,6 +100,46 @@ class MemoryStoreTests(unittest.TestCase):
         self.assertEqual(merged[0].scope, "conversation")
         self.assertEqual(merged[0].conversation_id, 7)
 
+    def test_recall_uses_database_ranked_search_when_not_using_sqlite_fts(self):
+        item = self.store.create_manual_memory(
+            user_id=self.user.id,
+            scope="conversation",
+            kind="project",
+            title="KPI 重构方案",
+            detail="当前正在推进 PostgreSQL memory 检索改造",
+            tags=["kpi", "postgres"],
+            confidence=0.9,
+            pinned=False,
+            active=True,
+            conversation_id=42,
+        )
+        self.store.create_manual_memory(
+            user_id=self.user.id,
+            scope="conversation",
+            kind="fact",
+            title="天气",
+            detail="今天下雨",
+            tags=["daily"],
+            confidence=0.6,
+            pinned=False,
+            active=True,
+            conversation_id=42,
+        )
+        self.db.commit()
+
+        self.store._uses_sqlite_memory_search = lambda: False  # type: ignore[method-assign]
+
+        matches = self.store.recall(
+            query="PostgreSQL KPI 改造",
+            user_id=self.user.id,
+            conversation_id=42,
+            limit=4,
+        )
+
+        self.assertGreaterEqual(len(matches), 1)
+        self.assertEqual(matches[0].memory_id, item.id)
+        self.assertGreater(matches[0].score, 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()

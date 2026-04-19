@@ -42,7 +42,7 @@ class ThinkingNormalizerTests(unittest.TestCase):
         injected = inject_thinking_system_prompt(
             model="openai_local:claude-sonnet-4-6",
             messages=messages,
-            thinking_enabled=True,
+            reasoning_profile="medium",
         )
 
         self.assertEqual(injected[0].role, "system")
@@ -58,7 +58,7 @@ class ThinkingNormalizerTests(unittest.TestCase):
         injected = inject_thinking_system_prompt(
             model="openai_local:claude-sonnet-4-6",
             messages=messages,
-            thinking_enabled=True,
+            reasoning_profile="medium",
         )
 
         self.assertEqual(len(injected), 2)
@@ -72,7 +72,7 @@ class ThinkingNormalizerTests(unittest.TestCase):
         injected = inject_thinking_system_prompt(
             model="openai_local:claude-sonnet-4-6",
             messages=messages,
-            thinking_enabled=None,
+            reasoning_profile="auto",
         )
 
         self.assertEqual(injected[0].role, "system")
@@ -85,16 +85,42 @@ class ThinkingNormalizerTests(unittest.TestCase):
         disabled = inject_thinking_system_prompt(
             model="openai_local:claude-sonnet-4-6",
             messages=messages,
-            thinking_enabled=False,
+            reasoning_profile="off",
         )
         other_model = inject_thinking_system_prompt(
             model="openai_local:claude-haiku-4-5",
             messages=messages,
-            thinking_enabled=True,
+            reasoning_profile="medium",
         )
 
         self.assertEqual(disabled, messages)
         self.assertEqual(other_model, messages)
+
+    def test_inject_thinking_system_prompt_forces_chinese_summary_for_summary_models(self):
+        messages = [ChatMessagePayload(role="user", content="hello")]
+
+        injected = inject_thinking_system_prompt(
+            model="codex:gpt-5.4",
+            messages=messages,
+            reasoning_profile="medium",
+            reasoning_visibility="summary",
+        )
+
+        self.assertEqual(injected[0].role, "system")
+        self.assertIn("Simplified Chinese", injected[0].content)
+        self.assertEqual(injected[1:], messages)
+
+    def test_inject_thinking_system_prompt_does_not_force_chinese_for_full_visibility(self):
+        messages = [ChatMessagePayload(role="user", content="hello")]
+
+        injected = inject_thinking_system_prompt(
+            model="openai:deepseek-reasoner",
+            messages=messages,
+            reasoning_profile="medium",
+            reasoning_visibility="full",
+        )
+
+        self.assertEqual(injected, messages)
 
 
 if __name__ == "__main__":

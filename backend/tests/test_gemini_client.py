@@ -3,10 +3,12 @@ from collections.abc import AsyncIterator
 from unittest.mock import patch
 
 from app.chat.types import ChatDocumentPayload, ChatImagePayload, ChatMessagePayload
-from app.llm.gemini_client import (
+from app.provider_codecs.gemini import (
     _decode_gemini_stream_payload,
     _extract_gemini_output,
     gemini_request_payload,
+)
+from app.provider_transports.gemini import (
     stream_gemini_chat,
 )
 
@@ -182,7 +184,7 @@ class GeminiStreamingTests(unittest.IsolatedAsyncioTestCase):
             ]
         )
 
-        with patch("app.llm.gemini_client._gemini_client", return_value=fake_client):
+        with patch("app.provider_transports.gemini._gemini_client", return_value=fake_client):
             result = await _drain(
                 stream_gemini_chat(
                     model="gemini-3-flash",
@@ -238,7 +240,7 @@ class GeminiStreamingTests(unittest.IsolatedAsyncioTestCase):
             ]
         )
 
-        with patch("app.llm.gemini_client._gemini_client", return_value=fake_client):
+        with patch("app.provider_transports.gemini._gemini_client", return_value=fake_client):
             result = await _drain(
                 stream_gemini_chat(
                     model="gemini-3-flash",
