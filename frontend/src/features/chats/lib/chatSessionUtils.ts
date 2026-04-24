@@ -194,7 +194,10 @@ export function mergeConversationWithCache(
 
   const serverRunKey = conversationActiveRunKey(serverConversation);
   const cachedRunKey = conversationActiveRunKey(cachedConversation);
-  if (serverRunKey && cachedRunKey && serverRunKey !== cachedRunKey) {
+  const hasRunStateMismatch =
+    (serverRunKey !== null || cachedRunKey !== null) && serverRunKey !== cachedRunKey;
+  const canReuseCachedDraft = serverRunKey !== null && cachedRunKey !== null && serverRunKey === cachedRunKey;
+  if (hasRunStateMismatch) {
     return serverConversation;
   }
 
@@ -213,7 +216,7 @@ export function mergeConversationWithCache(
   const cachedAssistantDraft = cachedConversation.messages.find(
     (message) => message.id === ASSISTANT_DRAFT_ID,
   );
-  if (!hasAssistantDraft && cachedAssistantDraft) {
+  if (canReuseCachedDraft && !hasAssistantDraft && cachedAssistantDraft) {
     mergedMessages.push(cachedAssistantDraft);
   }
 
@@ -232,7 +235,7 @@ export function mergeConversationWithCache(
       ? {
           ...serverConversation.active_run,
           last_seq:
-            serverRunKey && cachedRunKey && serverRunKey === cachedRunKey
+            canReuseCachedDraft
               ? Math.max(
                   serverConversation.active_run.last_seq ?? 0,
                   cachedConversation.active_run?.last_seq ?? 0,

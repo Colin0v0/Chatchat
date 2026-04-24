@@ -7,6 +7,7 @@ import { Sidebar } from "./features/workspace/ui/Sidebar";
 import { WorkspaceMainView } from "./features/workspace/ui/WorkspaceMainView";
 import { useAuthSession } from "./features/auth/model/useAuthSession";
 import { LoginView } from "./features/auth/ui/LoginView";
+import { SettingsDialog } from "./features/settings/ui/SettingsDialog";
 import { setUnauthorizedHandler } from "./shared/api/http";
 import { LoaderCircle } from "lucide-react";
 
@@ -59,6 +60,7 @@ function WorkspaceApp({
   onLogout: () => void;
   username: string;
 }) {
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const sidebar = useResponsiveSidebar();
   const app = useChatApp({
     closeMobileSidebar: sidebar.closeMobileSidebar,
@@ -69,7 +71,15 @@ function WorkspaceApp({
 
   return (
     <div className="flex h-[100dvh] min-h-0 overflow-hidden bg-app-bg text-app-text">
-      <Sidebar {...app.sidebarProps} onLogout={onLogout} viewerName={username} />
+      <Sidebar
+        {...app.sidebarProps}
+        onLogout={onLogout}
+        onOpenSettings={() => {
+          sidebar.closeMobileSidebar();
+          setSettingsOpen(true);
+        }}
+        viewerName={username}
+      />
 
       <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-app-panel">
         <MainHeader {...app.headerProps} />
@@ -91,6 +101,12 @@ function WorkspaceApp({
         <ErrorToast message={app.error} />
         {app.activeSection !== "debates" || !app.debateRoomProps ? <Disclaimer /> : null}
       </main>
+
+      <SettingsDialog
+        onClose={() => setSettingsOpen(false)}
+        open={settingsOpen}
+        username={username}
+      />
     </div>
   );
 }

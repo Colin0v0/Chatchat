@@ -1,5 +1,6 @@
 import type {
   DebateActiveRun,
+  DebateAiSuggestion,
   DebateAskRequest,
   DebateDecisionRequest,
   DebateFreeDebateState,

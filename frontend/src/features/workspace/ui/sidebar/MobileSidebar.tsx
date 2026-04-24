@@ -60,7 +60,10 @@ export function MobileSidebar({ open, isDesktop, onToggleSidebar, ...contentProp
           <div className="min-h-0 flex-1">
             <SidebarContent {...contentProps} mode="mobile" />
           </div>
-          <MobileSidebarFooter onLogout={contentProps.onLogout} />
+          <MobileSidebarFooter
+            onLogout={contentProps.onLogout}
+            onOpenSettings={contentProps.onOpenSettings}
+          />
         </div>
       </div>
     </>
