@@ -1,4 +1,4 @@
-import { ChevronDown, LogOut, MessageSquarePlus, PanelLeftOpen, Scale, type LucideIcon } from "lucide-react";
+import { ChevronDown, LogOut, MessageSquarePlus, PanelLeftOpen, Scale, Settings2, type LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { AppLogo } from "../../../../shared/ui/AppLogo";
@@ -354,21 +354,28 @@ function SidebarFooterAction({
 export function DesktopSidebarFooter({
   open,
   onLogout,
+  onOpenSettings,
   onToggle,
 }: {
   open: boolean;
   onLogout?: () => void;
+  onOpenSettings?: () => void;
   onToggle: () => void;
 }) {
   return (
     <div className="shrink-0 border-t border-app-border/70 px-[10px] pb-4 pt-3">
-      <div className="relative h-9">
+      <div
+        className={cn(
+          "flex",
+          open ? "h-9 items-center justify-between gap-2" : "flex-col items-center gap-1",
+        )}
+      >
         <button
           aria-label={open ? "Collapse sidebar" : "Expand sidebar"}
           className={cn(
             sidebarIconButtonClass,
             "text-app-text hover:text-app-text",
-            "absolute top-0 left-0 h-9 w-9",
+            "h-9 w-9 shrink-0",
             SIDEBAR_MOTION,
           )}
           onClick={onToggle}
@@ -377,36 +384,66 @@ export function DesktopSidebarFooter({
           <PanelLeftOpen className="size-4" />
         </button>
 
-        {onLogout ? (
-          <SidebarFooterAction
-            icon={<LogOut className="size-4" />}
-            label="退出登录"
-            onClick={onLogout}
-            className={cn(
-              "absolute top-0 right-0",
-              SIDEBAR_MOTION,
-              open ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0",
-            )}
-          />
-        ) : null}
+        <div
+          className={cn(
+            "flex items-center gap-1",
+            open ? "flex-row" : "flex-col",
+          )}
+        >
+          {open && onOpenSettings ? (
+            <SidebarFooterAction
+              icon={<Settings2 className="size-4" />}
+              label="设置"
+              onClick={onOpenSettings}
+              className="text-app-text hover:text-app-text"
+            />
+          ) : null}
+
+          {onLogout ? (
+            <SidebarFooterAction
+              icon={<LogOut className="size-4" />}
+              label="退出登录"
+              onClick={onLogout}
+              className={cn(
+                SIDEBAR_MOTION,
+                open ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0",
+              )}
+            />
+          ) : null}
+        </div>
       </div>
     </div>
   );
 }
 
-export function MobileSidebarFooter({ onLogout }: { onLogout?: () => void }) {
-  if (!onLogout) {
+export function MobileSidebarFooter({
+  onLogout,
+  onOpenSettings,
+}: {
+  onLogout?: () => void;
+  onOpenSettings?: () => void;
+}) {
+  if (!onLogout && !onOpenSettings) {
     return null;
   }
 
   return (
     <div className="shrink-0 border-t border-app-border/70 px-4 pt-3 pb-4">
-      <div className="flex min-h-9 items-center justify-end">
-        <SidebarFooterAction
-          icon={<LogOut className="size-4" />}
-          label="退出登录"
-          onClick={onLogout}
-        />
+      <div className="flex min-h-9 items-center justify-end gap-1">
+        {onOpenSettings ? (
+          <SidebarFooterAction
+            icon={<Settings2 className="size-4" />}
+            label="设置"
+            onClick={onOpenSettings}
+          />
+        ) : null}
+        {onLogout ? (
+          <SidebarFooterAction
+            icon={<LogOut className="size-4" />}
+            label="退出登录"
+            onClick={onLogout}
+          />
+        ) : null}
       </div>
     </div>
   );

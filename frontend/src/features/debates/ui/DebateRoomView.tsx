@@ -708,7 +708,6 @@ export function DebateRoomView({
       if (
         options?.replayRunKey
         && pendingReplayResetRunKeyRef.current === options.replayRunKey
-        && event.type !== "status"
         && event.type !== "free_debate_clock"
       ) {
         pendingReplayResetRunKeyRef.current = null;

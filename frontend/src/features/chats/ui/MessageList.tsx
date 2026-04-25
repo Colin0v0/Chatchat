@@ -1,8 +1,10 @@
-import { Check, Copy, Pencil, RotateCcw, ThumbsDown, ThumbsUp } from "lucide-react";
+import { Check, Copy, Pencil, RotateCcw, Square, ThumbsDown, ThumbsUp, Volume2 } from "lucide-react";
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 
 import { thinkingPanelLabels } from "../../models/lib/modelCapabilities";
 import { findModelOption } from "../../models/lib/modelOptions";
+import { useMessageSpeechPlayback } from "../model/useMessageSpeechPlayback";
+import { useSpeechPreferences } from "../../settings/model/useSpeechPreferences";
 import { ASSISTANT_DRAFT_ID } from "../lib/constants";
 import type { ChatMessage, FeedbackValue, ModelOption } from "../../../types";
 import { ContextPanel } from "./context/ContextPanel";
@@ -99,20 +101,49 @@ function renderMessageContent(content: string) {
   ));
 }
 
+function hasLaterRenderableAssistantInSameTurn(items: ChatMessage[], startIndex: number) {
+  for (let index = startIndex + 1; index < items.length; index += 1) {
+    const candidate = items[index];
+    if (candidate.role === "user") {
+      return false;
+    }
+
+    if (candidate.role === "assistant" && candidate.content.trim()) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function ActionIconButton({
+  active = false,
   ariaLabel,
   children,
+  disabled = false,
   onClick,
+  title,
 }: {
+  active?: boolean;
   ariaLabel: string;
   children: ReactNode;
+  disabled?: boolean;
   onClick?: () => void;
+  title?: string;
 }) {
   return (
     <button
       aria-label={ariaLabel}
-      className="flex h-8 w-8 items-center justify-center rounded-lg text-app-muted transition hover:text-app-text"
+      className={`flex h-8 w-8 items-center justify-center rounded-lg transition ${
+        disabled
+          ? "cursor-not-allowed text-app-muted/35"
+          : active
+            ? "text-app-accent-strong hover:text-app-accent-strong"
+            : "text-app-muted hover:text-app-text"
+      }`}
+      disabled={disabled}
       onClick={onClick}
+      title={title}
       type="button"
     >
       {children}
@@ -125,14 +156,20 @@ function AssistantActions({
   feedback,
   messageId,
   hidden = false,
+  isPlaybackSupported,
+  isPlaying = false,
   onFeedback,
+  onTogglePlayback,
   onRetry,
 }: {
   content: string;
   feedback?: FeedbackValue | null;
   messageId: number | string;
   hidden?: boolean;
+  isPlaybackSupported: boolean;
+  isPlaying?: boolean;
   onFeedback?: (messageId: number, value: FeedbackValue | null) => void;
+  onTogglePlayback?: (messageId: number | string, content: string) => void;
   onRetry?: (messageId: number | string) => void;
 }) {
   const [copied, setCopied] = useState(false);
@@ -177,6 +214,15 @@ function AssistantActions({
         onClick={() => onRetry?.(messageId)}
       >
         <RotateCcw className="size-4" />
+      </ActionIconButton>
+      <ActionIconButton
+        active={isPlaying}
+        ariaLabel={isPlaying ? "Stop playback" : "Play response"}
+        disabled={!isPlaybackSupported}
+        onClick={() => onTogglePlayback?.(messageId, content)}
+        title={isPlaybackSupported ? undefined : "Speech playback is not supported in this browser."}
+      >
+        {isPlaying ? <Square className="size-3.5 fill-current" /> : <Volume2 className="size-4" />}
       </ActionIconButton>
     </div>
   );
@@ -334,13 +380,56 @@ export function MessageList({
   collapsedMessageIds,
   streamingStatusLabel = null,
 }: MessageListProps) {
+  const { preferences } = useSpeechPreferences();
+  const {
+    isSupported: isSpeechPlaybackSupported,
+    playingMessageId,
+    stopPlayback,
+    togglePlayback,
+  } = useMessageSpeechPlayback(preferences);
   const activeStreamingAssistantId = isStreaming
     ? [...items].reverse().find((item) => item.role === "assistant")?.id
     : null;
+  const previousStreamingRef = useRef(isStreaming);
+
+  useEffect(() => {
+    if (playingMessageId == null) {
+      return;
+    }
+
+    if (!items.some((item) => item.id === playingMessageId)) {
+      stopPlayback();
+    }
+  }, [items, playingMessageId, stopPlayback]);
+
+  useEffect(() => {
+    if (!isStreaming) {
+      return;
+    }
+    stopPlayback();
+  }, [isStreaming, stopPlayback]);
+
+  useEffect(() => {
+    const wasStreaming = previousStreamingRef.current;
+    previousStreamingRef.current = isStreaming;
+
+    if (!wasStreaming || isStreaming || !preferences.autoPlayAssistant || playingMessageId != null) {
+      return;
+    }
+
+    const latestAssistant = [...items].reverse().find(
+      (item) => item.role === "assistant" && item.content.trim() && item.localStatus !== "stopped",
+    );
+    if (!latestAssistant) {
+      return;
+    }
+
+    togglePlayback(latestAssistant.id, latestAssistant.content);
+  }, [isStreaming, items, playingMessageId, preferences.autoPlayAssistant, togglePlayback]);
 
   return (
     <div className="flex w-full flex-col pb-6">
-      {items.map((item) => {
+      {items.map((item, index) => {
         if (collapsedMessageIds?.has(item.id)) {
           return null;
         }
@@ -369,6 +458,13 @@ export function MessageList({
         const showSources = !isEmptyAssistant && item.id !== activeStreamingAssistantId;
         const attachments = item.attachments ?? [];
         const isEditingUserMessage = !isAssistant && editingUserMessageId === item.id;
+        const shouldHideOrphanReasoningMessage =
+          isAssistant
+          && isEmptyAssistant
+          && showThinkingPanel
+          && !isActiveStreamingAssistant
+          && !hasStoppedNote
+          && hasLaterRenderableAssistantInSameTurn(items, index);
 
         if (!isAssistant) {
           return (
@@ -408,6 +504,10 @@ export function MessageList({
         }
 
         if (isEmptyAssistant && !showThinkingPanel && !showStreamingStatus && !showPendingPlaceholder && !hasStoppedNote) {
+          return null;
+        }
+
+        if (shouldHideOrphanReasoningMessage) {
           return null;
         }
 
@@ -458,8 +558,11 @@ export function MessageList({
                   content={item.content}
                   feedback={item.feedback}
                   hidden={item.id === activeStreamingAssistantId}
+                  isPlaybackSupported={isSpeechPlaybackSupported}
+                  isPlaying={playingMessageId === item.id}
                   messageId={item.id}
                   onFeedback={onFeedback}
+                  onTogglePlayback={togglePlayback}
                   onRetry={onRetry}
                 />
               ) : null}

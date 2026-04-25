@@ -27,6 +27,7 @@ export interface SidebarProps {
   onRenameDebate: (sessionId: number, topic: string) => void | Promise<void>;
   onDeleteDebate: (sessionId: number) => void | Promise<void>;
   onLogout?: () => void | Promise<void>;
+  onOpenSettings?: () => void;
   onSelect: (conversationId: number) => void;
   onSelectDebate: (sessionId: number) => void;
   onToggleSidebar: () => void;

@@ -17,7 +17,12 @@ export function DesktopSidebar({ open, onToggleSidebar, ...contentProps }: Sideb
         <div className="min-h-0 flex-1">
           <SidebarContent {...contentProps} mode="desktop" open={open} />
         </div>
-        <DesktopSidebarFooter onLogout={contentProps.onLogout} onToggle={onToggleSidebar} open={open} />
+        <DesktopSidebarFooter
+          onLogout={contentProps.onLogout}
+          onOpenSettings={contentProps.onOpenSettings}
+          onToggle={onToggleSidebar}
+          open={open}
+        />
       </div>
     </>
   );
