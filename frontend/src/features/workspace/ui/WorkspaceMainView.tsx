@@ -4,7 +4,6 @@ import { LoaderCircle } from "lucide-react";
 import { ConversationView } from "../../chats/ui/ConversationView";
 import { LandingView } from "../../chats/ui/LandingView";
 import { DebateCreateView } from "../../debates/ui/DebateCreateView";
-import { DebatesHomeView } from "../../debates/ui/DebatesHomeView";
 import { DebateRoomView } from "../../debates/ui/DebateRoomView";
 import { KnowledgePage } from "../../knowledge/ui/KnowledgePage";
 import { MemoriesPage } from "../../memories/ui/MemoriesPage";
@@ -22,7 +21,6 @@ type WorkspaceMainViewProps = {
   landingProps: ComponentProps<typeof LandingView>;
   memoriesPageProps: ComponentProps<typeof MemoriesPage>;
   modelsPageProps: ComponentProps<typeof ModelsPage>;
-  onNewDebate: () => void;
   showLanding: boolean;
 };
 
@@ -47,7 +45,6 @@ export function WorkspaceMainView({
   landingProps,
   memoriesPageProps,
   modelsPageProps,
-  onNewDebate,
   showLanding,
 }: WorkspaceMainViewProps) {
   if (activeSection === "models") {
@@ -74,8 +71,6 @@ export function WorkspaceMainView({
     if (isDebateLoading) {
       return <LoadingView />;
     }
-
-    return <DebatesHomeView onNewDebate={onNewDebate} />;
   }
 
   if (isConversationLoading) {

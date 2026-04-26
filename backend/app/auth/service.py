@@ -18,8 +18,19 @@ class AuthenticationFailureCode(str, Enum):
     INVALID_PASSWORD = "invalid_password"
 
 
+class PasswordChangeFailureCode(str, Enum):
+    INVALID_CURRENT_PASSWORD = "invalid_current_password"
+    PASSWORD_UNCHANGED = "password_unchanged"
+
+
 class AuthenticationFailed(Exception):
     def __init__(self, code: AuthenticationFailureCode):
+        self.code = code
+        super().__init__(code.value)
+
+
+class PasswordChangeFailed(Exception):
+    def __init__(self, code: PasswordChangeFailureCode):
         self.code = code
         super().__init__(code.value)
 
@@ -59,6 +70,14 @@ def set_user_password(*, db: Session, user: User, password: str) -> User:
     db.commit()
     db.refresh(user)
     return user
+
+
+def change_user_password(*, db: Session, user: User, current_password: str, new_password: str) -> User:
+    if not verify_password(current_password, user.password_hash):
+        raise PasswordChangeFailed(PasswordChangeFailureCode.INVALID_CURRENT_PASSWORD)
+    if verify_password(new_password, user.password_hash):
+        raise PasswordChangeFailed(PasswordChangeFailureCode.PASSWORD_UNCHANGED)
+    return set_user_password(db=db, user=user, password=new_password)
 
 
 def authenticate_user(*, db: Session, username: str, password: str) -> User:

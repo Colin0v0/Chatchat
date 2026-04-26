@@ -28,3 +28,18 @@ export async function logout() {
   });
   await assertApiResponse(response);
 }
+
+export async function changePassword(payload: { currentPassword: string; newPassword: string }) {
+  const response = await fetch(toApiUrl("/api/auth/password"), {
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    method: "PATCH",
+    body: JSON.stringify({
+      current_password: payload.currentPassword,
+      new_password: payload.newPassword,
+    }),
+  });
+  await assertApiResponse(response);
+}

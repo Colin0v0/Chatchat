@@ -7,8 +7,11 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.auth.service import (
     AuthenticationFailed,
     AuthenticationFailureCode,
+    PasswordChangeFailed,
+    PasswordChangeFailureCode,
     apply_session_cookie,
     authenticate_user,
+    change_user_password,
     create_user,
     create_user_session,
     invalidate_user_session,
@@ -47,6 +50,58 @@ class AuthServiceTests(unittest.TestCase):
         with self.assertRaises(AuthenticationFailed) as missing_user:
             authenticate_user(db=self.db, username="nobody", password="secret123")
         self.assertEqual(missing_user.exception.code, AuthenticationFailureCode.USER_NOT_FOUND)
+
+    def test_change_user_password_updates_credentials(self):
+        user = create_user(db=self.db, username="alice", password="secret123")
+        old_hash = user.password_hash
+
+        updated = change_user_password(
+            db=self.db,
+            user=user,
+            current_password="secret123",
+            new_password="better-secret123",
+        )
+
+        self.assertEqual(updated.id, user.id)
+        self.assertNotEqual(updated.password_hash, old_hash)
+        authenticated = authenticate_user(db=self.db, username="alice", password="better-secret123")
+        self.assertEqual(authenticated.id, user.id)
+
+        with self.assertRaises(AuthenticationFailed) as old_password:
+            authenticate_user(db=self.db, username="alice", password="secret123")
+        self.assertEqual(old_password.exception.code, AuthenticationFailureCode.INVALID_PASSWORD)
+
+    def test_change_user_password_rejects_invalid_current_password(self):
+        user = create_user(db=self.db, username="alice", password="secret123")
+
+        with self.assertRaises(PasswordChangeFailed) as wrong_password:
+            change_user_password(
+                db=self.db,
+                user=user,
+                current_password="wrong",
+                new_password="better-secret123",
+            )
+        self.assertEqual(
+            wrong_password.exception.code,
+            PasswordChangeFailureCode.INVALID_CURRENT_PASSWORD,
+        )
+        authenticated = authenticate_user(db=self.db, username="alice", password="secret123")
+        self.assertEqual(authenticated.id, user.id)
+
+    def test_change_user_password_rejects_unchanged_password(self):
+        user = create_user(db=self.db, username="alice", password="secret123")
+
+        with self.assertRaises(PasswordChangeFailed) as unchanged_password:
+            change_user_password(
+                db=self.db,
+                user=user,
+                current_password="secret123",
+                new_password="secret123",
+            )
+        self.assertEqual(
+            unchanged_password.exception.code,
+            PasswordChangeFailureCode.PASSWORD_UNCHANGED,
+        )
 
     def test_session_cookie_roundtrip(self):
         user = create_user(db=self.db, username="bob", password="secret123")

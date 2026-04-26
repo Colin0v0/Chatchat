@@ -1,4 +1,5 @@
 export type Role = "user" | "assistant" | "system";
+export type ComposerMode = "chat" | "image";
 export type FeedbackValue = "up" | "down";
 export type ToolMode = "none" | "knowledge" | "search";
 export type ReasoningProfileValue = "off" | "auto" | "low" | "medium" | "high" | "max" | "provider_default";
@@ -276,6 +277,12 @@ export interface ChatStreamRequest {
   reasoning_profile?: ReasoningProfileValue | null;
 }
 
+export interface ImageGenerationRequest {
+  conversation_id?: number | null;
+  prompt: string;
+  size?: string | null;
+}
+
 export interface DebateSessionCreateRequest {
   topic: string;
   pro_model_id: string;
@@ -433,6 +440,7 @@ export interface AudioTranscriptionResult {
   text: string;
   language: string;
   duration_ms: number;
+  reason?: string | null;
 }
 
 type StreamResumeMetadata = {

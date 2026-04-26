@@ -16,6 +16,7 @@ export interface SidebarProps {
   open: boolean;
   isDesktop: boolean;
   query: string;
+  settingsActive?: boolean;
   viewerName?: string;
   onOpenSearch: () => void;
   onQueryChange: (value: string) => void;

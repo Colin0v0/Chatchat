@@ -261,6 +261,8 @@ async def _stream_responses_chat(
     )
     gate, max_concurrency = _request_gate("codex")
     emitted_any = False
+    emitted_message = False
+    emitted_reasoning = False
     try:
         async with limited_request(gate=gate, max_concurrency=max_concurrency):
             async with client.stream("POST", "/responses", json=payload) as response:
@@ -273,20 +275,28 @@ async def _stream_responses_chat(
                         yield {"done": True}
                         return
 
+                    is_snapshot = bool(chunk.get("_snapshot"))
                     event: dict[str, object] = {}
                     if "message" in chunk:
                         delta = chunk["message"].get("content", "")
-                        if delta:
+                        if delta and (not is_snapshot or not emitted_message):
                             event["message"] = {"content": delta}
                     if "reasoning" in chunk:
                         reasoning_delta = chunk["reasoning"].get("content", "")
-                        if reasoning_delta:
+                        if reasoning_delta and (not is_snapshot or not emitted_reasoning):
                             event["reasoning"] = {"content": reasoning_delta}
                     if chunk.get("done"):
                         event["done"] = True
                     if event:
-                        emitted_any = True
+                        if "message" in event:
+                            emitted_message = True
+                            emitted_any = True
+                        if "reasoning" in event:
+                            emitted_reasoning = True
+                            emitted_any = True
                         yield event
+                        if chunk.get("done"):
+                            return
                 if emitted_any:
                     yield {"done": True}
     except httpx.TransportError:
@@ -349,7 +359,7 @@ async def stream_openai_chat(
     )
     resolved_base_url = normalize_base_url(openai_base_url(provider, base_url_override))
     logger.info("stream_openai_chat target | provider=%s | base_url=%s", provider, resolved_base_url)
-    if provider == "codex":
+    if provider == "codex" and settings.codex_use_responses_api:
         async for event in _stream_responses_chat(
             model=model,
             messages=messages,
@@ -444,6 +454,8 @@ async def stream_openai_chat(
                     if event:
                         emitted_any = True
                         yield event
+                        if chunk.get("done"):
+                            return
                 if emitted_any:
                     yield {"done": True}
     except httpx.TransportError:

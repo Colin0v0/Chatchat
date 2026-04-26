@@ -1,8 +1,11 @@
 from .service import (
     AuthenticationFailed,
     AuthenticationFailureCode,
+    PasswordChangeFailed,
+    PasswordChangeFailureCode,
     apply_session_cookie,
     authenticate_user,
+    change_user_password,
     clear_session_cookie,
     create_user,
     create_user_session,
@@ -17,8 +20,11 @@ from .service import (
 __all__ = [
     "AuthenticationFailed",
     "AuthenticationFailureCode",
+    "PasswordChangeFailed",
+    "PasswordChangeFailureCode",
     "apply_session_cookie",
     "authenticate_user",
+    "change_user_password",
     "clear_session_cookie",
     "create_user",
     "create_user_session",

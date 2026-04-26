@@ -4,7 +4,17 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from .api import auth_router, audio_router, chat_router, conversations_router, debate_router, knowledge_router, memories_router, models_router
+from .api import (
+    audio_router,
+    auth_router,
+    chat_router,
+    conversations_router,
+    debate_router,
+    images_router,
+    knowledge_router,
+    memories_router,
+    models_router,
+)
 from .audio import build_audio_services
 from .chat.state import build_chat_services
 from .core.config import settings
@@ -54,6 +64,7 @@ def create_app() -> FastAPI:
     app.include_router(auth_router)
     app.include_router(models_router)
     app.include_router(knowledge_router)
+    app.include_router(images_router)
     app.include_router(memories_router)
     app.include_router(conversations_router)
     app.include_router(debate_router)

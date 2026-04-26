@@ -96,8 +96,11 @@ export function useResponsiveSidebar() {
   );
 
   const closeMobileSidebar = useCallback(() => {
-    setOpen(false, false);
-  }, [setOpen]);
+    setSidebarState((previous) => ({ ...previous, mobileOpen: false }));
+    if (!isDesktop) {
+      setSidebarOpen(false);
+    }
+  }, [isDesktop]);
 
   const toggleSidebar = useCallback(() => {
     setOpen((current) => !current);

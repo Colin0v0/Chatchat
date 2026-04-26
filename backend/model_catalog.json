@@ -33,10 +33,10 @@
   },
   "models": [
     {
-      "id": "openai:deepseek-chat",
-      "display_name": "DeepSeek Chat",
+      "id": "openai:deepseek-v4-flash",
+      "display_name": "DeepSeek v4 Flash",
       "provider_ref": "openai_default",
-      "upstream_model": "deepseek-chat",
+      "upstream_model": "deepseek-v4-flash",
       "limits": {
         "context_window": 200000
       },
@@ -82,10 +82,10 @@
       "enabled": true
     },
     {
-      "id": "openai:deepseek-reasoner",
-      "display_name": "DeepSeek Reasoner",
+      "id": "openai:deepseek-v4-pro",
+      "display_name": "DeepSeek v4 Pro",
       "provider_ref": "openai_default",
-      "upstream_model": "deepseek-reasoner",
+      "upstream_model": "deepseek-v4-pro",
       "limits": {
         "context_window": 200000
       },
@@ -185,6 +185,53 @@
       "display_name": "Claude Opus 4.6",
       "provider_ref": "claude_default",
       "upstream_model": "claude-opus-4-6",
+      "limits": {
+        "context_window": 200000
+      },
+      "runtime": {
+        "native_multimodal_mode": "claude"
+      },
+      "capabilities": {
+        "input": {
+          "text": true,
+          "image": true,
+          "pdf": true,
+          "other_file": true,
+          "audio": true
+        },
+        "transport": {
+          "inline_data": true,
+          "file_upload": false,
+          "remote_url": false
+        },
+        "reasoning": {
+          "control": "none",
+          "default_profile": "off",
+          "visible_trace": false,
+          "summary_only": false
+        },
+        "tools": {
+          "function_calling": true,
+          "parallel_calls": false,
+          "forced_call": false
+        },
+        "stream": {
+          "text": true,
+          "reasoning": true,
+          "tool_call": true,
+          "usage": false
+        },
+        "state": {
+          "previous_response": false
+        }
+      },
+      "enabled": true
+    },
+    {
+      "id": "claude:claude-sonnet-4-6",
+      "display_name": "Claude Sonnet 4.6",
+      "provider_ref": "claude_default",
+      "upstream_model": "claude-sonnet-4-6",
       "limits": {
         "context_window": 200000
       },
@@ -425,10 +472,10 @@
       "enabled": true
     },
     {
-      "id": "codex:gpt-5.4",
-      "display_name": "GPT-5.4",
+      "id": "codex:gpt-5.5",
+      "display_name": "GPT-5.5",
       "provider_ref": "codex_default",
-      "upstream_model": "gpt-5.4",
+      "upstream_model": "gpt-5.5",
       "limits": {
         "context_window": 200000
       },

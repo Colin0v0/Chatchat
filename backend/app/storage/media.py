@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import binascii
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -9,6 +10,7 @@ from uuid import uuid4
 from fastapi import UploadFile
 
 from ..core.config import settings
+from ..image_processing import prepare_generated_image_bytes
 from ..multimodal.file_types import resolve_attachment_type
 
 
@@ -32,10 +34,81 @@ def _resolve_media_root(raw_path: str) -> Path:
 
 MEDIA_ROOT = _resolve_media_root(settings.media_root)
 
+GENERATED_IMAGE_FORMATS = {
+    "png": ("image/png", ".png"),
+    "jpeg": ("image/jpeg", ".jpg"),
+    "jpg": ("image/jpeg", ".jpg"),
+    "webp": ("image/webp", ".webp"),
+}
+
 
 def media_url(relative_path: str) -> str:
     normalized = relative_path.replace("\\", "/").lstrip("/")
     return f"/media/{normalized}"
+
+
+def persist_generated_image(
+    *,
+    b64_json: str,
+    output_format: str,
+    original_name: str = "generated-image",
+    target_size: str | None = None,
+) -> StoredAttachment:
+    try:
+        content = base64.b64decode(b64_json, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise ValueError("Image generation returned invalid base64 data.") from exc
+    return persist_generated_image_bytes(
+        content=content,
+        output_format=output_format,
+        original_name=original_name,
+        target_size=target_size,
+    )
+
+
+def persist_generated_image_bytes(
+    *,
+    content: bytes,
+    output_format: str,
+    original_name: str = "generated-image",
+    target_size: str | None = None,
+) -> StoredAttachment:
+    normalized_format = output_format.strip().lower() or "png"
+    mime_type, extension = GENERATED_IMAGE_FORMATS.get(
+        normalized_format,
+        GENERATED_IMAGE_FORMATS["png"],
+    )
+    if not content:
+        raise ValueError("Image generation returned an empty image.")
+    content = prepare_generated_image_bytes(
+        content=content,
+        output_format=normalized_format,
+        target_size=target_size,
+    )
+
+    today = datetime.utcnow()
+    relative_path = (
+        Path("generated")
+        / today.strftime("%Y")
+        / today.strftime("%m")
+        / today.strftime("%d")
+        / f"{uuid4().hex}{extension}"
+    )
+    file_path = MEDIA_ROOT / relative_path
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    file_path.write_bytes(content)
+
+    safe_name = original_name.strip() or "generated-image"
+    if not safe_name.lower().endswith(extension):
+        safe_name = f"{safe_name}{extension}"
+    return StoredAttachment(
+        kind="image",
+        original_name=safe_name,
+        mime_type=mime_type,
+        relative_path=relative_path.as_posix(),
+        size_bytes=len(content),
+        extension=extension,
+    )
 
 
 async def persist_uploaded_attachments(files: list[UploadFile]) -> list[StoredAttachment]:

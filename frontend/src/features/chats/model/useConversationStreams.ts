@@ -69,11 +69,29 @@ const MIN_STAGE_DISPLAY_MS: Partial<Record<StreamingStage, number>> = {
   analyzing_attachments: 720,
 };
 
+const EMPTY_MODEL_RESPONSE_MESSAGE = "模型没有返回内容，请重试或切换模型。";
+
 function finalizeAssistantDraft(
   session: StreamSession,
   event: Extract<ChatStreamEvent, { type: "done" }>,
 ): ConversationDetail {
   const finalContent = typeof event.content === "string" ? event.content : null;
+  const currentDraft = session.conversation.messages.find(
+    (message) => message.id === ASSISTANT_DRAFT_ID,
+  );
+  const hasAnswerContent = Boolean((finalContent ?? currentDraft?.content ?? "").trim());
+  if (!hasAnswerContent) {
+    const conversationWithError = replaceAssistantDraftWithError(
+      session.conversation,
+      EMPTY_MODEL_RESPONSE_MESSAGE,
+    );
+    return {
+      ...conversationWithError,
+      title: event.conversation_title ?? conversationWithError.title,
+      active_run: null,
+    };
+  }
+
   const conversationWithContent = finalContent
     ? setAssistantDraftFinalContent(session.conversation, finalContent)
     : session.conversation;

@@ -204,11 +204,46 @@ def _decode_responses_stream_payload(payload: str) -> dict[str, object]:
     if event_type == "response.output_text.delta":
         delta = str(chunk.get("delta", ""))
         return {"message": {"content": delta}} if delta else {}
+    if event_type == "response.output_text.done":
+        text = str(chunk.get("text", ""))
+        return {"message": {"content": text}, "_snapshot": True} if text else {}
     if event_type == "response.reasoning_summary_text.delta":
         delta = str(chunk.get("delta", ""))
         return {"reasoning": {"content": delta}} if delta else {}
+    if event_type == "response.reasoning_summary_text.done":
+        text = str(chunk.get("text", ""))
+        return {"reasoning": {"content": text}, "_snapshot": True} if text else {}
+    if event_type == "response.content_part.done":
+        part = chunk.get("part")
+        if isinstance(part, dict) and part.get("type") == "output_text":
+            text = str(part.get("text", ""))
+            return {"message": {"content": text}, "_snapshot": True} if text else {}
+        return {}
+    if event_type == "response.output_item.done":
+        item = chunk.get("item")
+        if not isinstance(item, dict):
+            return {}
+        output = _extract_responses_output({"output": [item]})
+        event: dict[str, object] = {}
+        if output["message"]:
+            event["message"] = {"content": output["message"]}
+        if output["reasoning"]:
+            event["reasoning"] = {"content": output["reasoning"]}
+        if event:
+            event["_snapshot"] = True
+        return event
     if event_type == "response.completed":
-        return {"done": True}
+        event: dict[str, object] = {"done": True}
+        response = chunk.get("response")
+        if isinstance(response, dict):
+            output = _extract_responses_output(response)
+            if output["message"]:
+                event["message"] = {"content": output["message"]}
+            if output["reasoning"]:
+                event["reasoning"] = {"content": output["reasoning"]}
+            if "message" in event or "reasoning" in event:
+                event["_snapshot"] = True
+        return event
     if event_type == "error":
         error = chunk.get("error")
         if isinstance(error, dict):
@@ -243,12 +278,16 @@ def _parse_openai_json_response(response: httpx.Response, *, context: str) -> di
 
 
 def _extract_responses_output(payload: dict[str, object]) -> dict[str, str]:
-    output = payload.get("output")
-    if not isinstance(output, list):
-        return {"message": "", "reasoning": ""}
-
+    top_level_output_text = payload.get("output_text")
     message_chunks: list[str] = []
     reasoning_chunks: list[str] = []
+
+    output = payload.get("output")
+    if not isinstance(output, list):
+        if isinstance(top_level_output_text, str) and top_level_output_text:
+            message_chunks.append(top_level_output_text)
+        return {"message": "".join(message_chunks), "reasoning": ""}
+
     for item in output:
         if not isinstance(item, dict):
             continue
@@ -257,7 +296,7 @@ def _extract_responses_output(payload: dict[str, object]) -> dict[str, str]:
             if not isinstance(content, list):
                 continue
             for part in content:
-                if not isinstance(part, dict) or part.get("type") != "output_text":
+                if not isinstance(part, dict) or part.get("type") not in {"output_text", "text"}:
                     continue
                 text = str(part.get("text", ""))
                 if text:
@@ -272,5 +311,6 @@ def _extract_responses_output(payload: dict[str, object]) -> dict[str, str]:
                 text = str(part.get("text", ""))
                 if text:
                     reasoning_chunks.append(text)
+    if not message_chunks and isinstance(top_level_output_text, str) and top_level_output_text:
+        message_chunks.append(top_level_output_text)
     return {"message": "".join(message_chunks), "reasoning": "".join(reasoning_chunks)}
-

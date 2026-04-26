@@ -43,6 +43,11 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=1, max_length=255)
 
 
+class PasswordChangeRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=255)
+    new_password: str = Field(min_length=8, max_length=255)
+
+
 class UserOut(BaseModel):
     id: int
     username: str
@@ -69,6 +74,14 @@ class RegenerateRequest(BaseModel):
 
 class MessageFeedbackUpdate(BaseModel):
     value: Optional[FeedbackValue] = None
+
+
+class ImageGenerateRequest(BaseModel):
+    conversation_id: Optional[int] = Field(default=None, ge=1)
+    prompt: str = Field(min_length=1, max_length=8000)
+    size: Optional[str] = None
+    quality: Optional[str] = None
+    output_format: Optional[str] = None
 
 
 class MessageAttachmentOut(BaseModel):
@@ -284,6 +297,7 @@ class AudioTranscriptionOut(BaseModel):
     text: str
     language: str
     duration_ms: int
+    reason: Optional[str] = None
 
 
 class KnowledgeDocumentOut(BaseModel):

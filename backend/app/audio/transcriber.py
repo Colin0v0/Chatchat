@@ -3,10 +3,14 @@ from __future__ import annotations
 import gc
 import io
 import logging
+import math
 import os
+import re
 import tempfile
 import wave
+from array import array
 from contextlib import contextmanager
+from dataclasses import dataclass
 from threading import Lock
 from typing import Any, Callable, Iterator
 
@@ -18,6 +22,36 @@ class AudioModelLoadError(RuntimeError):
     pass
 
 
+logger = logging.getLogger("chatchat.audio")
+
+LANGUAGE_TAG_PATTERN = re.compile(r"<\|(zh|en|yue|ja|ko|nospeech)\|>", re.IGNORECASE)
+MEANINGFUL_TRANSCRIPT_PATTERN = re.compile(r"[\u3400-\u9fffA-Za-z0-9]")
+UNWANTED_SHORT_SCRIPT_PATTERN = re.compile(r"[\u3040-\u30ff\uac00-\ud7af]")
+SUPPORTED_SENSEVOICE_LANGUAGES = {"auto", "zh", "en", "yue", "ja", "ko", "nospeech"}
+
+
+@dataclass(frozen=True)
+class AudioGateDecision:
+    skip: bool
+    reason: str | None
+    rms_dbfs: float
+
+
+def _normalize_language(value: str) -> str:
+    normalized = value.strip().lower()
+    if normalized == "cn":
+        return "zh"
+    if normalized not in SUPPORTED_SENSEVOICE_LANGUAGES:
+        return "zh"
+    return normalized
+
+
+def _parse_allowed_languages(value: str) -> set[str]:
+    allowed = {_normalize_language(item) for item in value.split(",") if item.strip()}
+    allowed.discard("auto")
+    return allowed or {"zh", "en"}
+
+
 class AudioTranscriber:
     def __init__(
         self,
@@ -25,13 +59,24 @@ class AudioTranscriber:
         model_name: str,
         device: str,
         enabled: bool,
+        language: str = "zh",
+        vad_model: str = "fsmn-vad",
+        min_duration_ms: int = 650,
+        min_rms_dbfs: float = -65.0,
+        allowed_languages: str = "zh,en",
     ):
         self._model_name = model_name
         self._device = device
         self._enabled = enabled
+        self._language = _normalize_language(language)
+        self._vad_model = vad_model.strip()
+        self._min_duration_ms = max(0, min_duration_ms)
+        self._min_rms_dbfs = min_rms_dbfs
+        self._allowed_languages = _parse_allowed_languages(allowed_languages)
         self._lock = Lock()
         self._model: Any | None = None
         self._postprocess: Callable[[str], str] | None = None
+        self._vad_enabled = False
 
     @property
     def requires_local_gpu(self) -> bool:
@@ -65,13 +110,54 @@ class AudioTranscriber:
             raise AudioModelLoadError(
                 "Audio transcription is disabled in the current environment."
             )
-        self.load()
         wav_bytes = transcode_audio_to_wav(audio_bytes)
+        duration_ms = self._wav_duration_ms(wav_bytes)
+        gate = self._inspect_audio(wav_bytes, duration_ms=duration_ms)
+        logger.info(
+            "audio transcribe input | bytes=%s | wav_bytes=%s | duration_ms=%s | rms_dbfs=%.1f | language=%s | vad=%s",
+            len(audio_bytes),
+            len(wav_bytes),
+            duration_ms,
+            gate.rms_dbfs,
+            self._language,
+            self._vad_enabled,
+        )
+        if gate.skip:
+            logger.info(
+                "audio transcribe skipped | reason=%s | duration_ms=%s | rms_dbfs=%.1f | min_duration_ms=%s | min_rms_dbfs=%.1f",
+                gate.reason,
+                duration_ms,
+                gate.rms_dbfs,
+                self._min_duration_ms,
+                self._min_rms_dbfs,
+            )
+            return AudioTranscriptionOut(
+                text="",
+                language=self._language,
+                duration_ms=duration_ms,
+                reason=gate.reason,
+            )
+
+        self.load()
         text = self._transcribe_wav(wav_bytes)
+        if not text:
+            logger.info(
+                "audio transcribe empty | duration_ms=%s | rms_dbfs=%.1f",
+                duration_ms,
+                gate.rms_dbfs,
+            )
+        else:
+            logger.info(
+                "audio transcribe success | duration_ms=%s | rms_dbfs=%.1f | text_len=%s",
+                duration_ms,
+                gate.rms_dbfs,
+                len(text),
+            )
         return AudioTranscriptionOut(
             text=text,
-            language="auto",
-            duration_ms=self._wav_duration_ms(wav_bytes),
+            language=self._language,
+            duration_ms=duration_ms,
+            reason=None if text else "empty_transcript",
         )
 
     @contextmanager
@@ -98,28 +184,90 @@ class AudioTranscriber:
             temp_path = temp_file.name
 
         try:
-            with self._suppress_third_party_info_logs():
-                result = self._require_model().generate(
-                    input=temp_path,
-                    cache={},
-                    language="auto",
-                    use_itn=True,
-                    batch_size=1,
-                )
+            result = self._generate_from_path(temp_path, use_vad=True)
+            raw_text = self._extract_result_text(result)
+            if not raw_text and self._vad_enabled:
+                logger.info("audio transcribe model empty | reason=empty_raw_result | retry=without_vad")
+                result = self._generate_from_path(temp_path, use_vad=False)
+                raw_text = self._extract_result_text(result)
         except Exception as exc:
             raise RuntimeError(f"SenseVoice transcription failed: {exc}") from exc
         finally:
             if os.path.exists(temp_path):
                 os.remove(temp_path)
 
-        if not isinstance(result, list) or not result:
-            raise RuntimeError("SenseVoice returned an empty response.")
-
-        raw_text = str(result[0].get("text", "")).strip()
         if not raw_text:
+            logger.info("audio transcribe model empty | reason=empty_raw_result")
+            return ""
+        raw_language = self._extract_raw_language(raw_text)
+        if self._should_drop_raw_result(raw_text):
+            logger.info(
+                "audio transcribe model dropped | reason=language_filter | raw_language=%s | raw_len=%s",
+                raw_language,
+                len(raw_text),
+            )
             return ""
 
-        return self._require_postprocess()(raw_text).strip()
+        text = self._require_postprocess()(raw_text).strip()
+        if self._is_low_confidence_transcript(text):
+            logger.info(
+                "audio transcribe model dropped | reason=low_confidence | raw_language=%s | raw_len=%s | text_len=%s",
+                raw_language,
+                len(raw_text),
+                len(text),
+            )
+            return ""
+        logger.info(
+            "audio transcribe model accepted | raw_language=%s | raw_len=%s | text_len=%s",
+            raw_language,
+            len(raw_text),
+            len(text),
+        )
+        return text
+
+    def _generate_from_path(self, temp_path: str, *, use_vad: bool) -> Any:
+        with self._lock:
+            model = self._require_model()
+            if use_vad or not self._vad_enabled:
+                with self._suppress_third_party_info_logs():
+                    return model.generate(
+                        input=temp_path,
+                        cache={},
+                        language=self._language,
+                        use_itn=True,
+                        **self._generate_options(use_vad=use_vad),
+                    )
+
+            original_vad_model = getattr(model, "vad_model", None)
+            try:
+                setattr(model, "vad_model", None)
+                with self._suppress_third_party_info_logs():
+                    return model.generate(
+                        input=temp_path,
+                        cache={},
+                        language=self._language,
+                        use_itn=True,
+                        **self._generate_options(use_vad=False),
+                    )
+            finally:
+                setattr(model, "vad_model", original_vad_model)
+
+    def _extract_result_text(self, result: Any) -> str:
+        if not isinstance(result, list) or not result:
+            raise RuntimeError("SenseVoice returned an empty response.")
+        first_result = result[0]
+        if not isinstance(first_result, dict):
+            return ""
+        return str(first_result.get("text", "")).strip()
+
+    def _generate_options(self, *, use_vad: bool) -> dict[str, object]:
+        if self._vad_enabled and use_vad:
+            return {
+                "batch_size_s": 60,
+                "merge_vad": True,
+                "merge_length_s": 15,
+            }
+        return {"batch_size": 1}
 
     def _require_model(self) -> Any:
         if self._model is None:
@@ -141,18 +289,44 @@ class AudioTranscriber:
                 "funasr is required for audio transcription. Install backend dependencies first."
             ) from exc
 
+        model_kwargs: dict[str, object] = {
+            "model": model_name,
+            "disable_update": True,
+            "device": device,
+            "trust_remote_code": False,
+        }
+        if self._vad_model:
+            model_kwargs.update(
+                {
+                    "vad_model": self._vad_model,
+                    "vad_kwargs": {"max_single_segment_time": 30000},
+                }
+            )
+
         try:
             with self._suppress_third_party_info_logs():
-                model = AutoModel(
-                    model=model_name,
-                    disable_update=True,
-                    device=device,
-                    trust_remote_code=False,
-                )
+                model = AutoModel(**model_kwargs)
+                self._vad_enabled = bool(self._vad_model)
         except Exception as exc:
-            raise AudioModelLoadError(
-                "Failed to load SenseVoice-Small. Ensure the model path is valid or the server can download it."
-            ) from exc
+            if not self._vad_model:
+                raise AudioModelLoadError(
+                    "Failed to load SenseVoice-Small. Ensure the model path is valid or the server can download it."
+                ) from exc
+
+            logger.warning(
+                "failed to load SenseVoice with VAD, retrying without VAD | vad_model=%s",
+                self._vad_model,
+            )
+            try:
+                model_kwargs.pop("vad_model", None)
+                model_kwargs.pop("vad_kwargs", None)
+                with self._suppress_third_party_info_logs():
+                    model = AutoModel(**model_kwargs)
+                    self._vad_enabled = False
+            except Exception as fallback_exc:
+                raise AudioModelLoadError(
+                    "Failed to load SenseVoice-Small. Ensure the model path is valid or the server can download it."
+                ) from fallback_exc
 
         return model, rich_transcription_postprocess
 
@@ -169,3 +343,72 @@ class AudioTranscriber:
             return 0
         frame_count = len(pcm_bytes) / bytes_per_frame
         return int((frame_count / sample_rate) * 1000)
+
+    def _should_skip_audio(self, wav_bytes: bytes, *, duration_ms: int) -> bool:
+        return self._inspect_audio(wav_bytes, duration_ms=duration_ms).skip
+
+    def _inspect_audio(self, wav_bytes: bytes, *, duration_ms: int) -> AudioGateDecision:
+        if duration_ms <= 0:
+            return AudioGateDecision(skip=True, reason="empty_audio", rms_dbfs=float("-inf"))
+        rms_dbfs = self._wav_rms_dbfs(wav_bytes)
+        if duration_ms < self._min_duration_ms:
+            return AudioGateDecision(skip=True, reason="too_short", rms_dbfs=rms_dbfs)
+        if rms_dbfs < self._min_rms_dbfs:
+            return AudioGateDecision(skip=True, reason="too_quiet", rms_dbfs=rms_dbfs)
+        return AudioGateDecision(skip=False, reason=None, rms_dbfs=rms_dbfs)
+
+    def _wav_rms_dbfs(self, wav_bytes: bytes) -> float:
+        with wave.open(io.BytesIO(wav_bytes), "rb") as wav_file:
+            sample_width = wav_file.getsampwidth()
+            pcm_bytes = wav_file.readframes(wav_file.getnframes())
+        if not pcm_bytes or sample_width <= 0:
+            return float("-inf")
+
+        samples: list[int]
+        if sample_width == 2:
+            values = array("h")
+            values.frombytes(pcm_bytes)
+            samples = list(values)
+            max_amplitude = float(1 << 15)
+        else:
+            max_amplitude = float(1 << (sample_width * 8 - 1))
+            samples = [
+                int.from_bytes(
+                    pcm_bytes[index:index + sample_width],
+                    byteorder="little",
+                    signed=sample_width > 1,
+                )
+                for index in range(0, len(pcm_bytes), sample_width)
+                if len(pcm_bytes[index:index + sample_width]) == sample_width
+            ]
+            if sample_width == 1:
+                samples = [sample - 128 for sample in samples]
+
+        if not samples or max_amplitude <= 0:
+            return float("-inf")
+
+        rms = math.sqrt(sum(sample * sample for sample in samples) / len(samples))
+        if rms <= 0:
+            return float("-inf")
+        return 20 * math.log10(rms / max_amplitude)
+
+    def _should_drop_raw_result(self, raw_text: str) -> bool:
+        match = LANGUAGE_TAG_PATTERN.search(raw_text)
+        if match is None:
+            return False
+        language = _normalize_language(match.group(1))
+        return language == "nospeech" or language not in self._allowed_languages
+
+    def _extract_raw_language(self, raw_text: str) -> str:
+        match = LANGUAGE_TAG_PATTERN.search(raw_text)
+        if match is None:
+            return "unknown"
+        return _normalize_language(match.group(1))
+
+    def _is_low_confidence_transcript(self, text: str) -> bool:
+        compact_text = text.strip().replace(" ", "")
+        if not compact_text:
+            return True
+        if len(compact_text) <= 3 and not MEANINGFUL_TRANSCRIPT_PATTERN.search(compact_text):
+            return True
+        return len(compact_text) <= 4 and bool(UNWANTED_SHORT_SCRIPT_PATTERN.search(compact_text))

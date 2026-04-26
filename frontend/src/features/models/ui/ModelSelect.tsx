@@ -81,8 +81,8 @@ export function ModelSelect({
   const buttonClassName = isChevronOnly
     ? "inline-flex h-7 w-5 items-center justify-center border-0 bg-transparent p-0 text-[#5f564a] transition hover:text-app-text focus:outline-none focus-visible:ring-0"
     : compact
-    ? `inline-flex h-11 min-w-0 items-center gap-1.5 rounded-[14px] border border-app-border bg-white/92 px-3 text-left text-[15px] font-medium tracking-[-0.02em] text-[#5f564a] transition hover:bg-[#f8f3eb] ${fullWidth ? "w-full justify-between" : ""}`
-    : `inline-flex h-10 min-w-0 items-center gap-2 rounded-lg border border-app-border bg-app-panel-strong px-3 text-left text-[15px] font-medium tracking-[-0.02em] text-[#5f564a] transition hover:bg-app-panel-soft ${fullWidth ? "w-full justify-between" : "sm:max-w-[320px]"}`;
+    ? `inline-flex h-10 min-w-0 items-center gap-1.5 rounded-[8px] border border-app-border bg-white/92 px-3 text-left text-[14px] font-medium tracking-[-0.02em] text-[#5f564a] transition hover:bg-[#f8f3eb] ${fullWidth ? "w-full justify-between" : ""}`
+    : `inline-flex h-10 min-w-0 items-center gap-2 rounded-[8px] border border-app-border bg-app-panel-strong px-3 text-left text-[14px] font-medium tracking-[-0.02em] text-[#5f564a] transition hover:bg-app-panel-soft ${fullWidth ? "w-full justify-between" : "sm:max-w-[320px]"}`;
   const menuPositionClassName = compact
     ? menuPlacement === "bottom"
       ? "top-[calc(100%+10px)]"
@@ -97,11 +97,11 @@ export function ModelSelect({
     compact
       ? cn(
           sidebarMenuItemClass,
-          "w-full justify-between bg-app-panel-strong py-3 text-[15px] font-medium tracking-[-0.02em] text-[#5f564a] hover:bg-app-panel-soft",
+          "h-10 w-full justify-between bg-app-panel-strong px-3 py-0 text-[14px] font-medium tracking-[-0.02em] text-[#5f564a] hover:bg-app-panel-soft",
         )
       : cn(
           sidebarMenuItemClass,
-          "w-full justify-between py-3 text-[15px] font-medium tracking-[-0.02em]",
+          "h-10 w-full justify-between px-3 py-0 text-[14px] font-medium tracking-[-0.02em]",
           active
             ? "bg-app-panel-soft text-[#5f564a]"
             : "bg-app-panel-strong text-[#5f564a] hover:bg-app-panel-soft",

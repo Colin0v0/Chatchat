@@ -2,7 +2,7 @@ import { Check, ChevronDown } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { ModelOption, ReasoningProfileValue } from "../../../types";
-import { cn, sidebarMenuItemClass, sidebarMenuPanelClass } from "../../workspace/ui/sidebar/styles";
+import { cn, sidebarMenuPanelClass } from "../../workspace/ui/sidebar/styles";
 import {
   normalizeReasoningProfileForModel,
   reasoningProfileLabelForModel,
@@ -68,9 +68,9 @@ export function ReasoningProfileSelect({
   const isGhost = triggerStyle === "ghost";
   const buttonClassName = compact
     ? isGhost
-      ? `inline-flex h-11 min-w-0 items-center bg-transparent px-0 py-0 text-left text-[15px] font-medium tracking-[-0.02em] text-[#5f564a] transition hover:text-app-text ${fullWidth ? "w-full justify-between" : ""}`
-      : `inline-flex h-11 min-w-0 items-center rounded-[14px] border border-app-border bg-white/92 px-3 text-left text-[15px] font-medium tracking-[-0.02em] text-[#5f564a] transition hover:bg-[#f8f3eb] ${fullWidth ? "w-full justify-between" : ""}`
-    : `inline-flex h-10 min-w-0 items-center rounded-lg border border-app-border bg-app-panel-strong px-3 text-left text-[15px] font-medium tracking-[-0.02em] text-[#5f564a] transition hover:bg-app-panel-soft ${fullWidth ? "w-full justify-between" : ""}`;
+      ? `inline-flex h-10 min-w-0 items-center bg-transparent px-0 py-0 text-left text-[14px] font-medium tracking-[-0.02em] text-[#5f564a] transition hover:text-app-text ${fullWidth ? "w-full justify-between" : ""}`
+      : `inline-flex h-10 min-w-0 items-center rounded-[8px] border border-app-border bg-white/92 px-3 text-left text-[14px] font-medium tracking-[-0.02em] text-[#5f564a] transition hover:bg-[#f8f3eb] ${fullWidth ? "w-full justify-between" : ""}`
+    : `inline-flex h-10 min-w-0 items-center rounded-[8px] border border-app-border bg-app-panel-strong px-3 text-left text-[14px] font-medium tracking-[-0.02em] text-[#5f564a] transition hover:bg-app-panel-soft ${fullWidth ? "w-full justify-between" : ""}`;
   const menuPositionClassName = compact
     ? menuPlacement === "bottom"
       ? "top-[calc(100%+10px)]"
@@ -84,12 +84,11 @@ export function ReasoningProfileSelect({
   const itemClassName = (active: boolean) =>
     compact
       ? cn(
-          sidebarMenuItemClass,
-          "w-full justify-between bg-app-panel-strong py-3 text-[15px] font-medium tracking-[-0.02em] text-[#5f564a] hover:bg-app-panel-soft",
+          "flex h-10 w-full items-center justify-between gap-2 whitespace-nowrap px-3 text-left text-[14px] font-medium tracking-[-0.02em] transition-colors focus:outline-none focus-visible:outline-none",
+          "bg-app-panel-strong text-[#5f564a] hover:bg-app-panel-soft",
         )
       : cn(
-          sidebarMenuItemClass,
-          "w-full justify-between py-3 text-[15px] font-medium tracking-[-0.02em]",
+          "flex h-10 w-full items-center justify-between gap-2 whitespace-nowrap px-3 text-left text-[14px] font-medium tracking-[-0.02em] transition-colors focus:outline-none focus-visible:outline-none",
           active
             ? "bg-app-panel-soft text-[#5f564a]"
             : "bg-app-panel-strong text-[#5f564a] hover:bg-app-panel-soft",

@@ -72,6 +72,13 @@ class Settings(BaseSettings):
     openai_base_url: str = "https://api.openai.com/v1"
     openai_api_key: str = ""
     openai_model_allowlist: str = ""
+    openai_image_base_url: str = ""
+    openai_image_api_key: str = ""
+    openai_image_model: str = "gpt-image-2"
+    openai_image_size: str = "1024x1024"
+    openai_image_quality: str = "auto"
+    openai_image_output_format: str = "png"
+    openai_image_timeout_seconds: float = 180.0
     trio_base_url: str = "https://pytrio.cn/api/v1"
     trio_api_key: str = ""
     trio_model_path: str = ""
@@ -82,6 +89,7 @@ class Settings(BaseSettings):
     codex_base_url: str = "https://api.openai.com/v1"
     codex_api_key: str = ""
     codex_model_allowlist: str = ""
+    codex_use_responses_api: bool = False
     gemini_base_url: str = "https://generativelanguage.googleapis.com"
     gemini_api_key: str = ""
     gemini_model_allowlist: str = ""
@@ -112,6 +120,11 @@ class Settings(BaseSettings):
     audio_transcription_eager_load: bool = False
     audio_transcription_model: str = "iic/SenseVoiceSmall"
     audio_transcription_device: str = "cpu"
+    audio_transcription_language: str = "zh"
+    audio_transcription_vad_model: str = "fsmn-vad"
+    audio_transcription_min_duration_ms: int = 300
+    audio_transcription_min_rms_dbfs: float = -65.0
+    audio_transcription_allowed_languages: str = "zh,en"
     audio_max_upload_size_bytes: int = 25 * 1024 * 1024
     local_model_idle_timeout_seconds: float = 60.0
     request_timeout_seconds: float = 180.0

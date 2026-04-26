@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 
 from ..auth import require_current_user
@@ -8,6 +10,7 @@ from ..core.config import settings
 from ..schemas import AudioTranscriptionOut
 
 router = APIRouter(prefix="/api/audio", tags=["audio"])
+logger = logging.getLogger("chatchat.audio")
 
 
 @router.post("/transcribe", response_model=AudioTranscriptionOut)
@@ -19,6 +22,12 @@ async def transcribe_audio(
     services = get_audio_services(request)
     payload = await file.read()
     await file.close()
+    logger.info(
+        "audio upload received | filename=%s | content_type=%s | bytes=%s",
+        file.filename,
+        file.content_type,
+        len(payload),
+    )
     if not payload:
         raise HTTPException(status_code=400, detail="Audio file is empty.")
     if len(payload) > settings.audio_max_upload_size_bytes:

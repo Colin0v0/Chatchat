@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import type { ComposerAttachmentDraft } from "../model/useComposerAttachments";
-import type { ModelOption, ReasoningProfileValue, ToolMode } from "../../../types";
+import type { ComposerMode, ModelOption, ReasoningProfileValue, ToolMode } from "../../../types";
 import { ChatComposer } from "./ChatComposer";
 
 const BASE_TYPEWRITER_MS = 42;
@@ -18,6 +18,8 @@ interface LandingViewProps {
   isTranscribing: boolean;
   model: string;
   models: ModelOption[];
+  composerMode: ComposerMode;
+  imageSize: string;
   reasoningProfile: ReasoningProfileValue;
   toolMode: ToolMode;
   submitBlocked: boolean;
@@ -27,11 +29,14 @@ interface LandingViewProps {
   onAnimationComplete: () => void;
   onChangeDraft: (value: string) => void;
   onModelChange: (value: string) => void;
+  onComposerModeChange: (value: ComposerMode) => void;
+  onImageSizeChange: (value: string) => void;
   onReasoningProfileChange: (value: ReasoningProfileValue) => void;
   onRemoveDraftAttachment: (attachmentId: string) => void;
   onSelectAttachments: (files: FileList | File[]) => void;
   onSend: () => void;
   onStop: () => void;
+  onNewDebate: () => void;
   onToggleRecording: () => void;
   onToggleRag: () => void;
   onToggleWeb: () => void;
@@ -53,6 +58,8 @@ export function LandingView({
   isTranscribing,
   model,
   models,
+  composerMode,
+  imageSize,
   reasoningProfile,
   toolMode,
   submitBlocked,
@@ -62,11 +69,14 @@ export function LandingView({
   onAnimationComplete,
   onChangeDraft,
   onModelChange,
+  onComposerModeChange,
+  onImageSizeChange,
   onReasoningProfileChange,
   onRemoveDraftAttachment,
   onSelectAttachments,
   onSend,
   onStop,
+  onNewDebate,
   onToggleRecording,
   onToggleRag,
   onToggleWeb,
@@ -105,8 +115,8 @@ export function LandingView({
   return (
     <section className="flex min-h-0 flex-1 flex-col pb-1">
       <div className="flex min-h-0 flex-1 overflow-hidden pt-4">
-        <div className="mx-auto flex min-h-0 w-full max-w-[920px] items-center justify-center px-4 md:px-6">
-          <h1 className="text-center text-[36px] font-semibold leading-none tracking-[-0.06em] md:text-[56px]">
+        <div className="flex min-h-0 w-full max-w-[920px] items-center justify-center px-3 md:mx-auto md:px-6">
+          <h1 className="max-w-[360px] text-center text-[34px] font-semibold leading-[1.06] tracking-[-0.06em] md:max-w-none md:text-[56px] md:leading-none">
             <span>{visibleTitle}</span>
             {showCaret ? (
               <span className="ml-1 inline-block h-[0.92em] w-[0.08em] translate-y-[0.06em] animate-pulse bg-current align-baseline" />
@@ -115,7 +125,7 @@ export function LandingView({
         </div>
       </div>
 
-      <div className="mx-auto w-full max-w-[920px] px-4 pt-2 md:px-6">
+      <div className="mx-auto w-full max-w-[920px] px-3 pt-2 md:px-6">
         <ChatComposer
           centered={false}
           attachmentUploadAvailable={attachmentUploadAvailable}
@@ -125,11 +135,16 @@ export function LandingView({
           isTranscribing={isTranscribing}
           model={model}
           models={models}
+          composerMode={composerMode}
+          imageSize={imageSize}
           onChange={onChangeDraft}
+          onComposerModeChange={onComposerModeChange}
+          onImageSizeChange={onImageSizeChange}
           onModelChange={onModelChange}
           onReasoningProfileChange={onReasoningProfileChange}
           onRemoveAttachment={onRemoveDraftAttachment}
           onSelectAttachments={onSelectAttachments}
+          onNewDebate={onNewDebate}
           onStop={onStop}
           onSubmit={onSend}
           onToggleRecording={onToggleRecording}

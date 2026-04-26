@@ -22,6 +22,7 @@ export function DesktopSidebar({ open, onToggleSidebar, ...contentProps }: Sideb
           onOpenSettings={contentProps.onOpenSettings}
           onToggle={onToggleSidebar}
           open={open}
+          settingsActive={contentProps.settingsActive}
         />
       </div>
     </>

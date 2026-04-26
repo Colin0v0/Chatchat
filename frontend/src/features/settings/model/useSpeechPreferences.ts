@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 export interface SpeechPreferences {
-  voiceURI: string | null;
+  chineseVoiceURI: string | null;
+  englishVoiceURI: string | null;
   rate: number;
   autoPlayAssistant: boolean;
 }
@@ -10,7 +11,8 @@ const STORAGE_KEY = "chatchat.speech-preferences";
 const UPDATED_EVENT = "chatchat:speech-preferences-updated";
 
 const DEFAULT_PREFERENCES: SpeechPreferences = {
-  voiceURI: null,
+  chineseVoiceURI: null,
+  englishVoiceURI: null,
   rate: 1,
   autoPlayAssistant: false,
 };
@@ -30,9 +32,18 @@ function clampRate(value: number) {
   return Math.min(1.6, Math.max(0.7, value));
 }
 
-function normalizePreferences(value: Partial<SpeechPreferences> | null | undefined): SpeechPreferences {
+type StoredSpeechPreferences = Partial<SpeechPreferences> & {
+  voiceURI?: string | null;
+};
+
+function normalizeVoiceURI(value: unknown) {
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function normalizePreferences(value: StoredSpeechPreferences | null | undefined): SpeechPreferences {
   return {
-    voiceURI: typeof value?.voiceURI === "string" && value.voiceURI.trim() ? value.voiceURI : null,
+    chineseVoiceURI: normalizeVoiceURI(value?.chineseVoiceURI),
+    englishVoiceURI: normalizeVoiceURI(value?.englishVoiceURI),
     rate: clampRate(typeof value?.rate === "number" ? value.rate : DEFAULT_PREFERENCES.rate),
     autoPlayAssistant:
       typeof value?.autoPlayAssistant === "boolean"
@@ -51,7 +62,7 @@ function readStoredPreferences(): SpeechPreferences {
     if (!raw) {
       return DEFAULT_PREFERENCES;
     }
-    return normalizePreferences(JSON.parse(raw) as Partial<SpeechPreferences>);
+    return normalizePreferences(JSON.parse(raw) as StoredSpeechPreferences);
   } catch {
     return DEFAULT_PREFERENCES;
   }
@@ -151,15 +162,20 @@ export function useSpeechPreferences() {
     });
   }, []);
 
-  const selectedVoice = useMemo(
-    () => voices.find((voice) => voice.voiceURI === preferences.voiceURI) ?? null,
-    [preferences.voiceURI, voices],
+  const selectedChineseVoice = useMemo(
+    () => voices.find((voice) => voice.voiceURI === preferences.chineseVoiceURI) ?? null,
+    [preferences.chineseVoiceURI, voices],
+  );
+  const selectedEnglishVoice = useMemo(
+    () => voices.find((voice) => voice.voiceURI === preferences.englishVoiceURI) ?? null,
+    [preferences.englishVoiceURI, voices],
   );
 
   return {
     isSupported,
     preferences,
-    selectedVoice,
+    selectedChineseVoice,
+    selectedEnglishVoice,
     setAutoPlayAssistant: useCallback(
       (value: boolean) => updatePreferences({ autoPlayAssistant: value }),
       [updatePreferences],
@@ -168,8 +184,12 @@ export function useSpeechPreferences() {
       (value: number) => updatePreferences({ rate: clampRate(value) }),
       [updatePreferences],
     ),
-    setVoiceURI: useCallback(
-      (value: string | null) => updatePreferences({ voiceURI: value }),
+    setChineseVoiceURI: useCallback(
+      (value: string | null) => updatePreferences({ chineseVoiceURI: value }),
+      [updatePreferences],
+    ),
+    setEnglishVoiceURI: useCallback(
+      (value: string | null) => updatePreferences({ englishVoiceURI: value }),
       [updatePreferences],
     ),
     voices,

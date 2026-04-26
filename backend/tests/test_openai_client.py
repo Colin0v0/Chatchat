@@ -1,3 +1,4 @@
+import json
 import unittest
 
 import httpx
@@ -96,6 +97,31 @@ class OpenAIClientStreamParsingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             _decode_responses_stream_payload('{"type":"response.completed"}'),
             {"done": True},
+        )
+
+    def test_decode_responses_stream_payload_extracts_completed_response_output(self):
+        payload = {
+            "type": "response.completed",
+            "response": {
+                "output": [
+                    {"type": "reasoning", "summary": [{"type": "summary_text", "text": "plan"}]},
+                    {
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [{"type": "output_text", "text": "answer"}],
+                    },
+                ]
+            },
+        }
+
+        self.assertEqual(
+            _decode_responses_stream_payload(json.dumps(payload)),
+            {
+                "done": True,
+                "message": {"content": "answer"},
+                "reasoning": {"content": "plan"},
+                "_snapshot": True,
+            },
         )
 
     def test_extract_responses_output_collects_message_and_reasoning_summary(self):
