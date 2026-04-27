@@ -1,3 +1,3 @@
-﻿from .tavily import TavilyProvider
+from .dashscope import DashScopeWebSearchProvider
 
-__all__ = ["TavilyProvider"]
+__all__ = ["DashScopeWebSearchProvider"]
