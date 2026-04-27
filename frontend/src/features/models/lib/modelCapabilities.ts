@@ -48,8 +48,6 @@ export function nativeMultimodalLabel(model: ModelOption): string | null {
       return "原生图像文档";
     case "claude":
       return "原生图像/PDF";
-    case "local":
-      return "原生文件引用";
     default:
       return hasCapabilityData(model) ? "附件上下文" : "附件支持";
   }
@@ -72,9 +70,6 @@ export function providerBadgeLabel(model: ModelOption): string | null {
   }
   if (provider === "gemini") {
     return "Google";
-  }
-  if (provider === "openai_local") {
-    return "OpenAI Relay";
   }
   if (provider === "trio") {
     return "Trio Relay";

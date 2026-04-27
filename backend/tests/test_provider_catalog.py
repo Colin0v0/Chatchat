@@ -1,3 +1,4 @@
+from app.core.config import settings
 from app.providers.catalog import build_model_options, resolve_model_profile, resolve_reasoning_profile
 
 
@@ -47,15 +48,20 @@ def test_reasoning_profile_explicit_request_wins_over_boolean_toggle():
 
 def test_deepseek_models_do_not_expose_reasoning_selection():
     options = build_model_options()
+    profile = resolve_model_profile("openai:deepseek-v4-flash")
 
-    deepseek_reasoner = next(option for option in options if option["id"] == "openai:deepseek-reasoner")
-    deepseek_chat = next(option for option in options if option["id"] == "openai:deepseek-chat")
+    deepseek_reasoner = next(option for option in options if option["id"] == "openai:deepseek-v4-pro")
+    deepseek_chat = next(option for option in options if option["id"] == "openai:deepseek-v4-flash")
 
+    assert profile is not None
+    assert profile.chat_base_url == settings.deepseek_base_url
     assert deepseek_reasoner["reasoning_control"] == "none"
     assert deepseek_reasoner["default_reasoning_profile"] == "off"
     assert deepseek_reasoner["capabilities"]["reasoning"]["visibility"] == "full"
+    assert deepseek_reasoner["capabilities"]["input"]["image"] is False
     assert deepseek_chat["reasoning_control"] == "none"
     assert deepseek_chat["capabilities"]["reasoning"]["visibility"] == "summary"
+    assert deepseek_chat["capabilities"]["input"]["image"] is False
 
 
 def test_reasoning_profile_rejects_unsupported_off_profile_by_falling_back_to_default():

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
+from typing import Optional
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from sqlalchemy.orm import Session
 
 from ..auth import require_current_user
@@ -8,8 +10,13 @@ from ..chat.state import get_chat_services
 from ..schemas import (
     KnowledgeBatchDeleteIn,
     KnowledgeBatchDeleteResult,
+    KnowledgeBatchMoveIn,
+    KnowledgeBatchMoveResult,
     KnowledgeBatchUploadResult,
     KnowledgeDocumentOut,
+    KnowledgeFolderCreate,
+    KnowledgeFolderDeleteIn,
+    KnowledgeFolderDeleteResult,
     KnowledgeReindexResult,
     KnowledgeStatusOut,
 )
@@ -29,6 +36,55 @@ def list_knowledge_documents(
     return services.knowledge_service.list_documents(db=db, user_id=current_user.id)
 
 
+@router.get("/folders", response_model=list[str])
+def list_knowledge_folders(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
+    services = get_chat_services(request)
+    return services.knowledge_service.list_folders(db=db, user_id=current_user.id)
+
+
+@router.post("/folders", response_model=str, status_code=status.HTTP_201_CREATED)
+def create_knowledge_folder(
+    payload: KnowledgeFolderCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
+    services = get_chat_services(request)
+    try:
+        return services.knowledge_service.create_folder(
+            db=db,
+            user_id=current_user.id,
+            name=payload.name,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.delete("/folders", response_model=KnowledgeFolderDeleteResult)
+def delete_knowledge_folder(
+    payload: KnowledgeFolderDeleteIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
+    services = get_chat_services(request)
+    try:
+        result = services.knowledge_service.delete_folder(
+            db=db,
+            user_id=current_user.id,
+            name=payload.name,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if result is None:
+        raise HTTPException(status_code=404, detail="Knowledge folder not found")
+    return KnowledgeFolderDeleteResult(**result)
+
+
 @router.get("/status", response_model=KnowledgeStatusOut)
 def get_knowledge_status(
     request: Request,
@@ -43,6 +99,8 @@ def get_knowledge_status(
 async def upload_knowledge_document(
     request: Request,
     file: UploadFile = File(...),
+    folder: str = Form(""),
+    relative_path: str = Form(""),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_current_user),
 ):
@@ -52,6 +110,8 @@ async def upload_knowledge_document(
             db=db,
             user_id=current_user.id,
             upload=file,
+            folder=folder,
+            relative_path=relative_path,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -61,6 +121,8 @@ async def upload_knowledge_document(
 async def upload_knowledge_documents_batch(
     request: Request,
     files: list[UploadFile] = File(...),
+    folder: str = Form(""),
+    relative_paths: Optional[list[str]] = Form(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_current_user),
 ):
@@ -70,6 +132,8 @@ async def upload_knowledge_documents_batch(
             db=db,
             user_id=current_user.id,
             uploads=files,
+            folder=folder,
+            relative_paths=relative_paths or [],
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -146,4 +210,27 @@ def delete_knowledge_documents_batch(
     return KnowledgeBatchDeleteResult(
         deleted_count=len(deleted_ids),
         deleted_ids=deleted_ids,
+    )
+
+
+@router.patch("/documents/folder", response_model=KnowledgeBatchMoveResult)
+def move_knowledge_documents_folder(
+    payload: KnowledgeBatchMoveIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
+    services = get_chat_services(request)
+    try:
+        documents = services.knowledge_service.move_documents(
+            db=db,
+            user_id=current_user.id,
+            document_ids=payload.document_ids,
+            folder=payload.folder,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return KnowledgeBatchMoveResult(
+        moved_count=len(documents),
+        documents=documents,
     )

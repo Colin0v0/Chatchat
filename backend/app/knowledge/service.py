@@ -19,11 +19,11 @@ from ..retrieval.rag.model_reranker import ModelReranker
 from ..retrieval.rag.neighbors import expand_neighbor_chunks
 from ..retrieval.rag.query_filters import chunk_matches_filters, parse_query_filters
 from ..retrieval.rag.retriever import HybridRetriever
-from ..retrieval.rag.text import tokenize_text
+from ..retrieval.rag.text import normalize_path_fragment, tokenize_text
 from ..retrieval.rag.types import MarkdownDocument, QueryFilters, RagChunk, RetrievalCandidate
 from ..retrieval.types import ContextEntry, ContextPayload, SourceItem
 from ..storage.database import SessionLocal
-from ..storage.models import KnowledgeChunk, KnowledgeDocument
+from ..storage.models import KnowledgeChunk, KnowledgeDocument, KnowledgeFolder
 
 
 logger = logging.getLogger("chatchat.knowledge")
@@ -32,6 +32,8 @@ logger = logging.getLogger("chatchat.knowledge")
 @dataclass(frozen=True)
 class PendingKnowledgeUpload:
     title: str
+    folder: str
+    path: str
     mime_type: str
     extension: str
     size_bytes: int
@@ -76,6 +78,91 @@ class KnowledgeService:
             ).all()
         )
 
+    def list_folders(self, *, db: Session, user_id: int) -> list[str]:
+        saved_folders = set(
+            db.scalars(
+                select(KnowledgeFolder.name).where(KnowledgeFolder.user_id == user_id)
+            ).all()
+        )
+        document_folders = set(
+            db.scalars(
+                select(KnowledgeDocument.folder).where(
+                    KnowledgeDocument.user_id == user_id,
+                    KnowledgeDocument.folder != "",
+                )
+            ).all()
+        )
+        return sorted(
+            folder for folder in saved_folders.union(document_folders) if folder
+        )
+
+    def create_folder(self, *, db: Session, user_id: int, name: str) -> str:
+        folder = self._sanitize_folder(name)
+        if not folder:
+            raise ValueError("Folder name is required.")
+        if len(folder) > 255:
+            raise ValueError("Folder names must be 255 characters or shorter.")
+        self._ensure_folder(db=db, user_id=user_id, folder=folder, commit=True)
+        return folder
+
+    def delete_folder(self, *, db: Session, user_id: int, name: str) -> dict[str, int | str] | None:
+        folder = self._sanitize_folder(name)
+        if not folder:
+            raise ValueError("Default folder cannot be deleted.")
+
+        folder_model = db.scalar(
+            select(KnowledgeFolder).where(
+                KnowledgeFolder.user_id == user_id,
+                KnowledgeFolder.name == folder,
+            )
+        )
+        documents = list(
+            db.scalars(
+                select(KnowledgeDocument)
+                .options(selectinload(KnowledgeDocument.chunks))
+                .where(
+                    KnowledgeDocument.user_id == user_id,
+                    KnowledgeDocument.folder == folder,
+                )
+                .order_by(KnowledgeDocument.id.asc())
+            ).all()
+        )
+        if folder_model is None and not documents:
+            return None
+
+        moving_titles = [document.title for document in documents]
+        if len(moving_titles) != len(set(moving_titles)):
+            raise ValueError("Deleting this folder would create duplicate document names in the default group.")
+        existing_default_titles = set(
+            db.scalars(
+                select(KnowledgeDocument.title).where(
+                    KnowledgeDocument.user_id == user_id,
+                    KnowledgeDocument.folder == "",
+                    KnowledgeDocument.title.in_(moving_titles),
+                )
+            ).all()
+        )
+        if existing_default_titles:
+            raise ValueError(
+                "Deleting this folder would create duplicate paths in the default group: "
+                + ", ".join(sorted(existing_default_titles))
+            )
+
+        for document in documents:
+            document.folder = ""
+            db.add(document)
+            for chunk in document.chunks:
+                chunk.path = document.path
+                chunk.directory = ""
+                db.add(chunk)
+        if folder_model is not None:
+            db.delete(folder_model)
+        db.commit()
+        return {
+            "folder": folder,
+            "moved_document_count": len(documents),
+        }
+
     def status(self, *, db: Session, user_id: int) -> dict[str, int]:
         counts = db.execute(
             select(
@@ -109,8 +196,18 @@ class KnowledgeService:
         db: Session,
         user_id: int,
         upload: UploadFile,
+        folder: str = "",
+        relative_path: str = "",
     ) -> KnowledgeDocument:
-        return (await self.create_documents(db=db, user_id=user_id, uploads=[upload]))[0]
+        return (
+            await self.create_documents(
+                db=db,
+                user_id=user_id,
+                uploads=[upload],
+                folder=folder,
+                relative_paths=[relative_path] if relative_path else [],
+            )
+        )[0]
 
     async def create_documents(
         self,
@@ -118,17 +215,30 @@ class KnowledgeService:
         db: Session,
         user_id: int,
         uploads: list[UploadFile],
+        folder: str = "",
+        relative_paths: list[str] | None = None,
     ) -> list[KnowledgeDocument]:
-        pending_uploads = [await self._read_upload(upload) for upload in uploads]
+        paths = relative_paths or []
+        pending_uploads = [
+            await self._read_upload(
+                upload,
+                folder=folder,
+                relative_path=paths[index] if index < len(paths) else "",
+            )
+            for index, upload in enumerate(uploads)
+        ]
         self._validate_upload_batch(db=db, user_id=user_id, pending_uploads=pending_uploads)
 
         created_documents: list[KnowledgeDocument] = []
         written_paths: list[Path] = []
         try:
+            for folder_name in dict.fromkeys(pending.folder for pending in pending_uploads if pending.folder):
+                self._ensure_folder(db=db, user_id=user_id, folder=folder_name)
             for pending in pending_uploads:
                 document = KnowledgeDocument(
                     user_id=user_id,
                     title=pending.title,
+                    folder=pending.folder,
                     mime_type=pending.mime_type,
                     extension=pending.extension,
                     size_bytes=pending.size_bytes,
@@ -350,13 +460,87 @@ class KnowledgeService:
         db.commit()
         return deleted_ids, relative_paths
 
+    def move_documents(
+        self,
+        *,
+        db: Session,
+        user_id: int,
+        document_ids: list[int],
+        folder: str,
+    ) -> list[KnowledgeDocument]:
+        normalized_ids = [document_id for document_id in dict.fromkeys(document_ids) if isinstance(document_id, int)]
+        if not normalized_ids:
+            return []
+
+        target_folder = self._sanitize_folder(folder)
+        documents = list(
+            db.scalars(
+                select(KnowledgeDocument)
+                .options(selectinload(KnowledgeDocument.chunks))
+                .where(
+                    KnowledgeDocument.user_id == user_id,
+                    KnowledgeDocument.id.in_(normalized_ids),
+                )
+                .order_by(KnowledgeDocument.id.asc())
+            ).all()
+        )
+        if not documents:
+            return []
+
+        target_paths = [
+            self._document_path_for(folder=target_folder, title=document.title)
+            for document in documents
+        ]
+        if len(target_paths) != len(set(target_paths)):
+            raise ValueError("Moving these documents would create duplicate paths.")
+
+        existing_documents = list(
+            db.scalars(
+                select(KnowledgeDocument).where(
+                    KnowledgeDocument.user_id == user_id,
+                    KnowledgeDocument.id.notin_([document.id for document in documents]),
+                )
+            ).all()
+        )
+        existing_paths = {document.path for document in existing_documents}
+        duplicated = sorted(path for path in target_paths if path in existing_paths)
+        if duplicated:
+            raise ValueError("These knowledge paths already exist: " + ", ".join(duplicated))
+
+        for document in documents:
+            document.folder = target_folder
+            db.add(document)
+            for chunk in document.chunks:
+                chunk.path = document.path
+                chunk.directory = target_folder
+                db.add(chunk)
+        self._ensure_folder(db=db, user_id=user_id, folder=target_folder)
+
+        db.commit()
+        for document in documents:
+            db.refresh(document)
+        return documents
+
+    def _document_path_for(self, *, folder: str, title: str) -> str:
+        path = f"{folder}/{title}" if folder else title
+        if len(path) > 255:
+            raise ValueError("Knowledge document paths must be 255 characters or shorter.")
+        return path
+
     def remove_files(self, relative_paths: list[str]) -> None:
         for relative_path in relative_paths:
             self.remove_file(relative_path)
 
-    async def _read_upload(self, upload: UploadFile) -> PendingKnowledgeUpload:
+    async def _read_upload(
+        self,
+        upload: UploadFile,
+        *,
+        folder: str,
+        relative_path: str,
+    ) -> PendingKnowledgeUpload:
         filename = (upload.filename or "").strip()
-        extension = Path(filename).suffix.lower()
+        upload_path = self._resolve_upload_path(filename=filename, folder=folder, relative_path=relative_path)
+        extension = Path(upload_path).suffix.lower()
         content = await upload.read()
         await upload.close()
 
@@ -369,15 +553,70 @@ class KnowledgeService:
                 f"Markdown files must be {self._max_file_size_bytes // (1024 * 1024)} MB or smaller."
             )
 
-        title = filename or "document.md"
+        title = Path(upload_path).name or "document.md"
+        document_folder = upload_path.rsplit("/", 1)[0] if "/" in upload_path else ""
         return PendingKnowledgeUpload(
             title=title,
+            folder=document_folder,
+            path=upload_path,
             mime_type=(upload.content_type or "text/markdown").strip() or "text/markdown",
             extension=extension,
             size_bytes=len(content),
             sha1=hashlib.sha1(content).hexdigest(),
             content=content,
         )
+
+    def _resolve_upload_path(self, *, filename: str, folder: str, relative_path: str) -> str:
+        base_folder = self._sanitize_folder(folder)
+        candidate = self._sanitize_relative_path(relative_path) or self._sanitize_relative_path(filename)
+        if not candidate:
+            candidate = "document.md"
+        if base_folder:
+            candidate = f"{base_folder}/{candidate}"
+        if len(candidate) > 255:
+            raise ValueError("Knowledge document paths must be 255 characters or shorter.")
+        return candidate
+
+    def _sanitize_folder(self, value: str) -> str:
+        return self._sanitize_relative_path(value)
+
+    def _ensure_folder(
+        self,
+        *,
+        db: Session,
+        user_id: int,
+        folder: str,
+        commit: bool = False,
+    ) -> KnowledgeFolder | None:
+        folder_name = self._sanitize_folder(folder)
+        if not folder_name:
+            return None
+        existing = db.scalar(
+            select(KnowledgeFolder).where(
+                KnowledgeFolder.user_id == user_id,
+                KnowledgeFolder.name == folder_name,
+            )
+        )
+        if existing is not None:
+            return existing
+        knowledge_folder = KnowledgeFolder(user_id=user_id, name=folder_name)
+        db.add(knowledge_folder)
+        if commit:
+            db.commit()
+            db.refresh(knowledge_folder)
+        else:
+            db.flush()
+        return knowledge_folder
+
+    def _sanitize_relative_path(self, value: str) -> str:
+        raw_parts = str(value or "").replace("\\", "/").split("/")
+        parts: list[str] = []
+        for raw_part in raw_parts:
+            part = raw_part.strip()
+            if not part or part in {".", ".."}:
+                continue
+            parts.append(part[:255])
+        return "/".join(parts).strip("/")
 
     def _validate_upload_batch(
         self,
@@ -389,9 +628,9 @@ class KnowledgeService:
         if not pending_uploads:
             raise ValueError("Select at least one Markdown file.")
 
-        titles = [upload.title for upload in pending_uploads]
-        if len(titles) != len(set(titles)):
-            raise ValueError("Batch upload contains duplicate filenames.")
+        paths = [upload.path for upload in pending_uploads]
+        if len(paths) != len(set(paths)):
+            raise ValueError("Batch upload contains duplicate knowledge paths.")
 
         document_count, total_size_bytes = db.execute(
             select(
@@ -406,18 +645,16 @@ class KnowledgeService:
         if next_total_size > self._max_total_size_bytes:
             raise ValueError("Uploading these files would exceed your knowledge storage limit.")
 
-        existing_titles = set(
+        existing_documents = list(
             db.scalars(
-                select(KnowledgeDocument.title).where(
-                    KnowledgeDocument.user_id == user_id,
-                    KnowledgeDocument.title.in_(titles),
-                )
+                select(KnowledgeDocument).where(KnowledgeDocument.user_id == user_id)
             ).all()
         )
-        if existing_titles:
-            duplicated = sorted(existing_titles)
+        existing_paths = {document.path for document in existing_documents}
+        duplicated = sorted(path for path in paths if path in existing_paths)
+        if duplicated:
             raise ValueError(
-                "These Markdown filenames already exist: " + ", ".join(duplicated)
+                "These Markdown knowledge paths already exist: " + ", ".join(duplicated)
             )
 
     def remove_file(self, relative_path: str | None) -> None:
@@ -433,11 +670,12 @@ class KnowledgeService:
         db: Session,
         user_id: int,
         query: str,
+        folders: list[str] | None = None,
     ) -> ContextPayload:
         cleaned_query = query.strip()
         if not cleaned_query:
             return ContextPayload()
-        query_filters = parse_query_filters(cleaned_query)
+        query_filters = self._merge_scope_filters(parse_query_filters(cleaned_query), folders or [])
         retrieval_query = query_filters.cleaned_query or cleaned_query
 
         documents = self.list_documents(db=db, user_id=user_id)
@@ -562,7 +800,23 @@ class KnowledgeService:
                 "knowledge_context_chunk_count": len(context_chunk_pool),
                 "knowledge_rerank_enabled": self._reranker.enabled,
                 "knowledge_rerank_reason": self._reranker.disabled_reason or "active",
+                "knowledge_scope_folders": list(query_filters.folders),
             },
+        )
+
+    def _merge_scope_filters(self, query_filters: QueryFilters, folders: list[str]) -> QueryFilters:
+        normalized_folders: list[str] = []
+        for folder in folders:
+            raw_folder = str(folder).strip()
+            normalized = "" if raw_folder == "__root__" else normalize_path_fragment(folder)
+            if normalized or raw_folder in {"", "__root__"}:
+                normalized_folders.append(normalized)
+        merged_folders = tuple(dict.fromkeys([*query_filters.folders, *normalized_folders]))
+        return QueryFilters(
+            cleaned_query=query_filters.cleaned_query,
+            folders=merged_folders,
+            paths=query_filters.paths,
+            tags=query_filters.tags,
         )
 
     async def _index_document(
@@ -573,7 +827,7 @@ class KnowledgeService:
         content: str,
     ) -> KnowledgeDocument:
         markdown_document = MarkdownDocument(
-            path=document.title,
+            path=document.path,
             content=content,
             signature=document.sha1,
         )
@@ -809,16 +1063,19 @@ class KnowledgeService:
         lower_tags = func.lower(KnowledgeChunk.tags_json)
 
         if query_filters.folders:
-            clauses.append(
-                or_(
-                    *[
-                        or_(
-                            lower_directory == folder,
-                            lower_directory.like(self._folder_prefix_pattern(folder), escape="\\"),
-                        )
-                        for folder in query_filters.folders
-                    ]
+            folder_clauses = []
+            for folder in query_filters.folders:
+                if folder == "":
+                    folder_clauses.append(lower_directory == "")
+                    continue
+                folder_clauses.append(
+                    or_(
+                        lower_directory == folder,
+                        lower_directory.like(self._folder_prefix_pattern(folder), escape="\\"),
+                    )
                 )
+            clauses.append(
+                or_(*folder_clauses)
             )
 
         if query_filters.paths:

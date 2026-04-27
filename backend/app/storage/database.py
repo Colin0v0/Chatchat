@@ -47,6 +47,10 @@ def initialize_storage() -> None:
         from . import models as _models  # noqa: F401
 
         _validate_database_backend(engine.dialect.name)
+        if engine.dialect.name == "postgresql":
+            from .bootstrap import upgrade_alembic_head
+
+            upgrade_alembic_head()
         with engine.connect() as connection:
             vector_extension_ready = connection.execute(
                 text("SELECT 1 FROM pg_extension WHERE extname = 'vector'")

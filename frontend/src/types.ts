@@ -1,11 +1,12 @@
 export type Role = "user" | "assistant" | "system";
+export type ComposerMode = "chat" | "image";
 export type FeedbackValue = "up" | "down";
 export type ToolMode = "none" | "knowledge" | "search";
 export type ReasoningProfileValue = "off" | "auto" | "low" | "medium" | "high" | "max" | "provider_default";
 export type ReasoningControl = "none" | "toggle" | "effort" | "budget" | "prompt_tag";
 export type ReasoningVisibility = "none" | "summary" | "full";
 export type ReasoningContinuation = "none" | "stateful" | "signature";
-export type NativeMultimodalMode = "false" | "local" | "codex" | "gemini" | "claude";
+export type NativeMultimodalMode = "false" | "codex" | "gemini" | "claude";
 
 export interface MessageAttachment {
   id: number | string;
@@ -273,7 +274,14 @@ export interface ChatStreamRequest {
   files?: File[];
   model?: string | null;
   tool_mode: ToolMode;
+  knowledge_folders?: string[];
   reasoning_profile?: ReasoningProfileValue | null;
+}
+
+export interface ImageGenerationRequest {
+  conversation_id?: number | null;
+  prompt: string;
+  size?: string | null;
 }
 
 export interface DebateSessionCreateRequest {
@@ -309,6 +317,7 @@ export interface RegenerateChatRequest {
   edited_content?: string | null;
   model?: string | null;
   tool_mode: ToolMode;
+  knowledge_folders?: string[];
   reasoning_profile?: ReasoningProfileValue | null;
 }
 
@@ -317,6 +326,8 @@ export type KnowledgeDocumentStatus = "pending" | "indexing" | "ready" | "failed
 export interface KnowledgeDocument {
   id: number;
   title: string;
+  folder: string;
+  path: string;
   mime_type: string;
   extension: string;
   size_bytes: number;
@@ -357,6 +368,16 @@ export interface KnowledgeBatchUploadResult {
 export interface KnowledgeBatchDeleteResult {
   deleted_count: number;
   deleted_ids: number[];
+}
+
+export interface KnowledgeBatchMoveResult {
+  moved_count: number;
+  documents: KnowledgeDocument[];
+}
+
+export interface KnowledgeFolderDeleteResult {
+  folder: string;
+  moved_document_count: number;
 }
 
 export type MemoryScope = "working" | "global" | "conversation";
@@ -433,6 +454,18 @@ export interface AudioTranscriptionResult {
   text: string;
   language: string;
   duration_ms: number;
+  reason?: string | null;
+}
+
+export interface AudioSpeechResult {
+  url: string;
+  content_type: string;
+  model: string;
+  voice: string;
+  audio_id?: string | null;
+  expires_at?: number | null;
+  request_id?: string | null;
+  characters?: number | null;
 }
 
 type StreamResumeMetadata = {

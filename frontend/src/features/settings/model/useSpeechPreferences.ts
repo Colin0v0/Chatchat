@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { canUseSpeechSynthesis, unlockSpeechSynthesis } from "../../../lib/speechSynthesis";
+import { DEFAULT_CLOUD_VOICE_ID } from "./cloudVoices";
+
+export type SpeechPlaybackProvider = "cloud" | "local";
+
 export interface SpeechPreferences {
-  voiceURI: string | null;
+  playbackProvider: SpeechPlaybackProvider;
+  cloudVoice: string;
+  chineseVoiceURI: string | null;
+  englishVoiceURI: string | null;
   rate: number;
   autoPlayAssistant: boolean;
 }
@@ -10,18 +18,13 @@ const STORAGE_KEY = "chatchat.speech-preferences";
 const UPDATED_EVENT = "chatchat:speech-preferences-updated";
 
 const DEFAULT_PREFERENCES: SpeechPreferences = {
-  voiceURI: null,
+  playbackProvider: "cloud",
+  cloudVoice: DEFAULT_CLOUD_VOICE_ID,
+  chineseVoiceURI: null,
+  englishVoiceURI: null,
   rate: 1,
   autoPlayAssistant: false,
 };
-
-function canUseSpeechSynthesis() {
-  return (
-    typeof window !== "undefined"
-    && "speechSynthesis" in window
-    && "SpeechSynthesisUtterance" in window
-  );
-}
 
 function clampRate(value: number) {
   if (!Number.isFinite(value)) {
@@ -30,9 +33,27 @@ function clampRate(value: number) {
   return Math.min(1.6, Math.max(0.7, value));
 }
 
-function normalizePreferences(value: Partial<SpeechPreferences> | null | undefined): SpeechPreferences {
+type StoredSpeechPreferences = Partial<SpeechPreferences> & {
+  voiceURI?: string | null;
+};
+
+function normalizeVoiceURI(value: unknown) {
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function normalizePlaybackProvider(value: unknown): SpeechPlaybackProvider {
+  return value === "local" ? "local" : "cloud";
+}
+
+function normalizePreferences(value: StoredSpeechPreferences | null | undefined): SpeechPreferences {
   return {
-    voiceURI: typeof value?.voiceURI === "string" && value.voiceURI.trim() ? value.voiceURI : null,
+    playbackProvider: normalizePlaybackProvider(value?.playbackProvider),
+    cloudVoice:
+      typeof value?.cloudVoice === "string" && value.cloudVoice.trim()
+        ? value.cloudVoice
+        : DEFAULT_PREFERENCES.cloudVoice,
+    chineseVoiceURI: normalizeVoiceURI(value?.chineseVoiceURI),
+    englishVoiceURI: normalizeVoiceURI(value?.englishVoiceURI),
     rate: clampRate(typeof value?.rate === "number" ? value.rate : DEFAULT_PREFERENCES.rate),
     autoPlayAssistant:
       typeof value?.autoPlayAssistant === "boolean"
@@ -51,7 +72,7 @@ function readStoredPreferences(): SpeechPreferences {
     if (!raw) {
       return DEFAULT_PREFERENCES;
     }
-    return normalizePreferences(JSON.parse(raw) as Partial<SpeechPreferences>);
+    return normalizePreferences(JSON.parse(raw) as StoredSpeechPreferences);
   } catch {
     return DEFAULT_PREFERENCES;
   }
@@ -119,6 +140,35 @@ export function useSpeechPreferences() {
   }, [refreshVoices]);
 
   useEffect(() => {
+    if (!preferences.autoPlayAssistant || !canUseSpeechSynthesis()) {
+      return;
+    }
+
+    let removeActivationListeners = () => undefined;
+    const handleUserActivation = () => {
+      unlockSpeechSynthesis();
+      removeActivationListeners();
+    };
+    const activationOptions: AddEventListenerOptions = { capture: true, once: true, passive: true };
+    const keyboardOptions: AddEventListenerOptions = { capture: true, once: true };
+    const removeOptions: EventListenerOptions = { capture: true };
+
+    removeActivationListeners = () => {
+      window.removeEventListener("pointerdown", handleUserActivation, removeOptions);
+      window.removeEventListener("touchstart", handleUserActivation, removeOptions);
+      window.removeEventListener("mousedown", handleUserActivation, removeOptions);
+      window.removeEventListener("keydown", handleUserActivation, removeOptions);
+    };
+
+    window.addEventListener("pointerdown", handleUserActivation, activationOptions);
+    window.addEventListener("touchstart", handleUserActivation, activationOptions);
+    window.addEventListener("mousedown", handleUserActivation, activationOptions);
+    window.addEventListener("keydown", handleUserActivation, keyboardOptions);
+
+    return removeActivationListeners;
+  }, [preferences.autoPlayAssistant]);
+
+  useEffect(() => {
     function handleStorage(event: StorageEvent) {
       if (event.key !== STORAGE_KEY) {
         return;
@@ -151,25 +201,48 @@ export function useSpeechPreferences() {
     });
   }, []);
 
-  const selectedVoice = useMemo(
-    () => voices.find((voice) => voice.voiceURI === preferences.voiceURI) ?? null,
-    [preferences.voiceURI, voices],
+  const selectedChineseVoice = useMemo(
+    () => voices.find((voice) => voice.voiceURI === preferences.chineseVoiceURI) ?? null,
+    [preferences.chineseVoiceURI, voices],
+  );
+  const selectedEnglishVoice = useMemo(
+    () => voices.find((voice) => voice.voiceURI === preferences.englishVoiceURI) ?? null,
+    [preferences.englishVoiceURI, voices],
   );
 
   return {
     isSupported,
     preferences,
-    selectedVoice,
+    selectedChineseVoice,
+    selectedEnglishVoice,
     setAutoPlayAssistant: useCallback(
-      (value: boolean) => updatePreferences({ autoPlayAssistant: value }),
-      [updatePreferences],
+      (value: boolean) => {
+        if (value) {
+          unlockSpeechSynthesis();
+          refreshVoices();
+        }
+        updatePreferences({ autoPlayAssistant: value });
+      },
+      [refreshVoices, updatePreferences],
     ),
     setRate: useCallback(
       (value: number) => updatePreferences({ rate: clampRate(value) }),
       [updatePreferences],
     ),
-    setVoiceURI: useCallback(
-      (value: string | null) => updatePreferences({ voiceURI: value }),
+    setChineseVoiceURI: useCallback(
+      (value: string | null) => updatePreferences({ chineseVoiceURI: value }),
+      [updatePreferences],
+    ),
+    setEnglishVoiceURI: useCallback(
+      (value: string | null) => updatePreferences({ englishVoiceURI: value }),
+      [updatePreferences],
+    ),
+    setCloudVoice: useCallback(
+      (value: string) => updatePreferences({ cloudVoice: value }),
+      [updatePreferences],
+    ),
+    setPlaybackProvider: useCallback(
+      (value: SpeechPlaybackProvider) => updatePreferences({ playbackProvider: value }),
       [updatePreferences],
     ),
     voices,

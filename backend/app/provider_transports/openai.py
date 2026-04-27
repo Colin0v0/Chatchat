@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
@@ -57,8 +58,6 @@ def _openai_stream_timeout() -> httpx.Timeout:
 
 
 def _request_gate(provider: Provider) -> tuple[str, int]:
-    if provider == "openai_local":
-        return ("openai_local", max(1, settings.openai_local_http_max_concurrency))
     if provider == "codex":
         return ("codex", max(1, settings.openai_http_max_concurrency))
     if provider == "trio":
@@ -67,12 +66,20 @@ def _request_gate(provider: Provider) -> tuple[str, int]:
 
 
 def openai_base_url(provider: Provider = "openai", base_url_override: str | None = None) -> str:
+    def _normalize_provider_base_url(raw_url: str) -> str:
+        if provider != "codex":
+            return raw_url
+
+        normalized = normalize_base_url(raw_url)
+        parsed = urlsplit(normalized)
+        if parsed.path.rstrip("/"):
+            return normalized
+        return urlunsplit((parsed.scheme, parsed.netloc, "/v1", "", ""))
+
     if base_url_override:
-        return base_url_override
-    if provider == "openai_local":
-        return settings.openai_local_base_url
+        return _normalize_provider_base_url(base_url_override)
     if provider == "codex":
-        return settings.codex_base_url
+        return _normalize_provider_base_url(settings.codex_base_url)
     if provider == "trio":
         return settings.trio_base_url
     return settings.openai_base_url
@@ -83,17 +90,13 @@ def openai_upstream_service_base_url(
     base_url_override: str | None = None,
 ) -> str:
     if base_url_override:
-        return base_url_override
-    if provider == "openai_local":
-        return settings.openai_local_upstream_service_base_url or settings.openai_local_base_url
+        return openai_base_url(provider, base_url_override)
     return openai_base_url(provider)
 
 
 def openai_headers(provider: Provider = "openai", api_key_override: str | None = None) -> dict[str, str]:
     headers: dict[str, str] = {}
-    if provider == "openai_local":
-        configured_api_key = settings.openai_local_api_key
-    elif provider == "codex":
+    if provider == "codex":
         configured_api_key = settings.codex_api_key
     elif provider == "trio":
         configured_api_key = settings.trio_api_key
@@ -135,8 +138,6 @@ async def _openai_upstream_client(
 
 
 def supports_chat_completions_streaming(provider: Provider) -> bool:
-    if provider == "openai_local":
-        return settings.openai_local_stream
     if provider == "trio":
         return False
     return True
@@ -159,7 +160,7 @@ async def _list_openai_models_for_provider(provider: Provider) -> list[Discovere
         return [
             DiscoveredModel(
                 id=namespaced_model(provider, model),
-                supports_thinking=provider == "openai_local",
+                supports_thinking=False,
                 native_multimodal="false",
             )
             for model in filter_chat_model_names(allowlist)
@@ -174,7 +175,7 @@ async def _list_openai_models_for_provider(provider: Provider) -> list[Discovere
     return [
         DiscoveredModel(
             id=namespaced_model(provider, model),
-            supports_thinking=provider == "openai_local",
+            supports_thinking=False,
             native_multimodal="false",
         )
         for model in models
@@ -191,10 +192,6 @@ async def list_codex_models() -> list[DiscoveredModel]:
 
 async def list_trio_models() -> list[DiscoveredModel]:
     return await _list_openai_models_for_provider("trio")
-
-
-async def list_openai_local_models() -> list[DiscoveredModel]:
-    return await _list_openai_models_for_provider("openai_local")
 
 
 async def upload_openai_file(
@@ -261,6 +258,8 @@ async def _stream_responses_chat(
     )
     gate, max_concurrency = _request_gate("codex")
     emitted_any = False
+    emitted_message = False
+    emitted_reasoning = False
     try:
         async with limited_request(gate=gate, max_concurrency=max_concurrency):
             async with client.stream("POST", "/responses", json=payload) as response:
@@ -273,20 +272,28 @@ async def _stream_responses_chat(
                         yield {"done": True}
                         return
 
+                    is_snapshot = bool(chunk.get("_snapshot"))
                     event: dict[str, object] = {}
                     if "message" in chunk:
                         delta = chunk["message"].get("content", "")
-                        if delta:
+                        if delta and (not is_snapshot or not emitted_message):
                             event["message"] = {"content": delta}
                     if "reasoning" in chunk:
                         reasoning_delta = chunk["reasoning"].get("content", "")
-                        if reasoning_delta:
+                        if reasoning_delta and (not is_snapshot or not emitted_reasoning):
                             event["reasoning"] = {"content": reasoning_delta}
                     if chunk.get("done"):
                         event["done"] = True
                     if event:
-                        emitted_any = True
+                        if "message" in event:
+                            emitted_message = True
+                            emitted_any = True
+                        if "reasoning" in event:
+                            emitted_reasoning = True
+                            emitted_any = True
                         yield event
+                        if chunk.get("done"):
+                            return
                 if emitted_any:
                     yield {"done": True}
     except httpx.TransportError:
@@ -349,7 +356,7 @@ async def stream_openai_chat(
     )
     resolved_base_url = normalize_base_url(openai_base_url(provider, base_url_override))
     logger.info("stream_openai_chat target | provider=%s | base_url=%s", provider, resolved_base_url)
-    if provider == "codex":
+    if provider == "codex" and settings.codex_use_responses_api:
         async for event in _stream_responses_chat(
             model=model,
             messages=messages,
@@ -444,6 +451,8 @@ async def stream_openai_chat(
                     if event:
                         emitted_any = True
                         yield event
+                        if chunk.get("done"):
+                            return
                 if emitted_any:
                     yield {"done": True}
     except httpx.TransportError:
@@ -463,7 +472,6 @@ __all__ = [
     "apply_reasoning_controls",
     "apply_responses_reasoning_controls",
     "list_codex_models",
-    "list_openai_local_models",
     "list_openai_models",
     "list_trio_models",
     "openai_base_url",

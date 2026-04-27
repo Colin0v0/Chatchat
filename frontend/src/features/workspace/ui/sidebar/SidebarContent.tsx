@@ -62,8 +62,8 @@ export function SidebarContent({
   const useCollapsedPrimaryNavLayout = isDesktop && !open && collapsedPrimaryNavReady;
   const showDesktopText = !isDesktop || open;
   const showSecondaryContent = !isDesktop || open;
-  const sectionPadding = isDesktop ? "px-2" : "px-4";
-  const headingPadding = isDesktop ? "px-5" : "px-4";
+  const sectionPadding = isDesktop ? "px-2" : "px-3";
+  const headingPadding = isDesktop ? "px-5" : "px-3";
   const conversationMenuBufferHeight = isDesktop ? "h-[136px]" : "h-0";
   const emptyText = query.trim()
     ? "No sessions matched your search."
@@ -143,7 +143,8 @@ export function SidebarContent({
                 <div className="group relative" key={item.label}>
                   <button
                     className={cn(
-                      "relative flex min-h-[38.5px] w-full items-center overflow-hidden rounded-[8px] px-3 text-left text-[15px] font-medium tracking-[-0.02em] text-app-text transition-colors",
+                      "relative flex min-h-[38.5px] w-full items-center overflow-hidden rounded-[8px] text-left text-[15px] font-medium tracking-[-0.02em] text-app-text transition-colors",
+                      isDesktop ? "px-3" : "px-0",
                       showDesktopText ? "hover:bg-app-panel-soft" : "hover:bg-app-panel-soft",
                       isActive && "bg-app-panel-soft",
                     )}
@@ -159,7 +160,7 @@ export function SidebarContent({
                     <span
                       className={cn(
                         "absolute inset-y-0 flex items-center justify-center text-app-text",
-                        useCollapsedPrimaryNavLayout ? "inset-x-0" : "left-3",
+                        useCollapsedPrimaryNavLayout ? "inset-x-0" : isDesktop ? "left-3" : "left-0",
                       )}
                     >
                       <SidebarIcon icon={item.icon} />
@@ -221,7 +222,10 @@ export function SidebarContent({
                         key={itemKey}
                       >
                         <button
-                          className="flex w-full min-w-0 items-center rounded-[8px] px-3 py-2 pr-12 text-left focus:outline-none focus-visible:outline-none"
+                          className={cn(
+                            "flex w-full min-w-0 items-center rounded-[8px] py-2 pr-12 text-left focus:outline-none focus-visible:outline-none",
+                            isDesktop ? "px-3" : "px-0",
+                          )}
                           onClick={() => (item.kind === "chat" ? onSelect(item.id) : onSelectDebate(item.id))}
                           type="button"
                         >

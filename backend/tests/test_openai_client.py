@@ -1,3 +1,4 @@
+import json
 import unittest
 
 import httpx
@@ -15,6 +16,7 @@ from app.provider_transports.openai import (
     _iter_openai_stream_payloads,
     openai_base_url,
     openai_headers,
+    openai_upstream_service_base_url,
     supports_chat_completions_streaming,
 )
 
@@ -98,6 +100,31 @@ class OpenAIClientStreamParsingTests(unittest.IsolatedAsyncioTestCase):
             {"done": True},
         )
 
+    def test_decode_responses_stream_payload_extracts_completed_response_output(self):
+        payload = {
+            "type": "response.completed",
+            "response": {
+                "output": [
+                    {"type": "reasoning", "summary": [{"type": "summary_text", "text": "plan"}]},
+                    {
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [{"type": "output_text", "text": "answer"}],
+                    },
+                ]
+            },
+        }
+
+        self.assertEqual(
+            _decode_responses_stream_payload(json.dumps(payload)),
+            {
+                "done": True,
+                "message": {"content": "answer"},
+                "reasoning": {"content": "plan"},
+                "_snapshot": True,
+            },
+        )
+
     def test_extract_responses_output_collects_message_and_reasoning_summary(self):
         payload = {
             "output": [
@@ -117,13 +144,6 @@ class OpenAIClientStreamParsingTests(unittest.IsolatedAsyncioTestCase):
 
 
 class OpenAIReasoningControlsTests(unittest.TestCase):
-    def test_apply_reasoning_controls_uses_local_thinking_flag_for_openai_local(self):
-        payload: dict[str, object] = {}
-
-        apply_reasoning_controls(payload, provider="openai_local", reasoning_profile="medium")
-
-        self.assertEqual(payload, {"thinking": {"type": "enabled"}})
-
     def test_apply_reasoning_controls_uses_reasoning_effort_for_codex(self):
         payload: dict[str, object] = {}
 
@@ -145,13 +165,6 @@ class OpenAIReasoningControlsTests(unittest.TestCase):
 
         self.assertEqual(payload, {})
 
-    def test_apply_reasoning_controls_skips_auto_for_toggle_models(self):
-        payload: dict[str, object] = {}
-
-        apply_reasoning_controls(payload, provider="openai_local", reasoning_profile="auto")
-
-        self.assertEqual(payload, {})
-
     def test_apply_reasoning_controls_maps_max_to_high_effort(self):
         payload: dict[str, object] = {}
 
@@ -170,6 +183,30 @@ class OpenAICompatibleProviderTests(unittest.TestCase):
             self.assertEqual(openai_base_url("trio"), "https://pytrio.cn/api/v1")
         finally:
             settings.trio_base_url = original
+
+    def test_codex_base_url_adds_v1_for_bare_host(self):
+        from app.core.config import settings
+
+        original = settings.codex_base_url
+        settings.codex_base_url = "https://api.ikuncode.cc"
+        try:
+            self.assertEqual(openai_base_url("codex"), "https://api.ikuncode.cc/v1")
+            self.assertEqual(
+                openai_base_url("codex", "https://custom.example.com"),
+                "https://custom.example.com/v1",
+            )
+            self.assertEqual(
+                openai_upstream_service_base_url("codex", "https://files.example.com"),
+                "https://files.example.com/v1",
+            )
+        finally:
+            settings.codex_base_url = original
+
+    def test_codex_base_url_preserves_configured_path(self):
+        self.assertEqual(
+            openai_base_url("codex", "https://api.ikuncode.cc/api/v1"),
+            "https://api.ikuncode.cc/api/v1",
+        )
 
     def test_openai_headers_reads_trio_api_key(self):
         from app.core.config import settings

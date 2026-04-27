@@ -40,7 +40,7 @@ class ThinkingNormalizerTests(unittest.TestCase):
         messages = [ChatMessagePayload(role="user", content="hello")]
 
         injected = inject_thinking_system_prompt(
-            model="openai_local:claude-sonnet-4-6",
+            model="claude:claude-sonnet-4-6",
             messages=messages,
             reasoning_profile="medium",
         )
@@ -56,7 +56,7 @@ class ThinkingNormalizerTests(unittest.TestCase):
         ]
 
         injected = inject_thinking_system_prompt(
-            model="openai_local:claude-sonnet-4-6",
+            model="claude:claude-sonnet-4-6",
             messages=messages,
             reasoning_profile="medium",
         )
@@ -70,7 +70,7 @@ class ThinkingNormalizerTests(unittest.TestCase):
         messages = [ChatMessagePayload(role="user", content="hello")]
 
         injected = inject_thinking_system_prompt(
-            model="openai_local:claude-sonnet-4-6",
+            model="claude:claude-sonnet-4-6",
             messages=messages,
             reasoning_profile="auto",
         )
@@ -83,12 +83,12 @@ class ThinkingNormalizerTests(unittest.TestCase):
         messages = [ChatMessagePayload(role="user", content="hello")]
 
         disabled = inject_thinking_system_prompt(
-            model="openai_local:claude-sonnet-4-6",
+            model="claude:claude-sonnet-4-6",
             messages=messages,
             reasoning_profile="off",
         )
         other_model = inject_thinking_system_prompt(
-            model="openai_local:claude-haiku-4-5",
+            model="claude:claude-haiku-4-5",
             messages=messages,
             reasoning_profile="medium",
         )

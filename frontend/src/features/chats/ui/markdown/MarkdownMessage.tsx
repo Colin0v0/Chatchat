@@ -4,6 +4,7 @@ import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import { memo, useMemo, type ReactNode } from "react";
 
+import { toApiUrl } from "../../../../shared/api/http";
 import { CodeBlock } from "./CodeBlock";
 
 const sentenceBreakPattern = /([\u3002\uff01\uff1f\uff1b\uff1a\u201d\u300d\u300f\u300b\uff09])\s+/g;
@@ -238,6 +239,15 @@ const markdownComponents = {
   a: ({ href, children }: { href?: string; children?: ReactNode }) => (
     <a className="text-app-accent-strong underline underline-offset-4" href={href} rel="noreferrer" target="_blank">
       {children}
+    </a>
+  ),
+  img: ({ alt, src }: { alt?: string; src?: string }) => (
+    <a className="my-3 block w-fit max-w-full" href={src ? toApiUrl(src) : undefined} rel="noreferrer" target="_blank">
+      <img
+        alt={alt ?? ""}
+        className="max-h-[640px] max-w-full rounded-lg border border-app-border bg-app-panel-soft object-contain"
+        src={src ? toApiUrl(src) : undefined}
+      />
     </a>
   ),
   strong: ({ children }: { children?: ReactNode }) => <strong className="font-semibold text-app-text">{children}</strong>,

@@ -5,9 +5,7 @@ from dataclasses import dataclass
 
 from ..storage.models import MessageAttachment
 from .file_parser import FileParser
-from .image import ImageTextService
 
-IMAGE_SECTION_TITLE = "## Image attachments"
 FILE_SECTION_TITLE = "## File attachments"
 
 
@@ -22,11 +20,9 @@ class AttachmentContextService:
     def __init__(
         self,
         *,
-        image_service: ImageTextService,
         file_parser: FileParser,
         max_concurrency: int = 2,
     ):
-        self._image_service = image_service
         self._file_parser = file_parser
         self._semaphore = asyncio.Semaphore(max(1, max_concurrency))
 
@@ -40,14 +36,9 @@ class AttachmentContextService:
         *,
         include_images: bool = True,
     ) -> AttachmentContextResult:
-        image_attachments = [attachment for attachment in attachments if attachment.kind == "image"]
         file_attachments = [attachment for attachment in attachments if attachment.kind == "file"]
 
         blocks: list[str] = []
-        if include_images and image_attachments:
-            image_result = await self._run_limited(self._image_service.extract_markdown(image_attachments))
-            blocks.append("\n\n".join([IMAGE_SECTION_TITLE, image_result.markdown]).strip())
-
         if file_attachments:
             file_markdown = await self._run_limited(
                 asyncio.to_thread(self._file_parser.extract_markdown, file_attachments)
@@ -56,6 +47,6 @@ class AttachmentContextService:
 
         return AttachmentContextResult(
             markdown="\n\n".join(blocks).strip(),
-            has_images=bool(image_attachments),
+            has_images=False,
             has_files=bool(file_attachments),
         )

@@ -43,6 +43,11 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=1, max_length=255)
 
 
+class PasswordChangeRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=255)
+    new_password: str = Field(min_length=8, max_length=255)
+
+
 class UserOut(BaseModel):
     id: int
     username: str
@@ -65,10 +70,19 @@ class RegenerateRequest(BaseModel):
     model: Optional[str] = None
     tool_mode: ToolMode = "none"
     reasoning_profile: Optional[ReasoningProfileValue] = None
+    knowledge_folders: list[str] = Field(default_factory=list)
 
 
 class MessageFeedbackUpdate(BaseModel):
     value: Optional[FeedbackValue] = None
+
+
+class ImageGenerateRequest(BaseModel):
+    conversation_id: Optional[int] = Field(default=None, ge=1)
+    prompt: str = Field(min_length=1, max_length=8000)
+    size: Optional[str] = None
+    quality: Optional[str] = None
+    output_format: Optional[str] = None
 
 
 class MessageAttachmentOut(BaseModel):
@@ -284,11 +298,31 @@ class AudioTranscriptionOut(BaseModel):
     text: str
     language: str
     duration_ms: int
+    reason: Optional[str] = None
+
+
+class AudioSpeechIn(BaseModel):
+    text: str
+    voice: Optional[str] = None
+    rate: Optional[float] = None
+
+
+class AudioSpeechOut(BaseModel):
+    url: str
+    content_type: str
+    model: str
+    voice: str
+    audio_id: Optional[str] = None
+    expires_at: Optional[int] = None
+    request_id: Optional[str] = None
+    characters: Optional[int] = None
 
 
 class KnowledgeDocumentOut(BaseModel):
     id: int
     title: str
+    folder: str = ""
+    path: str = ""
     mime_type: str
     extension: str
     size_bytes: int
@@ -299,6 +333,19 @@ class KnowledgeDocumentOut(BaseModel):
     updated_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class KnowledgeFolderCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+
+
+class KnowledgeFolderDeleteIn(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+
+
+class KnowledgeFolderDeleteResult(BaseModel):
+    folder: str
+    moved_document_count: int = 0
 
 
 class KnowledgeStatusOut(BaseModel):
@@ -335,6 +382,16 @@ class KnowledgeBatchDeleteIn(BaseModel):
 class KnowledgeBatchDeleteResult(BaseModel):
     deleted_count: int = 0
     deleted_ids: list[int] = Field(default_factory=list)
+
+
+class KnowledgeBatchMoveIn(BaseModel):
+    document_ids: list[int] = Field(min_length=1)
+    folder: str = Field(default="", max_length=255)
+
+
+class KnowledgeBatchMoveResult(BaseModel):
+    moved_count: int = 0
+    documents: list[KnowledgeDocumentOut] = Field(default_factory=list)
 
 
 class MemoryItemOut(BaseModel):

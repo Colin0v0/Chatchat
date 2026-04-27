@@ -12,7 +12,7 @@ def cosine_similarity(vector_a: list[float], vector_b: list[float]) -> float:
     if len(vector_a) != len(vector_b):
         return 0.0
 
-    dot = sum(left * right for left, right in zip(vector_a, vector_b, strict=False))
+    dot = sum(left * right for left, right in zip(vector_a, vector_b))
     norm_a = math.sqrt(sum(value * value for value in vector_a))
     norm_b = math.sqrt(sum(value * value for value in vector_b))
     if norm_a == 0 or norm_b == 0:

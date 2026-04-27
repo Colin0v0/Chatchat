@@ -1,14 +1,18 @@
-import { BookOpen, Check, Globe, Paperclip, Plus } from "lucide-react";
+import { BookOpen, Check, Globe, Image, Paperclip, Plus, Scale, X } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { ReasoningProfileSelect } from "../../../models/ui/ReasoningProfileSelect";
-import type { ModelOption, ReasoningProfileValue, ToolMode } from "../../../../types";
+import type { ComposerMode, ModelOption, ReasoningProfileValue, ToolMode } from "../../../../types";
 
 interface ComposerMobileToolbarProps {
   attachmentUploadAvailable: boolean;
   attachmentsPresent: boolean;
   isStreaming: boolean;
+  composerMode: ComposerMode;
+  onComposerModeChange: (value: ComposerMode) => void;
+  imageSizeControl?: ReactNode;
   onAddAttachment: () => void;
+  onNewDebate: () => void;
   onReasoningProfileChange: (value: ReasoningProfileValue) => void;
   reasoningProfile: ReasoningProfileValue;
   selectedModelOption: ModelOption;
@@ -39,7 +43,7 @@ function MobileMenuAction({
   return (
     <button
       aria-pressed={active}
-      className={`flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-[15px] font-medium tracking-[-0.02em] transition-colors ${
+      className={`flex h-10 w-full items-center justify-between gap-3 px-3 text-left text-[14px] font-medium tracking-[-0.02em] transition-colors ${
         disabled
           ? disabledClassName
           : "bg-app-panel-strong text-[#5f564a] hover:bg-app-panel-soft"
@@ -61,7 +65,11 @@ export function ComposerMobileToolbar({
   attachmentUploadAvailable,
   attachmentsPresent,
   isStreaming,
+  composerMode,
+  onComposerModeChange,
+  imageSizeControl = null,
   onAddAttachment,
+  onNewDebate,
   onReasoningProfileChange,
   reasoningProfile,
   selectedModelOption,
@@ -71,9 +79,14 @@ export function ComposerMobileToolbar({
 }: ComposerMobileToolbarProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
-  const addDisabled = isStreaming || !attachmentUploadAvailable;
-  const ragEnabled = toolMode === "knowledge";
-  const webEnabled = toolMode === "search";
+  const imageMode = composerMode === "image";
+  const addDisabled = isStreaming || imageMode || !attachmentUploadAvailable;
+  const ragEnabled = !imageMode && toolMode === "knowledge";
+  const webEnabled = !imageMode && toolMode === "search";
+
+  const handleToggleImageMode = () => {
+    onComposerModeChange(imageMode ? "chat" : "image");
+  };
 
   useEffect(() => {
     function handlePointerDown(event: MouseEvent) {
@@ -94,28 +107,48 @@ export function ComposerMobileToolbar({
             aria-expanded={menuOpen}
             aria-haspopup="menu"
             aria-label="Open tools"
-            className="flex h-11 w-11 items-center justify-center rounded-[14px] border border-app-border bg-white/92 text-[#5f564a] transition-colors hover:bg-[#f8f3eb] hover:text-app-text"
+            className="flex h-10 w-10 items-center justify-center rounded-[8px] border border-app-border bg-app-panel-strong text-[#5f564a] transition-colors hover:bg-app-panel-soft hover:text-app-text"
             onClick={() => setMenuOpen((value) => !value)}
             type="button"
           >
-            <Plus className={`size-4.5 transition-transform ${menuOpen ? "rotate-45" : ""}`} />
+            <Plus className={`size-4 transition-transform ${menuOpen ? "rotate-45" : ""}`} />
           </button>
 
           {menuOpen ? (
-            <div className="absolute bottom-[calc(100%+10px)] left-0 z-20 w-[min(220px,calc(100vw-5rem))] overflow-hidden rounded-[18px] border border-app-border bg-app-panel-strong shadow-[0_18px_40px_rgba(39,28,18,0.14)]">
+            <div className="absolute bottom-[calc(100%+10px)] left-0 z-20 w-[min(220px,calc(100vw-5rem))] overflow-hidden rounded-lg border border-app-border bg-app-panel-strong shadow-[0_18px_40px_rgba(39,28,18,0.14)]">
               <MobileMenuAction
                 disabled={addDisabled}
                 icon={<Paperclip className="size-4" />}
-                label="Add file"
+                label="上传照片和文件"
                 onClick={() => {
                   onAddAttachment();
                   setMenuOpen(false);
                 }}
               />
               <MobileMenuAction
+                active={imageMode}
+                disabled={isStreaming}
+                icon={<Image className="size-4" />}
+                label="创建图片"
+                onClick={() => {
+                  handleToggleImageMode();
+                  setMenuOpen(false);
+                }}
+              />
+              <MobileMenuAction
+                disabled={isStreaming}
+                icon={<Scale className="size-4" />}
+                label="新建辩论"
+                onClick={() => {
+                  onNewDebate();
+                  setMenuOpen(false);
+                }}
+              />
+              <MobileMenuAction
                 active={ragEnabled}
+                disabled={isStreaming || imageMode}
                 icon={<BookOpen className="size-4" />}
-                label="RAG"
+                label="知识库"
                 onClick={() => {
                   onToggleRag();
                   setMenuOpen(false);
@@ -123,8 +156,9 @@ export function ComposerMobileToolbar({
               />
               <MobileMenuAction
                 active={webEnabled}
+                disabled={isStreaming || imageMode}
                 icon={<Globe className="size-4" />}
-                label="Search"
+                label="网页搜索"
                 onClick={() => {
                   onToggleWeb();
                   setMenuOpen(false);
@@ -133,17 +167,37 @@ export function ComposerMobileToolbar({
             </div>
           ) : null}
         </div>
-        <div className="min-w-0">
-          <ReasoningProfileSelect
-            compact
-            label="Reasoning"
-            menuPlacement="top"
-            modelOption={selectedModelOption}
-            onChange={onReasoningProfileChange}
-            triggerContent="label_only"
-            value={reasoningProfile}
-          />
-        </div>
+        {imageMode ? (
+          <button
+            aria-label="取消图片模式"
+            className={`group inline-flex h-10 shrink-0 items-center gap-2 rounded-[8px] border border-app-border bg-app-panel-strong px-3 text-[14px] font-medium text-[#5f564a] transition-colors ${
+              isStreaming ? "cursor-not-allowed opacity-55" : "hover:bg-[#f8f3eb] hover:text-app-text"
+            }`}
+            disabled={isStreaming}
+            onClick={() => onComposerModeChange("chat")}
+            type="button"
+          >
+            <span className="flex size-4 items-center justify-center">
+              <Image className="size-4 group-hover:hidden" />
+              <X className="hidden size-4 group-hover:block" />
+            </span>
+            <span>创建图片</span>
+          </button>
+        ) : null}
+        {imageMode ? imageSizeControl : null}
+        {!imageMode ? (
+          <div className="min-w-0">
+            <ReasoningProfileSelect
+              compact
+              label="Reasoning"
+              menuPlacement="top"
+              modelOption={selectedModelOption}
+              onChange={onReasoningProfileChange}
+              triggerContent="label_only"
+              value={reasoningProfile}
+            />
+          </div>
+        ) : null}
       </div>
       {attachmentsPresent ? <div className="sr-only">Attachments ready</div> : null}
     </div>

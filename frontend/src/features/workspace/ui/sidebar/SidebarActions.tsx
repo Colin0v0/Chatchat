@@ -86,22 +86,32 @@ export function SidebarAction({
 
 export function SidebarBrand({
   compact = false,
+  gapClassName = "gap-3",
+  logoFrameClassName = "h-9 w-9",
+  showSubtitle = true,
+  titleClassName = "text-[15px] font-semibold tracking-[-0.02em]",
   title = "Chatchat",
 }: {
   compact?: boolean;
+  gapClassName?: string;
+  logoFrameClassName?: string;
+  showSubtitle?: boolean;
+  titleClassName?: string;
   title?: string;
 }) {
   return (
-    <div className="flex min-w-0 items-center gap-3">
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center text-[#13227a]">
+    <div className={`flex min-w-0 items-center ${gapClassName}`}>
+      <div className={`flex shrink-0 items-center justify-center text-[#13227a] ${logoFrameClassName}`}>
         <AppLogo className="h-[22px] w-[22px]" />
       </div>
       {!compact ? (
         <div className="min-w-0">
-          <div className="truncate text-[15px] font-semibold tracking-[-0.02em]">{title}</div>
-          <div className="truncate text-[13px] tracking-[0.08em] text-app-muted lowercase">
-            personal workspace
-          </div>
+          <div className={`truncate ${titleClassName}`}>{title}</div>
+          {showSubtitle ? (
+            <div className="truncate text-[13px] tracking-[0.08em] text-app-muted lowercase">
+              personal workspace
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>
@@ -329,11 +339,13 @@ export function SidebarLoadingState() {
 }
 
 function SidebarFooterAction({
+  active = false,
   icon,
   label,
   onClick,
   className,
 }: {
+  active?: boolean;
   icon: ReactNode;
   label: string;
   onClick: () => void;
@@ -342,7 +354,7 @@ function SidebarFooterAction({
   return (
     <button
       aria-label={label}
-      className={cn(sidebarIconButtonClass, "h-9 w-9", className)}
+      className={cn(sidebarIconButtonClass, "h-9 w-9", active && "bg-app-panel-soft text-app-text", className)}
       onClick={onClick}
       type="button"
     >
@@ -352,11 +364,13 @@ function SidebarFooterAction({
 }
 
 export function DesktopSidebarFooter({
+  settingsActive = false,
   open,
   onLogout,
   onOpenSettings,
   onToggle,
 }: {
+  settingsActive?: boolean;
   open: boolean;
   onLogout?: () => void;
   onOpenSettings?: () => void;
@@ -367,7 +381,7 @@ export function DesktopSidebarFooter({
       <div
         className={cn(
           "flex",
-          open ? "h-9 items-center justify-between gap-2" : "flex-col items-center gap-1",
+          open ? "h-9 items-center justify-between gap-2" : "flex-col items-start gap-1",
         )}
       >
         <button
@@ -384,42 +398,37 @@ export function DesktopSidebarFooter({
           <PanelLeftOpen className="size-4" />
         </button>
 
-        <div
-          className={cn(
-            "flex items-center gap-1",
-            open ? "flex-row" : "flex-col",
-          )}
-        >
-          {open && onOpenSettings ? (
-            <SidebarFooterAction
-              icon={<Settings2 className="size-4" />}
-              label="设置"
-              onClick={onOpenSettings}
-              className="text-app-text hover:text-app-text"
-            />
-          ) : null}
+        {open && (onOpenSettings || onLogout) ? (
+          <div className="flex items-center gap-1">
+            {onOpenSettings ? (
+              <SidebarFooterAction
+                active={settingsActive}
+                icon={<Settings2 className="size-4" />}
+                label="设置"
+                onClick={onOpenSettings}
+              />
+            ) : null}
 
-          {onLogout ? (
-            <SidebarFooterAction
-              icon={<LogOut className="size-4" />}
-              label="退出登录"
-              onClick={onLogout}
-              className={cn(
-                SIDEBAR_MOTION,
-                open ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0",
-              )}
-            />
-          ) : null}
-        </div>
+            {onLogout ? (
+              <SidebarFooterAction
+                icon={<LogOut className="size-4" />}
+                label="退出登录"
+                onClick={onLogout}
+              />
+            ) : null}
+          </div>
+        ) : null}
       </div>
     </div>
   );
 }
 
 export function MobileSidebarFooter({
+  settingsActive = false,
   onLogout,
   onOpenSettings,
 }: {
+  settingsActive?: boolean;
   onLogout?: () => void;
   onOpenSettings?: () => void;
 }) {
@@ -429,9 +438,10 @@ export function MobileSidebarFooter({
 
   return (
     <div className="shrink-0 border-t border-app-border/70 px-4 pt-3 pb-4">
-      <div className="flex min-h-9 items-center justify-end gap-1">
+      <div className="flex min-h-9 items-center justify-start gap-1">
         {onOpenSettings ? (
           <SidebarFooterAction
+            active={settingsActive}
             icon={<Settings2 className="size-4" />}
             label="设置"
             onClick={onOpenSettings}

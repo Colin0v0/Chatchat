@@ -5,6 +5,8 @@ from sqlalchemy.orm import Session
 
 from ..chat.state import ChatServices
 from ..core.config import settings
+from ..multimodal.file_types import resolve_attachment_type
+from ..providers.catalog import ModelProfile
 from ..runtime.requests import ChatRunRequest
 from ..schemas import ReasoningProfileValue, RegenerateRequest, ToolMode
 from ..storage.media import persist_uploaded_attachments
@@ -24,6 +26,54 @@ def _ensure_chat_input_present(*, content: str, upload_count: int) -> None:
         raise HTTPException(status_code=400, detail="Message cannot be empty")
 
 
+def _ensure_uploads_supported_by_model(*, profile: ModelProfile, uploads: list[UploadFile]) -> None:
+    for upload in uploads:
+        try:
+            attachment_type = resolve_attachment_type(
+                getattr(upload, "filename", "") or "",
+                getattr(upload, "content_type", "") or "",
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        if attachment_type.kind == "image" and not profile.capabilities.input_image:
+            raise HTTPException(
+                status_code=400,
+                detail="The selected model does not support image uploads.",
+            )
+        if attachment_type.extension == ".pdf" and not profile.capabilities.input_pdf:
+            raise HTTPException(
+                status_code=400,
+                detail="The selected model does not support PDF uploads.",
+            )
+        if attachment_type.kind == "file" and attachment_type.extension != ".pdf" and not profile.capabilities.input_other_file:
+            raise HTTPException(
+                status_code=400,
+                detail="The selected model does not support file uploads.",
+            )
+
+
+def _ensure_persisted_attachments_supported_by_model(*, profile: ModelProfile, attachments) -> None:
+    for attachment in attachments:
+        kind = getattr(attachment, "kind", "")
+        extension = str(getattr(attachment, "extension", "")).lower()
+        if kind == "image" and not profile.capabilities.input_image:
+            raise HTTPException(
+                status_code=400,
+                detail="The selected model does not support image uploads.",
+            )
+        if extension == ".pdf" and not profile.capabilities.input_pdf:
+            raise HTTPException(
+                status_code=400,
+                detail="The selected model does not support PDF uploads.",
+            )
+        if kind == "file" and extension != ".pdf" and not profile.capabilities.input_other_file:
+            raise HTTPException(
+                status_code=400,
+                detail="The selected model does not support file uploads.",
+            )
+
+
 async def prepare_chat_stream_run_request(
     *,
     current_user: User,
@@ -34,6 +84,7 @@ async def prepare_chat_stream_run_request(
     message: str,
     model: str | None,
     tool_mode: ToolMode,
+    knowledge_folders: list[str],
     reasoning_profile: ReasoningProfileValue | None,
     files: list[UploadFile] | None,
 ) -> ChatRunRequest:
@@ -44,6 +95,7 @@ async def prepare_chat_stream_run_request(
         requested_model=model,
         fallback_model=settings.default_model,
     )
+    _ensure_uploads_supported_by_model(profile=profile, uploads=uploads)
 
     conversation = (
         load_user_chat_conversation(
@@ -81,6 +133,7 @@ async def prepare_chat_stream_run_request(
         history_messages=list(conversation.messages),
         query=content,
         tool_mode=tool_mode,
+        knowledge_folders=knowledge_folders,
         reasoning_profile=reasoning_profile,
     )
 
@@ -104,9 +157,17 @@ def prepare_regeneration_run_request(
         conversation=conversation,
         requested_model=payload.model,
     )
+    profile = resolve_chat_model(
+        requested_model=payload.model or conversation.model,
+        fallback_model=conversation.model,
+    )
     regeneration = resolve_regeneration_source(
         conversation=conversation,
         assistant_message_id=payload.assistant_message_id,
+    )
+    _ensure_persisted_attachments_supported_by_model(
+        profile=profile,
+        attachments=regeneration.source_user.attachments,
     )
     query = regeneration.source_user.content if edited_content is None else edited_content
     _ensure_chat_input_present(
@@ -127,5 +188,6 @@ def prepare_regeneration_run_request(
         history_messages=regeneration.history_messages,
         query=query,
         tool_mode=payload.tool_mode,
+        knowledge_folders=payload.knowledge_folders,
         reasoning_profile=payload.reasoning_profile,
     )

@@ -142,18 +142,18 @@ export function MainHeader({
 
   return (
     <>
-      <header className="relative flex h-[68px] items-center justify-between px-4 md:px-6">
+      <header className="relative flex h-[68px] items-center justify-between px-3 md:px-6">
         {showTitle ? (
           <div className="flex min-w-0 max-w-[calc(100%-4rem)] items-center gap-2 py-1 md:max-w-none">
             {!isDesktop ? (
               <button
                 aria-label={sidebarOpen ? "Close sidebar" : "Open sidebar"}
-                className="flex min-w-0 items-center gap-2.5 rounded-lg text-app-text transition hover:text-app-text focus:outline-none focus-visible:ring-2 focus-visible:ring-app-border-strong"
+                className="flex min-w-0 items-center gap-2 rounded-lg text-app-text transition hover:text-app-text focus:outline-none focus-visible:ring-2 focus-visible:ring-app-border-strong"
                 onClick={onToggleSidebar}
                 type="button"
               >
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[8px] bg-[#201f1d] text-[#f7f1e6]">
-                  <AppLogo className="h-[15px] w-[15px]" />
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center text-[#13227a]">
+                  <AppLogo className="h-[22px] w-[22px]" />
                 </span>
                 <span className="truncate text-[20px] font-semibold leading-none tracking-[-0.04em] text-app-text">
                   {title}

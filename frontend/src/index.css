@@ -110,6 +110,44 @@
     height: 0;
     display: none;
   }
+
+  .settings-range {
+    height: 18px;
+    appearance: none;
+    background: transparent;
+  }
+
+  .settings-range::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 999px;
+    background: rgba(95, 84, 72, 0.2);
+  }
+
+  .settings-range::-webkit-slider-thumb {
+    width: 16px;
+    height: 16px;
+    margin-top: -6px;
+    appearance: none;
+    border: 2px solid var(--color-app-panel-strong);
+    border-radius: 999px;
+    background: var(--color-app-accent-strong);
+    box-shadow: 0 2px 8px rgba(34, 24, 16, 0.18);
+  }
+
+  .settings-range::-moz-range-track {
+    height: 4px;
+    border-radius: 999px;
+    background: rgba(95, 84, 72, 0.2);
+  }
+
+  .settings-range::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--color-app-panel-strong);
+    border-radius: 999px;
+    background: var(--color-app-accent-strong);
+    box-shadow: 0 2px 8px rgba(34, 24, 16, 0.18);
+  }
 }
 
 @keyframes thinking-dot {

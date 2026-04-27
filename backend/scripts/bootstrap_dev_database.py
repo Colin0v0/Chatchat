@@ -11,6 +11,7 @@ from app.storage.bootstrap import (  # noqa: E402
     bootstrap_empty_postgres_database_from_models,
     database_is_empty,
     stamp_existing_head_like_schema,
+    upgrade_alembic_head,
 )
 from app.storage.database import engine  # noqa: E402
 from sqlalchemy import inspect  # noqa: E402
@@ -30,7 +31,8 @@ def main() -> int:
 
     table_names = set(inspect(engine).get_table_names())
     if "alembic_version" in table_names:
-        print("Development database already contains Alembic-managed tables; bootstrap skipped.")
+        upgrade_alembic_head()
+        print("Development database already contains Alembic-managed tables; upgraded to Alembic head.")
         return 0
 
     if database_is_empty():

@@ -44,12 +44,7 @@ services:
     environment:
       DATABASE_URL: ${BACKEND_DATABASE_URL:-postgresql+psycopg://chatchat:chatchat@postgres:5432/chatchat}
       REDIS_URL: ${BACKEND_REDIS_URL:-redis://redis:6379/0}
-      RAG_EMBEDDING_MODEL: ${RAG_EMBEDDING_MODEL:-nomic-embed-text}
-      RAG_TOP_K: ${RAG_TOP_K:-4}
-      RAG_SECTION_MAX_CHARS: ${RAG_SECTION_MAX_CHARS:-1400}
-      # 模型路径（容器内）
-      IMAGE_VISION_MODEL: ${IMAGE_VISION_MODEL:-/models/Florence-2-base-ft}
-      AUDIO_TRANSCRIPTION_MODEL: ${AUDIO_TRANSCRIPTION_MODEL:-/models/SenseVoiceSmall}
+      AUDIO_TRANSCRIPTION_MODEL: ${AUDIO_TRANSCRIPTION_MODEL:-qwen3-asr-flash}
     extra_hosts:
       - "host:host-gateway"
     depends_on:
@@ -59,14 +54,10 @@ services:
         condition: service_healthy
     ports:
       - "8000:8000"
-    gpus: all
     volumes:
       - ${BACKEND_STORAGE_HOST_PATH:-./storage}:/app/storage
       - ./backend/.env.deploy.wsl:/app/.env.deploy.wsl:ro
-      - ${MODELS_HOST_PATH:-./models}:/models:ro
       - pip-cache:/root/.cache/pip
-      - huggingface-cache:/root/.cache/huggingface
-      - modelscope-cache:/root/.cache/modelscope
     restart: unless-stopped
 
   frontend:
@@ -85,5 +76,3 @@ volumes:
   postgres-data:
   redis-data:
   pip-cache:
-  huggingface-cache:
-  modelscope-cache:

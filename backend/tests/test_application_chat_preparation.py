@@ -12,6 +12,30 @@ from app.schemas import RegenerateRequest
 from app.storage.models import Conversation, Message
 
 
+def _profile(model_id: str = "chat-model", *, input_image: bool = True):
+    return SimpleNamespace(
+        id=model_id,
+        capabilities=SimpleNamespace(
+            input_image=input_image,
+            input_pdf=True,
+            input_other_file=True,
+        ),
+    )
+
+
+def test_ensure_uploads_supported_by_model_rejects_images_when_model_disallows_them():
+    upload = SimpleNamespace(filename="picture.png", content_type="image/png")
+
+    with pytest.raises(HTTPException) as exc:
+        chat_preparation._ensure_uploads_supported_by_model(
+            profile=_profile(input_image=False),
+            uploads=[upload],
+        )
+
+    assert exc.value.status_code == 400
+    assert exc.value.detail == "The selected model does not support image uploads."
+
+
 def test_prepare_regeneration_run_request_coordinates_dependencies(monkeypatch):
     conversation = Conversation(id=8, model="test-model")
     source_user = Message(id=3, conversation_id=8, role="user", content="retry this")
@@ -21,6 +45,7 @@ def test_prepare_regeneration_run_request_coordinates_dependencies(monkeypatch):
         history_messages=[source_user],
     )
     built_run_request = SimpleNamespace(kind="run-request")
+    resolved_profile = _profile("new-model")
     captured: dict[str, object] = {}
 
     monkeypatch.setattr(chat_preparation, "load_user_chat_conversation", lambda **kwargs: conversation)
@@ -41,6 +66,7 @@ def test_prepare_regeneration_run_request_coordinates_dependencies(monkeypatch):
         return built_run_request
 
     monkeypatch.setattr(chat_preparation, "ensure_conversation_run_model", fake_ensure_conversation_run_model)
+    monkeypatch.setattr(chat_preparation, "resolve_chat_model", lambda **kwargs: resolved_profile)
     monkeypatch.setattr(chat_preparation, "resolve_regeneration_source", fake_resolve_regeneration_source)
     monkeypatch.setattr(chat_preparation, "persist_regenerated_turn", fake_persist_regenerated_turn)
     monkeypatch.setattr(chat_preparation, "build_chat_run_request", fake_build_chat_run_request)
@@ -106,8 +132,8 @@ async def test_prepare_chat_stream_run_request_coordinates_submission_dependenci
     services = SimpleNamespace()
     request = SimpleNamespace()
     db = SimpleNamespace()
-    upload_file = SimpleNamespace(filename="test.txt")
-    resolved_profile = SimpleNamespace(id="chat-model")
+    upload_file = SimpleNamespace(filename="test.txt", content_type="text/plain")
+    resolved_profile = _profile()
 
     def fake_resolve_chat_model(**kwargs):
         captured["profile"] = kwargs

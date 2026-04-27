@@ -12,7 +12,9 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.knowledge.service import KnowledgeService
 from app.retrieval.rag.types import RagChunk, RetrievalCandidate
 from app.storage.database import Base
-from app.storage.models import KnowledgeChunk, KnowledgeDocument, User
+from app.storage.models import KnowledgeChunk, KnowledgeDocument, KnowledgeFolder, User
+
+TEST_EMBEDDING = [0.1] * 1024
 
 
 class _FakeEmbedder:
@@ -29,7 +31,7 @@ class _FakeEmbedder:
                     heading=spec.heading,
                     content=spec.content,
                     order=spec.order,
-                    embedding=[0.1, 0.2, 0.3],
+                    embedding=TEST_EMBEDDING,
                     tags=list(spec.tags),
                 )
                 for spec in chunk_specs
@@ -38,7 +40,7 @@ class _FakeEmbedder:
         )
 
     async def embed_query(self, query):
-        return [0.1, 0.2, 0.3]
+        return TEST_EMBEDDING
 
 
 class _FakeReranker:
@@ -116,7 +118,7 @@ class KnowledgeServiceTests(unittest.IsolatedAsyncioTestCase):
                 content="old content",
                 token_count=2,
                 tags_json="[]",
-                embedding=[0.9],
+                embedding=TEST_EMBEDDING,
             )
         )
         self.db.commit()
@@ -157,9 +159,13 @@ class KnowledgeServiceTests(unittest.IsolatedAsyncioTestCase):
             "app.knowledge.service.ModelReranker", _FakeReranker
         ):
             service = KnowledgeService(settings)
+            self.assertEqual(service.create_folder(db=self.db, user_id=user.id, name="product"), "product")
+            self.assertEqual(service.list_folders(db=self.db, user_id=user.id), ["product"])
+
             documents = await service.create_documents(
                 db=self.db,
                 user_id=user.id,
+                folder="project-a",
                 uploads=[
                     UploadFile(filename="a.md", file=BytesIO(b"# A\n\nhello"), headers=None),
                     UploadFile(filename="b.md", file=BytesIO(b"# B\n\nworld"), headers=None),
@@ -167,9 +173,54 @@ class KnowledgeServiceTests(unittest.IsolatedAsyncioTestCase):
             )
 
             self.assertEqual(len(documents), 2)
+            self.assertEqual(service.list_folders(db=self.db, user_id=user.id), ["product", "project-a"])
             self.assertEqual(
                 list(self.db.scalars(select(KnowledgeDocument.title).order_by(KnowledgeDocument.id.asc())).all()),
                 ["a.md", "b.md"],
+            )
+            self.assertEqual([document.path for document in documents], ["project-a/a.md", "project-a/b.md"])
+
+            moved_documents = service.move_documents(
+                db=self.db,
+                user_id=user.id,
+                document_ids=[documents[0].id, documents[1].id],
+                folder="project-b/archive",
+            )
+            self.assertEqual([document.path for document in moved_documents], ["project-b/archive/a.md", "project-b/archive/b.md"])
+            self.assertEqual(
+                service.list_folders(db=self.db, user_id=user.id),
+                ["product", "project-a", "project-b/archive"],
+            )
+
+            delete_folder_result = service.delete_folder(
+                db=self.db,
+                user_id=user.id,
+                name="project-b/archive",
+            )
+            self.assertEqual(
+                delete_folder_result,
+                {"folder": "project-b/archive", "moved_document_count": 2},
+            )
+            self.assertEqual(
+                [
+                    document.path
+                    for document in self.db.scalars(
+                        select(KnowledgeDocument).order_by(KnowledgeDocument.id.asc())
+                    ).all()
+                ],
+                ["a.md", "b.md"],
+            )
+            self.assertIsNone(
+                self.db.scalar(
+                    select(KnowledgeFolder).where(
+                        KnowledgeFolder.user_id == user.id,
+                        KnowledgeFolder.name == "project-b/archive",
+                    )
+                )
+            )
+            self.assertEqual(
+                service.list_folders(db=self.db, user_id=user.id),
+                ["product", "project-a"],
             )
 
             deleted_ids, deleted_paths = service.delete_documents(
@@ -181,6 +232,10 @@ class KnowledgeServiceTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(deleted_ids, [documents[0].id, documents[1].id])
             self.assertEqual(len(deleted_paths), 2)
             self.assertEqual(self.db.scalar(select(func.count(KnowledgeDocument.id))), 0)
+            self.assertEqual(
+                service.list_folders(db=self.db, user_id=user.id),
+                ["product", "project-a"],
+            )
 
     async def test_retrieve_context_applies_query_filters_for_in_memory_rag(self):
         user = User(username="carol", password_hash="hash", is_active=True)
@@ -226,7 +281,7 @@ class KnowledgeServiceTests(unittest.IsolatedAsyncioTestCase):
                     content="KPI 改造方案需要拆成里程碑并推进执行。",
                     token_count=10,
                     tags_json='["agent"]',
-                    embedding=[0.1, 0.2, 0.3],
+                    embedding=TEST_EMBEDDING,
                 ),
                 KnowledgeChunk(
                     document_id=daily_doc.id,
@@ -239,7 +294,7 @@ class KnowledgeServiceTests(unittest.IsolatedAsyncioTestCase):
                     content="KPI 改造方案需要拆成里程碑并推进执行。",
                     token_count=10,
                     tags_json='["daily"]',
-                    embedding=[0.1, 0.2, 0.3],
+                    embedding=TEST_EMBEDDING,
                 ),
             ]
         )
@@ -259,6 +314,20 @@ class KnowledgeServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(payload.should_refuse)
         self.assertEqual([entry.source.path for entry in payload.entries], ["agent-plan.md"])
         self.assertEqual([source.path for source in payload.sources], ["agent-plan.md"])
+
+        with patch("app.knowledge.service.build_knowledge_embedder", return_value=_FakeEmbedder(settings, settings.knowledge_embedding_model)), patch(
+            "app.knowledge.service.ModelReranker", _FakeReranker
+        ):
+            service = KnowledgeService(settings)
+            scoped_payload = await service.retrieve_context(
+                db=self.db,
+                user_id=user.id,
+                query="KPI 改造方案",
+                folders=["personal"],
+            )
+
+        self.assertFalse(scoped_payload.should_refuse)
+        self.assertEqual([entry.source.path for entry in scoped_payload.entries], ["daily-log.md"])
 
     async def test_retrieve_context_loads_postgres_neighbor_chunks_from_database_pool(self):
         user = User(username="dave", password_hash="hash", is_active=True)
@@ -293,7 +362,7 @@ class KnowledgeServiceTests(unittest.IsolatedAsyncioTestCase):
                     content="前置背景",
                     token_count=4,
                     tags_json='["debate"]',
-                    embedding=[0.1, 0.2, 0.3],
+                    embedding=TEST_EMBEDDING,
                 ),
                 KnowledgeChunk(
                     document_id=document.id,
@@ -306,7 +375,7 @@ class KnowledgeServiceTests(unittest.IsolatedAsyncioTestCase):
                     content="关键论点",
                     token_count=4,
                     tags_json='["debate"]',
-                    embedding=[0.1, 0.2, 0.3],
+                    embedding=TEST_EMBEDDING,
                 ),
                 KnowledgeChunk(
                     document_id=document.id,
@@ -319,7 +388,7 @@ class KnowledgeServiceTests(unittest.IsolatedAsyncioTestCase):
                     content="总结结论",
                     token_count=4,
                     tags_json='["debate"]',
-                    embedding=[0.1, 0.2, 0.3],
+                    embedding=TEST_EMBEDDING,
                 ),
             ]
         )
@@ -338,7 +407,7 @@ class KnowledgeServiceTests(unittest.IsolatedAsyncioTestCase):
                     heading="Intro",
                     content="前置背景",
                     order=0,
-                    embedding=[0.1, 0.2, 0.3],
+                    embedding=TEST_EMBEDDING,
                     tags=["debate"],
                 ),
                 RagChunk(
@@ -348,7 +417,7 @@ class KnowledgeServiceTests(unittest.IsolatedAsyncioTestCase):
                     heading="Core",
                     content="关键论点",
                     order=1,
-                    embedding=[0.1, 0.2, 0.3],
+                    embedding=TEST_EMBEDDING,
                     tags=["debate"],
                 ),
                 RagChunk(
@@ -358,7 +427,7 @@ class KnowledgeServiceTests(unittest.IsolatedAsyncioTestCase):
                     heading="Summary",
                     content="总结结论",
                     order=2,
-                    embedding=[0.1, 0.2, 0.3],
+                    embedding=TEST_EMBEDDING,
                     tags=["debate"],
                 ),
             ]

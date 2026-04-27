@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef } from "react";
 import type { ComposerAttachmentDraft } from "../model/useComposerAttachments";
 import type {
   ConversationDetail,
+  ComposerMode,
   FeedbackValue,
   ModelOption,
   ReasoningProfileValue,
@@ -28,16 +29,23 @@ interface ConversationViewProps {
   isTranscribing: boolean;
   model: string;
   models: ModelOption[];
+  composerMode: ComposerMode;
+  imageSize: string;
   reserveThinkingSpace: boolean;
   reasoningProfile: ReasoningProfileValue;
   toolMode: ToolMode;
+  knowledgeFolders: string[];
+  knowledgeFolder: string;
   submitBlocked: boolean;
   submitBlockedReason: string | null;
   streamingStatusLabel: string | null;
   onChangeDraft: (value: string) => void;
   onChangeEditingUserMessage: (value: string) => void;
   onModelChange: (value: string) => void;
+  onComposerModeChange: (value: ComposerMode) => void;
+  onImageSizeChange: (value: string) => void;
   onReasoningProfileChange: (value: ReasoningProfileValue) => void;
+  onKnowledgeFolderChange: (value: string) => void;
   onCancelEditingUserMessage: () => void;
   onLoadEarlierMessages: () => Promise<void> | void;
   onRemoveDraftAttachment: (attachmentId: string) => void;
@@ -48,6 +56,7 @@ interface ConversationViewProps {
   onSelectAttachments: (files: FileList | File[]) => void;
   onSend: () => void;
   onStop: () => void;
+  onNewDebate: () => void;
   onToggleRecording: () => void;
   onToggleRag: () => void;
   onToggleWeb: () => void;
@@ -70,16 +79,23 @@ export function ConversationView({
   isTranscribing,
   model,
   models,
+  composerMode,
+  imageSize,
   reserveThinkingSpace,
   reasoningProfile,
   toolMode,
+  knowledgeFolders,
+  knowledgeFolder,
   submitBlocked,
   submitBlockedReason,
   streamingStatusLabel,
   onChangeDraft,
   onChangeEditingUserMessage,
   onModelChange,
+  onComposerModeChange,
+  onImageSizeChange,
   onReasoningProfileChange,
+  onKnowledgeFolderChange,
   onCancelEditingUserMessage,
   onLoadEarlierMessages,
   onRemoveDraftAttachment,
@@ -90,6 +106,7 @@ export function ConversationView({
   onSelectAttachments,
   onSend,
   onStop,
+  onNewDebate,
   onToggleRecording,
   onToggleRag,
   onToggleWeb,
@@ -274,11 +291,19 @@ export function ConversationView({
           isTranscribing={isTranscribing}
           model={model}
           models={models}
+          composerMode={composerMode}
+          imageSize={imageSize}
           onChange={onChangeDraft}
+          onComposerModeChange={onComposerModeChange}
+          onImageSizeChange={onImageSizeChange}
           onModelChange={onModelChange}
           onReasoningProfileChange={onReasoningProfileChange}
+          knowledgeFolders={knowledgeFolders}
+          knowledgeFolder={knowledgeFolder}
+          onKnowledgeFolderChange={onKnowledgeFolderChange}
           onRemoveAttachment={onRemoveDraftAttachment}
           onSelectAttachments={onSelectAttachments}
+          onNewDebate={onNewDebate}
           onStop={onStop}
           onSubmit={onSend}
           onToggleRecording={onToggleRecording}

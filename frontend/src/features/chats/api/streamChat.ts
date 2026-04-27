@@ -20,6 +20,7 @@ export async function streamChat(payload: ChatStreamRequest, options: ChatStream
     formData.append("model", payload.model);
   }
   formData.append("tool_mode", payload.tool_mode);
+  payload.knowledge_folders?.forEach((folder) => formData.append("knowledge_folders", folder));
   if (payload.reasoning_profile) {
     formData.append("reasoning_profile", payload.reasoning_profile);
   }

@@ -8,32 +8,32 @@ from app.providers.catalog import _parse_profiles, _resolve_api_key, _resolve_en
 class ModelCatalogConfigResolutionTests(unittest.TestCase):
     def test_resolve_env_value_uses_settings_when_os_env_missing(self):
         with patch.dict(os.environ, {}, clear=True), patch(
-            "app.providers.catalog.settings.openai_local_base_url",
-            "http://127.0.0.1:18000/v1",
+            "app.providers.catalog.settings.codex_base_url",
+            "https://api.openai.com/v1",
         ):
             self.assertEqual(
-                _resolve_env_value("${OPENAI_LOCAL_BASE_URL}"),
-                "http://127.0.0.1:18000/v1",
+                _resolve_env_value("${CODEX_BASE_URL}"),
+                "https://api.openai.com/v1",
             )
 
     def test_resolve_env_value_prefers_os_env_over_settings(self):
-        with patch.dict(os.environ, {"OPENAI_LOCAL_BASE_URL": "http://localhost:19000/v1"}, clear=True), patch(
-            "app.providers.catalog.settings.openai_local_base_url",
-            "http://127.0.0.1:18000/v1",
+        with patch.dict(os.environ, {"CODEX_BASE_URL": "https://custom.example.com/v1"}, clear=True), patch(
+            "app.providers.catalog.settings.codex_base_url",
+            "https://api.openai.com/v1",
         ):
             self.assertEqual(
-                _resolve_env_value("${OPENAI_LOCAL_BASE_URL}"),
-                "http://localhost:19000/v1",
+                _resolve_env_value("${CODEX_BASE_URL}"),
+                "https://custom.example.com/v1",
             )
 
     def test_resolve_api_key_uses_settings_when_os_env_missing(self):
         with patch.dict(os.environ, {}, clear=True), patch(
-            "app.providers.catalog.settings.openai_local_api_key",
-            "sk-local-from-settings",
+            "app.providers.catalog.settings.codex_api_key",
+            "sk-codex-from-settings",
         ):
             self.assertEqual(
-                _resolve_api_key(api_key=None, api_key_env="OPENAI_LOCAL_API_KEY"),
-                "sk-local-from-settings",
+                _resolve_api_key(api_key=None, api_key_env="CODEX_API_KEY"),
+                "sk-codex-from-settings",
             )
 
     def test_resolve_env_value_reads_codex_base_url_from_settings(self):

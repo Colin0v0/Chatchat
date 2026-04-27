@@ -133,7 +133,7 @@ async def stream_chat_run(
             token_budget=strategy.history_token_budget,
         )
         include_image_context = profile.native_multimodal_mode == "false"
-        include_file_context = strategy.file_retrieval_enabled and profile.native_multimodal_mode != "local"
+        include_file_context = strategy.file_retrieval_enabled
         message_history_service = MessageHistoryService(run_db, services.attachment_context_service)
         needs_retrieval_grounding = (
             include_file_context
@@ -277,6 +277,17 @@ async def stream_chat_run(
 
         full_response = "".join(answer_chunks).strip()
         full_reasoning = "".join(reasoning_chunks).strip()
+        if not full_response:
+            message = "模型没有返回内容，请重试或切换模型。"
+            line = trace.persist_failure(
+                error_code="EmptyModelResponse",
+                error_message=message,
+                failure_event=failed_event(message),
+            )
+            if line:
+                yield line
+            return
+
         assistant_message = save_assistant_message(
             db=run_db,
             conversation=conversation,

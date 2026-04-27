@@ -23,7 +23,7 @@ class _StubAttachmentContextService:
 
 
 class MessageHistoryServiceTests(unittest.IsolatedAsyncioTestCase):
-    async def test_prepare_local_image_flow_adds_cautious_system_prompt_and_attachment_brief(self):
+    async def test_prepare_attachment_context_adds_cautious_system_prompt_and_attachment_brief(self):
         service = MessageHistoryService(_StubDb(), _StubAttachmentContextService())
         message = Message(
             role='user',
@@ -51,7 +51,7 @@ class MessageHistoryServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(prepared.messages[1].images, ())
         self.assertIn(f'{ATTACHMENT_CONTEXT_LABEL}:', prepared.messages[1].content)
 
-    async def test_prepare_empty_prompt_uses_default_attachment_prompt_for_local_flow(self):
+    async def test_prepare_empty_prompt_uses_default_attachment_prompt_for_attachment_context(self):
         service = MessageHistoryService(_StubDb(), _StubAttachmentContextService())
         message = Message(
             role='user',
@@ -76,35 +76,6 @@ class MessageHistoryServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(prepared.messages[1].images, ())
         self.assertIn('Please analyze the uploaded attachments in detail.', prepared.messages[1].content)
         self.assertIn(f'{ATTACHMENT_CONTEXT_LABEL}:', prepared.messages[1].content)
-
-    async def test_prepare_upstream_service_model_uses_file_references(self):
-        service = MessageHistoryService(_StubDb(), _StubAttachmentContextService())
-        message = Message(
-            role='user',
-            content='总结这个文件',
-        )
-        message.attachments = [
-            MessageAttachment(
-                kind='file',
-                original_name='demo.pdf',
-                mime_type='application/pdf',
-                relative_path='tests/assets/demo.pdf',
-                size_bytes=1,
-                position=0,
-            )
-        ]
-
-        with patch('app.chat.history.resolve_native_multimodal_mode', return_value='local'), patch(
-            'app.chat.history.ensure_upstream_file_id',
-            return_value='file_demo',
-        ):
-            prepared = await service.prepare(model='openai_local:claude-sonnet-4-6', messages=[message])
-
-        self.assertEqual(len(prepared.messages), 1)
-        self.assertEqual(prepared.messages[0].role, 'user')
-        self.assertEqual(prepared.messages[0].content, '总结这个文件')
-        self.assertEqual(prepared.messages[0].files, (ChatFileReferencePayload(file_id='file_demo'),))
-        self.assertEqual(prepared.messages[0].images, ())
 
     async def test_prepare_codex_flow_sends_images_natively_and_keeps_file_context_local(self):
         class _CodexAttachmentContextService:

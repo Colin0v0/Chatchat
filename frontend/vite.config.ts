@@ -9,10 +9,15 @@ const isMountedWindowsFs =
 const usePolling =
   process.env.CHOKIDAR_USEPOLLING === "true" || isMountedWindowsFs;
 const devApiOrigin = process.env.CHATCHAT_DEV_API_ORIGIN?.trim() || "http://127.0.0.1:8050";
-const allowedHosts = (process.env.CHATCHAT_DEV_ALLOWED_HOSTS ?? "")
-  .split(",")
-  .map((item) => item.trim())
-  .filter(Boolean);
+const allowedHosts = Array.from(
+  new Set([
+    "colin.tailbfa0dd.ts.net",
+    ...(process.env.CHATCHAT_DEV_ALLOWED_HOSTS ?? "")
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean),
+  ]),
+);
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
@@ -26,7 +31,7 @@ export default defineConfig({
           interval: 150,
         }
       : undefined,
-    ...(allowedHosts.length ? { allowedHosts } : {}),
+    allowedHosts,
     proxy: {
       "/api": devApiOrigin,
       "/media": devApiOrigin,

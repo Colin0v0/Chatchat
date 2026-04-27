@@ -41,6 +41,7 @@ async def chat_stream(
     message: str = Form(""),
     model: Optional[str] = Form(None),
     tool_mode: ToolMode = Form("none"),
+    knowledge_folders: Optional[list[str]] = Form(None),
     reasoning_profile: Optional[ReasoningProfileValue] = Form(None),
     files: Optional[list[UploadFile]] = File(None),
     db: Session = Depends(get_db),
@@ -56,6 +57,7 @@ async def chat_stream(
         message=message,
         model=model,
         tool_mode=tool_mode,
+        knowledge_folders=knowledge_folders or [],
         reasoning_profile=reasoning_profile,
         files=files,
     )

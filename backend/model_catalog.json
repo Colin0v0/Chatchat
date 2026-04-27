@@ -1,8 +1,9 @@
 {
   "providers": {
-    "openai_default": {
+    "deepseek_default": {
       "provider": "openai",
-      "api_key_env": "OPENAI_API_KEY"
+      "base_url": "${DEEPSEEK_BASE_URL}",
+      "api_key_env": "DEEPSEEK_API_KEY"
     },
     "trio_default": {
       "provider": "trio",
@@ -23,20 +24,14 @@
       "provider": "gemini",
       "base_url": "${GEMINI_BASE_URL}",
       "api_key_env": "GEMINI_API_KEY"
-    },
-    "openai_local_router": {
-      "provider": "openai_local",
-      "base_url": "${OPENAI_LOCAL_BASE_URL}",
-      "upstream_service_base_url": "${OPENAI_LOCAL_UPSTREAM_SERVICE_BASE_URL}",
-      "api_key_env": "OPENAI_LOCAL_API_KEY"
     }
   },
   "models": [
     {
-      "id": "openai:deepseek-chat",
-      "display_name": "DeepSeek Chat",
-      "provider_ref": "openai_default",
-      "upstream_model": "deepseek-chat",
+      "id": "openai:deepseek-v4-flash",
+      "display_name": "DeepSeek v4 Flash",
+      "provider_ref": "deepseek_default",
+      "upstream_model": "deepseek-v4-flash",
       "limits": {
         "context_window": 200000
       },
@@ -46,7 +41,7 @@
       "capabilities": {
         "input": {
           "text": true,
-          "image": true,
+          "image": false,
           "pdf": true,
           "other_file": true,
           "audio": true
@@ -82,10 +77,10 @@
       "enabled": true
     },
     {
-      "id": "openai:deepseek-reasoner",
-      "display_name": "DeepSeek Reasoner",
-      "provider_ref": "openai_default",
-      "upstream_model": "deepseek-reasoner",
+      "id": "openai:deepseek-v4-pro",
+      "display_name": "DeepSeek v4 Pro",
+      "provider_ref": "deepseek_default",
+      "upstream_model": "deepseek-v4-pro",
       "limits": {
         "context_window": 200000
       },
@@ -95,7 +90,7 @@
       "capabilities": {
         "input": {
           "text": true,
-          "image": true,
+          "image": false,
           "pdf": true,
           "other_file": true,
           "audio": true
@@ -228,15 +223,15 @@
       "enabled": true
     },
     {
-      "id": "openai_local:claude-sonnet-4-6",
+      "id": "claude:claude-sonnet-4-6",
       "display_name": "Claude Sonnet 4.6",
-      "provider_ref": "openai_local_router",
+      "provider_ref": "claude_default",
       "upstream_model": "claude-sonnet-4-6",
       "limits": {
         "context_window": 200000
       },
       "runtime": {
-        "native_multimodal_mode": "local"
+        "native_multimodal_mode": "claude"
       },
       "capabilities": {
         "input": {
@@ -247,9 +242,9 @@
           "audio": true
         },
         "transport": {
-          "inline_data": false,
-          "file_upload": true,
-          "remote_url": true
+          "inline_data": true,
+          "file_upload": false,
+          "remote_url": false
         },
         "reasoning": {
           "control": "none",
@@ -259,120 +254,20 @@
         },
         "tools": {
           "function_calling": true,
-          "parallel_calls": true,
-          "forced_call": false
-        },
-        "stream": {
-          "text": true,
-          "reasoning": false,
-          "tool_call": true,
-          "usage": true
-        },
-        "state": {
-          "previous_response": true
-        }
-      },
-      "enabled": false
-    },
-    {
-      "id": "openai_local:claude-haiku-4-5",
-      "display_name": "Claude Haiku 4.5",
-      "provider_ref": "openai_local_router",
-      "upstream_model": "claude-haiku-4-5",
-      "limits": {
-        "context_window": 200000
-      },
-      "runtime": {
-        "native_multimodal_mode": "false"
-      },
-      "capabilities": {
-        "input": {
-          "text": true,
-          "image": true,
-          "pdf": true,
-          "other_file": true,
-          "audio": true
-        },
-        "transport": {
-          "inline_data": false,
-          "file_upload": false,
-          "remote_url": true
-        },
-        "reasoning": {
-          "control": "toggle",
-          "default_profile": "medium",
-          "supported_profiles": ["auto", "off", "medium"],
-          "visibility": "full",
-          "continuation": "stateful",
-          "visible_trace": true,
-          "summary_only": false
-        },
-        "tools": {
-          "function_calling": true,
-          "parallel_calls": true,
+          "parallel_calls": false,
           "forced_call": false
         },
         "stream": {
           "text": true,
           "reasoning": true,
           "tool_call": true,
-          "usage": true
+          "usage": false
         },
         "state": {
-          "previous_response": true
+          "previous_response": false
         }
       },
-      "enabled": false
-    },
-    {
-      "id": "openai_local:claude-opus-4-6",
-      "display_name": "Claude Opus 4.6",
-      "provider_ref": "openai_local_router",
-      "upstream_model": "claude-opus-4-6",
-      "limits": {
-        "context_window": 200000
-      },
-      "runtime": {
-        "native_multimodal_mode": "false"
-      },
-      "capabilities": {
-        "input": {
-          "text": true,
-          "image": true,
-          "pdf": true,
-          "other_file": true,
-          "audio": true
-        },
-        "transport": {
-          "inline_data": false,
-          "file_upload": false,
-          "remote_url": true
-        },
-        "reasoning": {
-          "control": "toggle",
-          "default_profile": "medium",
-          "supported_profiles": ["auto", "off", "medium"],
-          "visibility": "full",
-          "continuation": "stateful",
-          "visible_trace": true,
-          "summary_only": false
-        },
-        "tools": {
-          "function_calling": true,
-          "parallel_calls": true,
-          "forced_call": false
-        },
-        "stream": {
-          "text": true,
-          "reasoning": true,
-          "tool_call": true,
-          "usage": true
-        },
-        "state": {
-          "previous_response": true
-        }
-      },
-      "enabled": false
+      "enabled": true
     },
     {
       "id": "codex:gpt-5.2",
@@ -425,10 +320,10 @@
       "enabled": true
     },
     {
-      "id": "codex:gpt-5.4",
-      "display_name": "GPT-5.4",
+      "id": "codex:gpt-5.5",
+      "display_name": "GPT-5.5",
       "provider_ref": "codex_default",
-      "upstream_model": "gpt-5.4",
+      "upstream_model": "gpt-5.5",
       "limits": {
         "context_window": 200000
       },

@@ -15,6 +15,7 @@ import {
   INITIAL_CHAT_MODEL,
   pickLandingTitle,
 } from "../../chats/lib/constants";
+import { resolveImageGenerationSize } from "../../chats/lib/imageSizeOptions";
 import {
   appendRetryDraft,
   createAssistantDraftMessageForModel,
@@ -39,6 +40,7 @@ import {
   renameConversation,
   updateMessageFeedback,
 } from "../../chats/api/conversations";
+import { generateImage } from "../../chats/api/generateImage";
 import { regenerateChat, streamActiveChat, streamChat } from "../../chats/api/streamChat";
 import {
   createDebateSession,
@@ -66,8 +68,10 @@ import { transcribeAudio } from "../../../lib/api";
 import { ApiError } from "../../../shared/api/http";
 import { buildConversationMarkdown, buildDebateMarkdown, downloadMarkdown } from "../../../lib/exportMarkdown";
 import type {
+  AudioTranscriptionResult,
   DebateAiSuggestion,
   ChatMessage,
+  ComposerMode,
   ConversationDetail,
   ConversationSummary,
   DebateSessionDetail,
@@ -81,6 +85,8 @@ import type {
 type UseChatAppOptions = {
   closeMobileSidebar: () => void;
   isDesktop: boolean;
+  onSectionRouteChange?: (section: WorkspaceSection) => void;
+  routeSection?: WorkspaceSection;
   sidebarOpen: boolean;
   toggleSidebar: () => void;
 };
@@ -96,6 +102,21 @@ const CONVERSATION_VIEW_MESSAGE_LIMIT = 24;
 const CONVERSATION_EXPORT_MESSAGE_LIMIT = 100;
 const ACTIVE_CHAT_CONVERSATION_CACHE_STORAGE_KEY = "chatchat.active-chat-conversations";
 const DEBATE_TRANSIENT_STATE_STORAGE_KEY = "chatchat.debate-transient-states";
+const DEFAULT_IMAGE_SIZE = "1024x1024";
+const IMAGE_ATTACHMENT_EXTENSIONS = new Set([".gif", ".jpeg", ".jpg", ".png", ".webp"]);
+
+function fileExtension(name: string) {
+  const dotIndex = name.lastIndexOf(".");
+  return dotIndex >= 0 ? name.slice(dotIndex).toLowerCase() : "";
+}
+
+function fileLooksLikeImage(file: File) {
+  return file.type.startsWith("image/") || IMAGE_ATTACHMENT_EXTENSIONS.has(fileExtension(file.name));
+}
+
+function modelAllowsImageAttachments(model: ModelOption) {
+  return model.capabilities?.input.image ?? model.supports_attachment_upload;
+}
 
 function loadStoredChatConversationCache(): Record<number, ConversationDetail> {
   if (typeof window === "undefined") {
@@ -203,6 +224,41 @@ function mergeDraftWithTranscript(current: string, transcript: string): string {
   return `${current}${suffix}${normalizedTranscript}`;
 }
 
+const MIN_RELIABLE_TRANSCRIPTION_DURATION_MS = 300;
+const MEANINGFUL_TRANSCRIPT_PATTERN = /[\u3400-\u9fffA-Za-z0-9]/;
+
+function shouldIgnoreLowConfidenceTranscript(result: AudioTranscriptionResult): boolean {
+  const text = result.text.trim();
+  if (!text) {
+    return true;
+  }
+
+  const compactText = text.replace(/\s+/g, "");
+  if (result.duration_ms > 0 && result.duration_ms < MIN_RELIABLE_TRANSCRIPTION_DURATION_MS) {
+    return compactText.length <= 1;
+  }
+
+  return compactText.length <= 3 && !MEANINGFUL_TRANSCRIPT_PATTERN.test(compactText);
+}
+
+function emptyTranscriptionMessage(result: AudioTranscriptionResult): string | null {
+  if (result.text.trim()) {
+    return null;
+  }
+
+  switch (result.reason) {
+    case "too_short":
+      return "录音时间太短，请说完整一句后再松开。";
+    case "too_quiet":
+      return "录音音量太低，请靠近麦克风再试。";
+    case "empty_audio":
+      return "未捕获到有效音频，请检查麦克风权限后重试。";
+    case "empty_transcript":
+    default:
+      return "没有识别到语音内容，请再说一次。";
+  }
+}
+
 function debateActivityVersion(session: Pick<DebateSessionSummary, "updated_at" | "status" | "stage">) {
   return `${session.updated_at ?? "none"}:${session.status}:${session.stage}`;
 }
@@ -289,6 +345,8 @@ function findNextAssistantMessage(messages: ChatMessage[], startIndex: number): 
 export function useChatApp({
   closeMobileSidebar,
   isDesktop,
+  onSectionRouteChange,
+  routeSection = "chats",
   sidebarOpen,
   toggleSidebar,
 }: UseChatAppOptions) {
@@ -308,7 +366,7 @@ export function useChatApp({
     Record<number, { running: boolean; unread: boolean }>
   >({});
   const [debateCreateOpen, setDebateCreateOpen] = useState(false);
-  const [activeSection, setActiveSection] = useState<WorkspaceSection>("chats");
+  const [activeSection, setActiveSection] = useState<WorkspaceSection>(routeSection);
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState("");
   const [editingUserMessageId, setEditingUserMessageId] = useState<number | string | null>(null);
@@ -316,9 +374,12 @@ export function useChatApp({
   const [earlierMessagesError, setEarlierMessagesError] = useState<string | null>(null);
   const [models, setModels] = useState<ModelOption[]>(() => createInitialModelOptions());
   const [selectedModel, setSelectedModel] = useState(INITIAL_CHAT_MODEL);
+  const [composerMode, setComposerModeState] = useState<ComposerMode>("chat");
+  const [imageSize, setImageSize] = useState(DEFAULT_IMAGE_SIZE);
   const [reasoningProfile, setReasoningProfile] = useState<ReasoningProfileValue>("off");
   const [collapsedMessageIds, setCollapsedMessageIds] = useState<Set<number | string>>(new Set());
   const [toolMode, setToolMode] = useState<ToolMode>("none");
+  const [knowledgeFolder, setKnowledgeFolder] = useState("");
   const [landingHeroAnimated, setLandingHeroAnimated] = useState(false);
   const [landingTitle] = useState(() => pickLandingTitle());
   const [error, setError] = useState<string | null>(null);
@@ -328,12 +389,14 @@ export function useChatApp({
     activeConversationId: activeConversationId && activeConversationId > 0 ? activeConversationId : null,
     enabled: activeSection === "memories",
   });
-  const knowledgeManager = useKnowledgeManager({ enabled: activeSection === "knowledge" });
+  const knowledgeManager = useKnowledgeManager({ enabled: activeSection === "knowledge" || toolMode === "knowledge" });
   const { addAttachments, clearAttachments, draftAttachments, removeAttachment, replaceAttachments } =
     useComposerAttachments();
   const { cancelRecording, isRecording, recordingError, startRecording, stopRecording } =
     useAudioRecorder();
   const transientAttachmentUrlsRef = useRef<string[]>([]);
+  const composerModeRef = useRef<ComposerMode>("chat");
+  const chatModelBeforeImageRef = useRef(INITIAL_CHAT_MODEL);
   const conversationLoadAbortRef = useRef<AbortController | null>(null);
   const earlierMessagesAbortRef = useRef<AbortController | null>(null);
   const debateLoadAbortRef = useRef<AbortController | null>(null);
@@ -348,6 +411,7 @@ export function useChatApp({
   const modelsLoadGuard = useLatestRequestGuard();
   const deferredQuery = useDeferredValue(query);
   const reasoningSyncKeyRef = useRef<string | null>(null);
+  const previousRouteSectionRef = useRef(routeSection);
 
   const selectedModelOption = useMemo(
     () => findModelOption(models, selectedModel),
@@ -382,6 +446,7 @@ export function useChatApp({
     [],
   );
   const attachmentUploadAvailable = selectedModelOption.supports_attachment_upload;
+  const imageUploadAvailable = modelAllowsImageAttachments(selectedModelOption);
   const selectedModelReasoningKey = useMemo(
     () =>
       [
@@ -395,11 +460,44 @@ export function useChatApp({
     () => reasoningRequestValueForModel(selectedModelOption, reasoningProfile),
     [reasoningProfile, selectedModelOption],
   );
+  const activeKnowledgeFolders = useMemo(
+    () => (toolMode === "knowledge" && knowledgeFolder ? [knowledgeFolder] : []),
+    [knowledgeFolder, toolMode],
+  );
+
+  useEffect(() => {
+    if (!knowledgeFolder || knowledgeFolder === "__root__") {
+      return;
+    }
+    if (!knowledgeManager.folders.includes(knowledgeFolder)) {
+      setKnowledgeFolder("");
+    }
+  }, [knowledgeFolder, knowledgeManager.folders]);
 
   const clearTransientAttachmentUrls = useCallback(() => {
     transientAttachmentUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
     transientAttachmentUrlsRef.current = [];
   }, []);
+
+  const handleSelectAttachments = useCallback(
+    (files: FileList | File[]) => {
+      const selectedFiles = Array.from(files);
+      if (selectedFiles.length === 0) {
+        return;
+      }
+
+      const allowedFiles = imageUploadAvailable
+        ? selectedFiles
+        : selectedFiles.filter((file) => !fileLooksLikeImage(file));
+      if (allowedFiles.length < selectedFiles.length) {
+        setError("当前模型不支持图片上传，请切换到 Claude/Gemini/Codex 等多模态模型。");
+      }
+      if (allowedFiles.length > 0) {
+        addAttachments(allowedFiles);
+      }
+    },
+    [addAttachments, imageUploadAvailable],
+  );
 
   const writeChatConversationCache = useCallback((cache: Record<number, ConversationDetail>) => {
     chatConversationCacheRef.current = cache;
@@ -471,8 +569,8 @@ export function useChatApp({
     setError,
     setSelectedModel,
   });
-  const submitBlocked = false;
-  const submitBlockedReason = null;
+  const submitBlocked = composerMode === "image" && draftAttachments.length > 0;
+  const submitBlockedReason = submitBlocked ? "生成图片暂不支持附件，请先移除附件。" : null;
 
   useEffect(() => {
     runningSessions.forEach((session) => {
@@ -487,6 +585,26 @@ export function useChatApp({
     setEditingUserMessageContent("");
     setEarlierMessagesError(null);
   }, [activeConversationId]);
+
+  useEffect(() => {
+    if (previousRouteSectionRef.current === routeSection) {
+      return;
+    }
+
+    previousRouteSectionRef.current = routeSection;
+    startTransition(() => {
+      setActiveSection(routeSection);
+      if (routeSection === "chats") {
+        setActiveConversationId(null);
+        setActiveConversation(null);
+        setActiveDebateId(null);
+        setActiveDebate(null);
+        setDebateCreateOpen(false);
+        setCollapsedMessageIds(new Set());
+        return;
+      }
+    });
+  }, [routeSection]);
 
   const loadConversation = useCallback(
     async (conversationId: number) => {
@@ -879,6 +997,28 @@ export function useChatApp({
     setSelectedModel(model);
   }, []);
 
+  const setComposerModeValue = useCallback((mode: ComposerMode) => {
+    composerModeRef.current = mode;
+    setComposerModeState(mode);
+  }, []);
+
+  const restoreChatComposerMode = useCallback(() => {
+    setComposerModeValue("chat");
+    setSelectedModel(chatModelBeforeImageRef.current);
+  }, [setComposerModeValue]);
+
+  const handleComposerModeChange = useCallback(
+    (mode: ComposerMode) => {
+      if (mode === "image") {
+        chatModelBeforeImageRef.current = selectedModel;
+        setComposerModeValue("image");
+        return;
+      }
+      restoreChatComposerMode();
+    },
+    [restoreChatComposerMode, selectedModel, setComposerModeValue],
+  );
+
   const handleReasoningProfileChange = useCallback((value: ReasoningProfileValue) => {
     setReasoningProfile(normalizeReasoningProfileForModel(selectedModelOption, value));
   }, [selectedModelOption]);
@@ -891,11 +1031,11 @@ export function useChatApp({
     try {
       await startRecording();
     } catch (recordingStartError) {
-      setError(
+      const message =
         recordingStartError instanceof Error
           ? recordingStartError.message
-          : "Failed to start audio recording.",
-      );
+          : "Failed to start audio recording.";
+      setError(message);
     }
   }, [isStreaming, isTranscribing, setError, startRecording]);
 
@@ -906,6 +1046,7 @@ export function useChatApp({
 
     setIsTranscribing(true);
     try {
+      setError(null);
       const capture = await stopRecording();
       if (!capture.audioBlob) {
         setError("未捕获到有效音频，请检查 Edge 麦克风权限后重试。");
@@ -913,16 +1054,23 @@ export function useChatApp({
       }
 
       const result = await transcribeAudio(capture.audioBlob);
-      if (!result.text.trim()) {
+      const emptyMessage = emptyTranscriptionMessage(result);
+      if (emptyMessage) {
+        setError(emptyMessage);
+        return;
+      }
+      if (shouldIgnoreLowConfidenceTranscript(result)) {
+        setError("没有识别到可靠语音内容，请再说一次。");
         return;
       }
       setDraft((current) => mergeDraftWithTranscript(current, result.text));
+      setError(null);
     } catch (transcriptionError) {
-      setError(
+      const message =
         transcriptionError instanceof Error
           ? transcriptionError.message
-          : "Failed to transcribe audio.",
-      );
+          : "Failed to transcribe audio.";
+      setError(message);
     } finally {
       setIsTranscribing(false);
     }
@@ -937,6 +1085,7 @@ export function useChatApp({
   }, [handleStartRecording, handleStopRecording, isRecording]);
 
   const handleNewChat = useCallback(() => {
+    onSectionRouteChange?.("chats");
     cancelRecording();
     conversationLoadAbortRef.current?.abort();
     earlierMessagesAbortRef.current?.abort();
@@ -956,10 +1105,11 @@ export function useChatApp({
         closeMobileSidebar();
       }
     });
-  }, [cancelRecording, clearAttachments, closeMobileSidebar, isDesktop]);
+  }, [cancelRecording, clearAttachments, closeMobileSidebar, isDesktop, onSectionRouteChange]);
 
   const handleSelectConversation = useCallback(
     (conversationId: number) => {
+      onSectionRouteChange?.("chats");
       cancelRecording();
       earlierMessagesAbortRef.current?.abort();
       debateLoadAbortRef.current?.abort();
@@ -978,7 +1128,7 @@ export function useChatApp({
         }
       });
     },
-    [cancelRecording, closeMobileSidebar, isDesktop, openSessionConversation],
+    [cancelRecording, closeMobileSidebar, isDesktop, onSectionRouteChange, openSessionConversation],
   );
 
   const handleNewDebate = useCallback(() => {
@@ -1002,6 +1152,20 @@ export function useChatApp({
       }
     });
   }, [cancelRecording, clearAttachments, closeMobileSidebar, isDesktop]);
+
+  const handleCancelCreateDebate = useCallback(() => {
+    onSectionRouteChange?.("chats");
+    startTransition(() => {
+      setActiveSection("chats");
+      setActiveConversationId(null);
+      setActiveConversation(null);
+      setActiveDebateId(null);
+      setActiveDebate(null);
+      setDebateCreateOpen(false);
+      setCollapsedMessageIds(new Set());
+      setError(null);
+    });
+  }, [onSectionRouteChange]);
 
   const handleSelectDebate = useCallback(
     (sessionId: number) => {
@@ -1090,6 +1254,7 @@ export function useChatApp({
 
   const handleSelectSection = useCallback(
     (section: WorkspaceSection) => {
+      onSectionRouteChange?.(section);
       startTransition(() => {
         setActiveSection(section);
         if (section === "chats") {
@@ -1114,7 +1279,7 @@ export function useChatApp({
         closeMobileSidebar();
       }
     },
-    [closeMobileSidebar, isDesktop],
+    [closeMobileSidebar, isDesktop, onSectionRouteChange],
   );
 
   const handleRenameConversation = useCallback(
@@ -1474,7 +1639,77 @@ export function useChatApp({
   const handleSend = useCallback(async () => {
     const message = draft.trim();
     const pendingFiles = draftAttachments.map((attachment) => attachment.file);
+    const effectiveComposerMode = composerModeRef.current;
     if ((!message && pendingFiles.length === 0) || isRecording || isStreaming || isTranscribing) {
+      return;
+    }
+    if (!imageUploadAvailable && pendingFiles.some(fileLooksLikeImage)) {
+      setError("当前模型不支持图片上传，请切换到 Claude/Gemini/Codex 等多模态模型。");
+      return;
+    }
+    if (effectiveComposerMode === "image") {
+      if (!message || pendingFiles.length > 0) {
+        return;
+      }
+
+      const conversationModel = activeConversation?.model ?? chatModelBeforeImageRef.current;
+      const imageGenerationSize = resolveImageGenerationSize(imageSize);
+      const tempConversationId =
+        activeConversation?.id != null ? activeConversation.id : -Date.now();
+      const tempUserMessageId = `user-${Date.now()}`;
+      const tempUserMessage = createUserDraftMessage(tempUserMessageId, message, []);
+      const nextConversation: ConversationDetail = activeConversation
+        ? {
+            ...activeConversation,
+            model: conversationModel,
+            total_message_count: activeConversation.total_message_count + 2,
+            loaded_message_count: activeConversation.loaded_message_count + 2,
+            messages: [
+              ...activeConversation.messages,
+              tempUserMessage,
+              createAssistantDraftMessageForModel(conversationModel),
+            ],
+          }
+        : {
+            id: tempConversationId,
+            title: deriveConversationTitle(message, 0),
+            model: conversationModel,
+            total_message_count: 2,
+            loaded_message_count: 2,
+            remaining_message_count: 0,
+            messages: [tempUserMessage, createAssistantDraftMessageForModel(conversationModel)],
+          };
+
+      setDraft("");
+      clearAttachments();
+      restoreChatComposerMode();
+      setActiveConversationId(tempConversationId);
+      setActiveConversation(nextConversation);
+
+      const result = await runStream({
+        conversation: nextConversation,
+        errorMessage: "Failed to generate image.",
+        initialStage: "generating_image",
+        restoreInput: {
+          content: message,
+          loadFiles: async () => [],
+        },
+        tempUserMessageId,
+        request: ({ onEvent, signal }) =>
+          generateImage(
+            {
+              conversation_id:
+                activeConversation && activeConversation.id > 0 ? activeConversation.id : null,
+              prompt: message,
+              size: imageGenerationSize,
+            },
+            { onEvent, signal },
+          ),
+      });
+
+      if (result === "completed") {
+        await refreshConversations();
+      }
       return;
     }
 
@@ -1530,6 +1765,7 @@ export function useChatApp({
             model: effectiveModel,
             reasoning_profile: effectiveReasoningProfile,
             tool_mode: toolMode,
+            knowledge_folders: activeKnowledgeFolders,
           },
           { onEvent, signal },
         ),
@@ -1541,13 +1777,18 @@ export function useChatApp({
   }, [
     activeConversation,
     activeReasoningRequest,
+    activeKnowledgeFolders,
     clearAttachments,
+    composerMode,
     draft,
     draftAttachments,
+    imageUploadAvailable,
+    imageSize,
     isRecording,
     isStreaming,
     isTranscribing,
     refreshConversations,
+    restoreChatComposerMode,
     toolMode,
     runStream,
     selectedModel,
@@ -1629,6 +1870,7 @@ export function useChatApp({
                 model: effectiveModel,
                 reasoning_profile: effectiveReasoningProfile,
                 tool_mode: toolMode,
+                knowledge_folders: activeKnowledgeFolders,
               },
               { onEvent, signal },
             );
@@ -1643,6 +1885,7 @@ export function useChatApp({
               model: effectiveModel,
               reasoning_profile: effectiveReasoningProfile,
               tool_mode: toolMode,
+              knowledge_folders: activeKnowledgeFolders,
             },
             { onEvent, signal },
           );
@@ -1656,6 +1899,7 @@ export function useChatApp({
     [
       activeConversation,
       activeReasoningRequest,
+      activeKnowledgeFolders,
       isStreaming,
       refreshConversations,
       runStream,
@@ -1801,7 +2045,7 @@ export function useChatApp({
     (!activeConversation || activeConversation.messages.length === 0);
   const showSessionHeaderActions =
     activeSection === "chats" || activeSection === "debates";
-  const showChatModelSelector = activeSection === "chats";
+  const showChatModelSelector = activeSection === "chats" && composerMode !== "image";
 
   return {
     activeSection,
@@ -1811,7 +2055,7 @@ export function useChatApp({
           defaultProModelId: selectedModel,
           defaultConModelId: selectedModel,
           models: availableModels,
-          onCancel: () => setDebateCreateOpen(false),
+          onCancel: handleCancelCreateDebate,
           onCreate: handleCreateDebate,
         }
       : null,
@@ -1846,21 +2090,29 @@ export function useChatApp({
           isTranscribing,
           model: selectedModel,
           models: availableModels,
+          composerMode,
+          imageSize,
           reserveThinkingSpace: activeReasoningRequest !== null && activeReasoningRequest !== "off",
           reasoningProfile,
+          knowledgeFolders: knowledgeManager.folders,
+          knowledgeFolder,
           onChangeDraft: setDraft,
+          onComposerModeChange: handleComposerModeChange,
+          onImageSizeChange: setImageSize,
           onFeedback: (messageId: number, value: "up" | "down" | null) =>
             void handleMessageFeedback(messageId, value),
           onLoadEarlierMessages: () => void handleLoadEarlierMessages(),
           onModelChange: handleModelChange,
           onReasoningProfileChange: handleReasoningProfileChange,
+          onKnowledgeFolderChange: setKnowledgeFolder,
           onCancelEditingUserMessage: handleCancelEditingUserMessage,
           onChangeEditingUserMessage: setEditingUserMessageContent,
           onRemoveDraftAttachment: removeAttachment,
           onRetry: handleRetryAssistant,
           onStartEditingUserMessage: handleStartEditingUserMessage,
           onSubmitEditingUserMessage: (messageId: number | string) => void handleSubmitEditedUserMessage(messageId),
-          onSelectAttachments: addAttachments,
+          onSelectAttachments: handleSelectAttachments,
+          onNewDebate: handleNewDebate,
           onSend: () => void handleSend(),
           onStop: handleStop,
           onToggleRecording: handleToggleRecording,
@@ -1926,13 +2178,21 @@ export function useChatApp({
       isTranscribing,
       model: selectedModel,
       models: availableModels,
+      composerMode,
+      imageSize,
       reasoningProfile,
+      knowledgeFolders: knowledgeManager.folders,
+      knowledgeFolder,
       onAnimationComplete: handleLandingAnimationComplete,
       onChangeDraft: setDraft,
+      onComposerModeChange: handleComposerModeChange,
+      onImageSizeChange: setImageSize,
       onModelChange: handleModelChange,
       onReasoningProfileChange: handleReasoningProfileChange,
+      onKnowledgeFolderChange: setKnowledgeFolder,
       onRemoveDraftAttachment: removeAttachment,
-      onSelectAttachments: addAttachments,
+      onSelectAttachments: handleSelectAttachments,
+      onNewDebate: handleNewDebate,
       onSend: () => void handleSend(),
       onStop: handleStop,
       onToggleRecording: handleToggleRecording,

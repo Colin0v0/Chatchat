@@ -1,35 +1,40 @@
 import { useCallback, useEffect, useState } from "react";
+import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 
 import { useChatApp } from "./features/workspace/model/useChatApp";
 import { useResponsiveSidebar } from "./features/workspace/model/useResponsiveSidebar";
 import { MainHeader } from "./features/workspace/ui/MainHeader";
 import { Sidebar } from "./features/workspace/ui/Sidebar";
 import { WorkspaceMainView } from "./features/workspace/ui/WorkspaceMainView";
+import type { WorkspaceSection } from "./features/workspace/model/workspaceSections";
 import { useAuthSession } from "./features/auth/model/useAuthSession";
 import { LoginView } from "./features/auth/ui/LoginView";
 import { SettingsDialog } from "./features/settings/ui/SettingsDialog";
 import { setUnauthorizedHandler } from "./shared/api/http";
 import { LoaderCircle } from "lucide-react";
 
-type AppRoute = "/" | "/login";
+type RoutableWorkspaceSection = Exclude<WorkspaceSection, "debates">;
 
-function normalizeRoute(pathname: string): AppRoute {
-  return pathname === "/login" ? "/login" : "/";
+const WORKSPACE_SECTION_PATHS: Record<RoutableWorkspaceSection, string> = {
+  chats: "/",
+  knowledge: "/knowledge",
+  memories: "/memories",
+  models: "/models",
+};
+
+function isRoutableSection(section: WorkspaceSection): section is RoutableWorkspaceSection {
+  return section !== "debates";
 }
 
-function navigate(path: AppRoute, replace = false) {
-  const nextUrl = `${path}${window.location.search}${window.location.hash}`;
-  const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-  if (nextUrl === currentUrl) {
-    return;
+function sectionFromPathname(pathname: string): WorkspaceSection | null {
+  if (pathname === "/" || pathname === "/chats") {
+    return "chats";
   }
 
-  if (replace) {
-    window.history.replaceState(null, "", nextUrl);
-  } else {
-    window.history.pushState(null, "", nextUrl);
-  }
-  window.dispatchEvent(new PopStateEvent("popstate"));
+  const match = (Object.entries(WORKSPACE_SECTION_PATHS) as Array<[RoutableWorkspaceSection, string]>).find(
+    ([section, path]) => section !== "chats" && pathname === path,
+  );
+  return match?.[0] ?? null;
 }
 
 function ErrorToast({ message }: { message: string | null }) {
@@ -60,14 +65,38 @@ function WorkspaceApp({
   onLogout: () => void;
   username: string;
 }) {
+  const location = useLocation();
+  const navigate = useNavigate();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const sidebar = useResponsiveSidebar();
+  const routeSection = sectionFromPathname(location.pathname) ?? "chats";
+  const routeKnown = sectionFromPathname(location.pathname) !== null;
+  const handleSectionRouteChange = useCallback(
+    (section: WorkspaceSection) => {
+      if (!isRoutableSection(section)) {
+        return;
+      }
+      const nextPath = WORKSPACE_SECTION_PATHS[section];
+      if (location.pathname !== nextPath) {
+        navigate(nextPath);
+      }
+    },
+    [location.pathname, navigate],
+  );
   const app = useChatApp({
     closeMobileSidebar: sidebar.closeMobileSidebar,
     isDesktop: sidebar.isDesktop,
+    onSectionRouteChange: handleSectionRouteChange,
+    routeSection,
     sidebarOpen: sidebar.sidebarOpen,
     toggleSidebar: sidebar.toggleSidebar,
   });
+
+  useEffect(() => {
+    if (!routeKnown) {
+      navigate("/", { replace: true });
+    }
+  }, [navigate, routeKnown]);
 
   return (
     <div className="flex h-[100dvh] min-h-0 overflow-hidden bg-app-bg text-app-text">
@@ -78,6 +107,7 @@ function WorkspaceApp({
           sidebar.closeMobileSidebar();
           setSettingsOpen(true);
         }}
+        settingsActive={settingsOpen}
         viewerName={username}
       />
 
@@ -94,7 +124,6 @@ function WorkspaceApp({
           landingProps={app.landingProps}
           memoriesPageProps={app.memoriesPageProps}
           modelsPageProps={app.modelsPageProps}
-          onNewDebate={app.headerProps.onNewDebate}
           showLanding={app.showLanding}
         />
 
@@ -112,7 +141,7 @@ function WorkspaceApp({
 }
 
 export default function App() {
-  const [route, setRoute] = useState<AppRoute>(() => normalizeRoute(window.location.pathname));
+  const navigate = useNavigate();
   const {
     authError,
     clearAuthError,
@@ -126,68 +155,34 @@ export default function App() {
   } = useAuthSession();
 
   useEffect(() => {
-    function handleRouteChange() {
-      setRoute(normalizeRoute(window.location.pathname));
-    }
-
-    window.addEventListener("popstate", handleRouteChange);
-    return () => window.removeEventListener("popstate", handleRouteChange);
-  }, []);
-
-  useEffect(() => {
-    const normalizedPath = normalizeRoute(window.location.pathname);
-    if (window.location.pathname !== normalizedPath) {
-      navigate(normalizedPath, true);
-    }
-  }, [route]);
-
-  useEffect(() => {
     setUnauthorizedHandler(() => {
       clearSession();
-      navigate("/login", true);
+      navigate("/login", { replace: true });
     });
 
     return () => setUnauthorizedHandler(null);
-  }, [clearSession]);
-
-  useEffect(() => {
-    if (isBootstrapping) {
-      return;
-    }
-
-    if (user) {
-      if (route === "/login") {
-        navigate("/", true);
-      }
-      return;
-    }
-
-    if (route !== "/login") {
-      navigate("/login", true);
-    }
-  }, [isBootstrapping, route, user]);
+  }, [clearSession, navigate]);
 
   const handleLogin = useCallback(
     async (username: string, password: string) => {
       const nextUser = await signIn(username, password);
       if (nextUser) {
-        navigate("/", true);
+        navigate("/", { replace: true });
       }
     },
-    [signIn],
+    [navigate, signIn],
   );
 
   const handleLogout = useCallback(() => {
     void signOut();
-    navigate("/login", true);
-  }, [signOut]);
+    navigate("/login", { replace: true });
+  }, [navigate, signOut]);
 
   if (isBootstrapping) {
     return (
       <section className="flex min-h-[100dvh] items-center justify-center bg-app-bg px-6">
         <div className="flex flex-col items-center gap-4 text-center text-app-muted">
           <LoaderCircle className="size-8 animate-spin text-app-muted" />
-          <p className="text-[14px]">正在连接服务...</p>
         </div>
       </section>
     );
@@ -195,14 +190,27 @@ export default function App() {
 
   if (!user) {
     return (
-      <LoginView
-        error={authError}
-        isSubmitting={isLoggingIn || isLoggingOut}
-        onClearError={clearAuthError}
-        onSubmit={handleLogin}
-      />
+      <Routes>
+        <Route
+          element={
+            <LoginView
+              error={authError}
+              isSubmitting={isLoggingIn || isLoggingOut}
+              onClearError={clearAuthError}
+              onSubmit={handleLogin}
+            />
+          }
+          path="/login"
+        />
+        <Route element={<Navigate replace to="/login" />} path="*" />
+      </Routes>
     );
   }
 
-  return <WorkspaceApp onLogout={handleLogout} username={user.username} />;
+  return (
+    <Routes>
+      <Route element={<Navigate replace to="/" />} path="/login" />
+      <Route element={<WorkspaceApp onLogout={handleLogout} username={user.username} />} path="/*" />
+    </Routes>
+  );
 }

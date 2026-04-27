@@ -67,7 +67,7 @@ function normalizedProviderKey(model: ModelOption): "anthropic" | "deepseek" | "
   if (provider === "gemini" || provider === "google") {
     return "google";
   }
-  if (provider === "codex" || provider === "openai" || provider === "openai_local") {
+  if (provider === "codex" || provider === "openai") {
     return "openai";
   }
   return "unknown";

@@ -49,6 +49,7 @@ async def chat_stream_response(
     message: str,
     model: Optional[str],
     tool_mode: ToolMode,
+    knowledge_folders: list[str],
     reasoning_profile: ReasoningProfileValue | None,
     files: list[UploadFile] | None,
 ) -> StreamingResponse:
@@ -61,6 +62,7 @@ async def chat_stream_response(
         message=message,
         model=model,
         tool_mode=tool_mode,
+        knowledge_folders=knowledge_folders,
         reasoning_profile=reasoning_profile,
         files=files,
     )

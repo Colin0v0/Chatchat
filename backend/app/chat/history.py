@@ -77,8 +77,6 @@ class MessageHistoryService:
 
     def needs_retrieval_grounding(self, *, model: str, messages: list[Message]) -> bool:
         native_mode = resolve_native_multimodal_mode(model)
-        if native_mode == "local":
-            return False
         active_ids = self._active_attachment_message_ids(messages)
         return any(
             id(message) in active_ids and self._requires_local_file_context(native_mode=native_mode, message=message)
@@ -131,16 +129,6 @@ class MessageHistoryService:
         include_attachment_context: bool,
     ) -> tuple[ChatMessagePayload, bool, bool]:
         native_mode = resolve_native_multimodal_mode(model)
-        if message.role == "user" and message.attachments and include_attachment_context and native_mode == "local":
-            return (
-                ChatMessagePayload(
-                    role=message.role,
-                    content=self._resolved_user_prompt(message),
-                    files=tuple(await self._file_references(model=model, message=message)),
-                ),
-                False,
-                False,
-            )
         if message.role == "user" and message.attachments and include_attachment_context and native_mode in ("codex", "gemini", "claude"):
             content, used_text = await self._native_multimodal_message_content(
                 native_mode=native_mode,
@@ -178,9 +166,6 @@ class MessageHistoryService:
             return message.content, False
 
         native_mode = resolve_native_multimodal_mode(model)
-        if native_mode == "local":
-            return self._resolved_user_prompt(message), False
-
         if not include_attachment_context:
             return self._resolved_user_prompt(message), False
 
@@ -255,17 +240,6 @@ class MessageHistoryService:
         if content:
             return content
         return DEFAULT_ATTACHMENT_PROMPT
-
-    async def _file_references(self, *, model: str, message: Message) -> list[ChatFileReferencePayload]:
-        references: list[ChatFileReferencePayload] = []
-        for attachment in message.attachments:
-            file_id = await ensure_upstream_file_id(
-                db=self._db,
-                model=model,
-                attachment=attachment,
-            )
-            references.append(ChatFileReferencePayload(file_id=file_id))
-        return references
 
     async def _native_file_references(
         self,

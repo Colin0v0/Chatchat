@@ -32,6 +32,7 @@ export type RunStreamOptions = {
 
 export type StreamingStage =
   | "waiting_for_model"
+  | "generating_image"
   | "analyzing_attachments"
   | "reading_notes"
   | "reading_files"
@@ -60,6 +61,9 @@ export function stageFromStatusItems(items: string[]): StreamingStage | null {
   const normalizedItems = new Set(items);
   if (normalizedItems.has("Waiting for model")) {
     return "waiting_for_model";
+  }
+  if (normalizedItems.has("Generating image")) {
+    return "generating_image";
   }
   if (
     normalizedItems.has("Reading image")
@@ -93,6 +97,9 @@ export function stageForToolMode(mode: ToolMode): StreamingStage | null {
 export function labelForStage(stage: StreamingStage | null): string | null {
   if (stage === "waiting_for_model") {
     return "正在组织回答";
+  }
+  if (stage === "generating_image") {
+    return "生成图片";
   }
   if (stage === "analyzing_attachments") {
     return "分析附件";
