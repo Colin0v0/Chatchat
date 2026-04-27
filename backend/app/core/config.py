@@ -171,9 +171,16 @@ class Settings(BaseSettings):
     knowledge_rerank_window: int = 2
     knowledge_neighbor_window: int = 0
     knowledge_min_score: float = 0.22
-    web_search_base_url: str = "https://api.tavily.com"
+    web_search_provider: str = "dashscope"
+    web_search_base_url: str = "https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation"
     web_search_api_key: str = ""
     web_search_timeout_seconds: float = 20.0
+    web_search_model: str = "qwen-plus"
+    web_search_strategy: str = "turbo"
+    web_search_forced: bool = True
+    web_search_enable_source: bool = True
+    web_search_enable_citation: bool = True
+    web_search_citation_format: str = "[ref_<number>]"
     web_search_max_results: int = 5
     web_search_top_k: int = 4
     web_search_min_score: float = 0.35

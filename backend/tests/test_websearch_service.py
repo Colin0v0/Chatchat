@@ -15,11 +15,19 @@ def make_settings():
         web_search_top_k=4,
         web_search_min_score=0.35,
         web_search_content_max_chars=1600,
-        web_search_base_url="https://api.tavily.com",
+        web_search_provider="dashscope",
+        web_search_base_url="https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation",
         web_search_api_key="test-key",
         web_search_timeout_seconds=20.0,
+        web_search_model="qwen-plus",
+        web_search_strategy="turbo",
+        web_search_forced=True,
+        web_search_enable_source=True,
+        web_search_enable_citation=True,
+        web_search_citation_format="[ref_<number>]",
         web_search_max_results=5,
         web_search_translation_model="codex:gpt-5.2",
+        dashscope_api_key="",
     )
 
 
@@ -52,7 +60,7 @@ class _ConcurrentProvider:
 
 
 class WebSearchServiceTests(unittest.IsolatedAsyncioTestCase):
-    async def test_short_query_refuses_before_calling_tavily(self):
+    async def test_short_query_refuses_before_calling_provider(self):
         service = WebSearchService(make_settings())
         service._provider = _NeverCalledProvider()
 

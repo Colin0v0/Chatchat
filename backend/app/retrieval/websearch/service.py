@@ -10,7 +10,7 @@ from .dedupe import dedupe_results
 from .extractor import extract_result_content
 from .filter import filter_results
 from .planner import build_search_plan
-from .providers import TavilyProvider
+from .providers import DashScopeWebSearchProvider
 from .reranker import WebLexicalReranker
 from .types import WebSearchPlan, WebSearchResult
 
@@ -26,7 +26,7 @@ WEB_QUERY_TOO_SHORT_REFUSAL_MESSAGE = (
 class WebSearchService:
     def __init__(self, settings: Settings):
         self._settings = settings
-        self._provider = TavilyProvider(settings)
+        self._provider = DashScopeWebSearchProvider(settings)
         self._reranker = WebLexicalReranker()
         self._cache = WebSearchCache(ttl_seconds=300.0, max_entries=160)
         self._top_k = max(1, settings.web_search_top_k)
@@ -35,7 +35,7 @@ class WebSearchService:
 
     def require_configuration(self) -> None:
         if not self._provider.configured:
-            raise RuntimeError("Web search is not configured. Set WEB_SEARCH_API_KEY for Tavily first.")
+            raise RuntimeError("Web search is not configured. Set DASHSCOPE_API_KEY or WEB_SEARCH_API_KEY first.")
 
     async def retrieve_context(self, query: str) -> ContextPayload:
         plan = await build_search_plan(query, self._settings)

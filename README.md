@@ -29,6 +29,8 @@ Chatchat 是一个面向个人/小团队的聊天工作台，当前提供：
 ## 文档地图
 
 - [docs/部署与模型接入.md](docs/部署与模型接入.md)：服务器规格、Docker 部署、DeepSeek/百炼环境变量、API-only 链路
+- [docs/技术功能总览.md](docs/技术功能总览.md)：当前功能模块文档索引
+- [docs/功能模块/](docs/功能模块/)：按功能拆分的技术说明，一个模块一份文档
 - [docs/开发文档.md](docs/开发文档.md)：当前代码结构、后端/前端目录职责、主要运行链路和开发约定
 - [docs/后端重构.md](docs/后端重构.md)：后端 runtime、provider、tool、storage 的迁移状态和后续方向
 - [docs/前端重构.md](docs/前端重构.md)：前端 feature-first 拆分计划和当前迁移状态
@@ -296,12 +298,24 @@ KNOWLEDGE_MAX_TOTAL_SIZE_BYTES=104857600
 RAG_QUERY_REWRITE_ENABLED=true
 RAG_QUERY_REWRITE_MODEL=codex:gpt-5.2
 RAG_QUERY_REWRITE_HISTORY_MESSAGES=6
-WEB_SEARCH_BASE_URL=https://api.tavily.com
+WEB_SEARCH_PROVIDER=dashscope
+WEB_SEARCH_BASE_URL=https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation
 WEB_SEARCH_API_KEY=
+WEB_SEARCH_MODEL=qwen-plus
+WEB_SEARCH_STRATEGY=turbo
+WEB_SEARCH_FORCED=true
+WEB_SEARCH_ENABLE_SOURCE=true
+WEB_SEARCH_ENABLE_CITATION=true
+WEB_SEARCH_CITATION_FORMAT=[ref_<number>]
+WEB_SEARCH_MAX_RESULTS=5
+WEB_SEARCH_TOP_K=4
+WEB_SEARCH_MIN_SCORE=0.2
+WEB_SEARCH_CONTENT_MAX_CHARS=1600
 WEB_SEARCH_TRANSLATION_MODEL=codex:gpt-5.2
 ```
 
 切换 embedding 模型后，旧知识库向量需要重新索引。
+`WEB_SEARCH_API_KEY` 可以留空，网页搜索会复用 `DASHSCOPE_API_KEY`；只有搜索单独走另一把百炼 key 时才需要填写。
 
 #### 语音
 

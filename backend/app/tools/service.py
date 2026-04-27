@@ -249,8 +249,8 @@ class ToolRuntimeService:
             self._web_search_service.require_configuration()
         except RuntimeError:
             if prefers_simplified_chinese(query):
-                return "当前 Search 模式还没配置好，暂时不能联网搜索。先配置 Tavily API Key。"
-            return "Search mode is not configured yet. Configure the Tavily API key first."
+                return "当前 Search 模式还没配置好，暂时不能联网搜索。先配置 DASHSCOPE_API_KEY 或 WEB_SEARCH_API_KEY。"
+            return "Search mode is not configured yet. Configure DASHSCOPE_API_KEY or WEB_SEARCH_API_KEY first."
         return None
 
     def _build_context_message(
