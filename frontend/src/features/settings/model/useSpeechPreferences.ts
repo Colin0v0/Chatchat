@@ -3,7 +3,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { canUseSpeechSynthesis, unlockSpeechSynthesis } from "../../../lib/speechSynthesis";
 import { DEFAULT_CLOUD_VOICE_ID } from "./cloudVoices";
 
+export type SpeechPlaybackProvider = "cloud" | "local";
+
 export interface SpeechPreferences {
+  playbackProvider: SpeechPlaybackProvider;
   cloudVoice: string;
   chineseVoiceURI: string | null;
   englishVoiceURI: string | null;
@@ -15,6 +18,7 @@ const STORAGE_KEY = "chatchat.speech-preferences";
 const UPDATED_EVENT = "chatchat:speech-preferences-updated";
 
 const DEFAULT_PREFERENCES: SpeechPreferences = {
+  playbackProvider: "cloud",
   cloudVoice: DEFAULT_CLOUD_VOICE_ID,
   chineseVoiceURI: null,
   englishVoiceURI: null,
@@ -37,8 +41,13 @@ function normalizeVoiceURI(value: unknown) {
   return typeof value === "string" && value.trim() ? value : null;
 }
 
+function normalizePlaybackProvider(value: unknown): SpeechPlaybackProvider {
+  return value === "local" ? "local" : "cloud";
+}
+
 function normalizePreferences(value: StoredSpeechPreferences | null | undefined): SpeechPreferences {
   return {
+    playbackProvider: normalizePlaybackProvider(value?.playbackProvider),
     cloudVoice:
       typeof value?.cloudVoice === "string" && value.cloudVoice.trim()
         ? value.cloudVoice
@@ -230,6 +239,10 @@ export function useSpeechPreferences() {
     ),
     setCloudVoice: useCallback(
       (value: string) => updatePreferences({ cloudVoice: value }),
+      [updatePreferences],
+    ),
+    setPlaybackProvider: useCallback(
+      (value: SpeechPlaybackProvider) => updatePreferences({ playbackProvider: value }),
       [updatePreferences],
     ),
     voices,

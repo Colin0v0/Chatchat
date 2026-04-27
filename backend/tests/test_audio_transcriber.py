@@ -1,4 +1,3 @@
-import logging
 import math
 import struct
 import unittest
@@ -28,55 +27,10 @@ def _tone_wav(*, duration_ms: int, amplitude: int = 2400) -> bytes:
     return _wav_bytes(samples, sample_rate=sample_rate)
 
 
-class _FakeSenseVoiceModel:
-    def __init__(self):
-        self.vad_model = object()
-        self.calls: list[bool] = []
-
-    def generate(self, **_kwargs):
-        self.calls.append(self.vad_model is not None)
-        if self.vad_model is None:
-            return [{"text": "<|zh|><|NEUTRAL|>你好"}]
-        return [{"text": ""}]
-
-
 class AudioTranscriberTests(unittest.TestCase):
-    def test_suppress_third_party_info_logs_temporarily_raises_levels_to_warning(self):
+    def test_short_audio_is_skipped_before_api_request(self):
         transcriber = AudioTranscriber(
-            model_name="test-model",
-            device="cpu",
-            enabled=True,
-        )
-        root_logger = logging.getLogger()
-        funasr_logger = logging.getLogger("funasr")
-        modelscope_logger = logging.getLogger("modelscope")
-
-        original_root_level = root_logger.level
-        original_funasr_level = funasr_logger.level
-        original_modelscope_level = modelscope_logger.level
-
-        try:
-            root_logger.setLevel(logging.INFO)
-            funasr_logger.setLevel(logging.NOTSET)
-            modelscope_logger.setLevel(logging.INFO)
-
-            with transcriber._suppress_third_party_info_logs():
-                self.assertEqual(root_logger.level, logging.WARNING)
-                self.assertGreaterEqual(funasr_logger.getEffectiveLevel(), logging.WARNING)
-                self.assertEqual(modelscope_logger.level, logging.WARNING)
-
-            self.assertEqual(root_logger.level, logging.INFO)
-            self.assertEqual(funasr_logger.level, logging.NOTSET)
-            self.assertEqual(modelscope_logger.level, logging.INFO)
-        finally:
-            root_logger.setLevel(original_root_level)
-            funasr_logger.setLevel(original_funasr_level)
-            modelscope_logger.setLevel(original_modelscope_level)
-
-    def test_short_audio_is_skipped_before_model_inference(self):
-        transcriber = AudioTranscriber(
-            model_name="test-model",
-            device="cpu",
+            model_name="qwen3-asr-flash",
             enabled=True,
             min_duration_ms=650,
         )
@@ -86,10 +40,9 @@ class AudioTranscriberTests(unittest.TestCase):
         self.assertTrue(decision.skip)
         self.assertEqual(decision.reason, "too_short")
 
-    def test_silent_audio_is_skipped_before_model_inference(self):
+    def test_silent_audio_is_skipped_before_api_request(self):
         transcriber = AudioTranscriber(
-            model_name="test-model",
-            device="cpu",
+            model_name="qwen3-asr-flash",
             enabled=True,
             min_duration_ms=650,
             min_rms_dbfs=-52,
@@ -102,8 +55,7 @@ class AudioTranscriberTests(unittest.TestCase):
 
     def test_audible_audio_is_not_skipped(self):
         transcriber = AudioTranscriber(
-            model_name="test-model",
-            device="cpu",
+            model_name="qwen3-asr-flash",
             enabled=True,
             min_duration_ms=650,
             min_rms_dbfs=-52,
@@ -111,48 +63,6 @@ class AudioTranscriberTests(unittest.TestCase):
         wav_bytes = _tone_wav(duration_ms=1000)
 
         self.assertFalse(transcriber._should_skip_audio(wav_bytes, duration_ms=1000))
-
-    def test_raw_result_rejects_unwanted_auto_detected_languages(self):
-        transcriber = AudioTranscriber(
-            model_name="test-model",
-            device="cpu",
-            enabled=True,
-            allowed_languages="zh,en",
-        )
-
-        self.assertTrue(transcriber._should_drop_raw_result("<|ja|><|NEUTRAL|>ヱ."))
-        self.assertTrue(transcriber._should_drop_raw_result("<|nospeech|><|NEUTRAL|>"))
-        self.assertFalse(transcriber._should_drop_raw_result("<|zh|><|NEUTRAL|>你好"))
-
-    def test_low_confidence_short_symbol_transcripts_are_rejected(self):
-        transcriber = AudioTranscriber(
-            model_name="test-model",
-            device="cpu",
-            enabled=True,
-        )
-
-        self.assertTrue(transcriber._is_low_confidence_transcript("ヱ."))
-        self.assertTrue(transcriber._is_low_confidence_transcript("..."))
-        self.assertFalse(transcriber._is_low_confidence_transcript("你好"))
-        self.assertFalse(transcriber._is_low_confidence_transcript("hello"))
-
-    def test_empty_vad_result_retries_without_vad(self):
-        transcriber = AudioTranscriber(
-            model_name="test-model",
-            device="cpu",
-            enabled=True,
-        )
-        fake_model = _FakeSenseVoiceModel()
-        original_vad_model = fake_model.vad_model
-        transcriber._model = fake_model
-        transcriber._postprocess = lambda _raw_text: "你好"
-        transcriber._vad_enabled = True
-
-        text = transcriber._transcribe_wav(_tone_wav(duration_ms=1000))
-
-        self.assertEqual(text, "你好")
-        self.assertEqual(fake_model.calls, [True, False])
-        self.assertIs(fake_model.vad_model, original_vad_model)
 
     def test_openai_compatible_audio_transcriber_builds_qwen_asr_payload(self):
         transcriber = OpenAICompatibleAudioTranscriber(

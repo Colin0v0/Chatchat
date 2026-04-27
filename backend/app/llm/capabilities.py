@@ -4,8 +4,8 @@ from typing import Literal, TypedDict
 
 from ..core.config import settings
 
-Provider = Literal["ollama", "openai", "openai_local", "codex", "gemini", "trio", "claude"]
-NativeMultimodalMode = Literal["false", "local", "codex", "gemini", "claude"]
+Provider = Literal["openai", "codex", "gemini", "trio", "claude"]
+NativeMultimodalMode = Literal["false", "codex", "gemini", "claude"]
 
 
 class DiscoveredModel(TypedDict):
@@ -40,9 +40,6 @@ NON_CHAT_MODEL_HINTS = (
     "translation",
     "translate",
 )
-OLLAMA_CAPABILITY_CACHE: dict[str, set[str]] = {}
-
-
 def normalize_base_url(url: str) -> str:
     normalized = url.strip()
     if not normalized:
@@ -59,8 +56,6 @@ def parse_csv_allowlist(value: str) -> list[str]:
 
 
 def parse_openai_allowlist(provider: Provider = "openai") -> list[str]:
-    if provider == "openai_local":
-        return parse_csv_allowlist(settings.openai_local_model_allowlist)
     if provider == "codex":
         return parse_csv_allowlist(settings.codex_model_allowlist)
     if provider == "trio":
@@ -94,14 +89,13 @@ def filter_chat_model_names(model_names: list[str]) -> list[str]:
 
 def model_provider_and_name(model: str) -> tuple[Provider, str]:
     parts = model.split(":", 1)
-    if len(parts) == 2 and parts[0] in ("ollama", "openai", "openai_local", "codex", "gemini", "trio", "claude") and parts[1].strip():
+    known_providers = ("openai", "codex", "gemini", "trio", "claude")
+    if len(parts) == 2 and parts[0] in known_providers and parts[1].strip():
         return parts[0], parts[1].strip()
-    if len(parts) == 2 and parts[0] not in ("ollama", "openai", "openai_local", "codex", "gemini", "trio", "claude"):
-        return "ollama", model
 
-    if settings.default_provider in ("openai", "openai_local", "codex", "gemini", "trio", "claude"):
+    if settings.default_provider in known_providers:
         return settings.default_provider, model
-    return "ollama", model
+    return "openai", model
 
 
 def namespaced_model(provider: Provider, model_name: str) -> str:
@@ -115,6 +109,6 @@ def normalize_model(model: str) -> str:
 
 def present_model_name(model: str) -> str:
     provider, model_name = model_provider_and_name(model)
-    if provider in ("ollama", "openai", "codex", "gemini", "trio", "claude"):
+    if provider in ("openai", "codex", "gemini", "trio", "claude"):
         return model_name
     return model

@@ -3,7 +3,7 @@ import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } fr
 
 import { changePassword } from "../../auth/api/session";
 import { CLOUD_VOICE_OPTIONS, type CloudVoiceOption } from "../model/cloudVoices";
-import { useSpeechPreferences } from "../model/useSpeechPreferences";
+import { useSpeechPreferences, type SpeechPlaybackProvider } from "../model/useSpeechPreferences";
 
 type SettingsTab = "account" | "voice";
 type SpeechLanguage = "zh" | "en";
@@ -237,6 +237,43 @@ function CloudVoiceSelect({
   );
 }
 
+function PlaybackProviderControl({
+  onChange,
+  value,
+}: {
+  onChange: (value: SpeechPlaybackProvider) => void;
+  value: SpeechPlaybackProvider;
+}) {
+  const options: Array<{ label: string; value: SpeechPlaybackProvider }> = [
+    { label: "阿里云", value: "cloud" },
+    { label: "本机", value: "local" },
+  ];
+
+  return (
+    <div className="grid w-full grid-cols-2 rounded-[8px] border border-app-border/85 bg-app-panel p-1 md:w-[360px]">
+      {options.map((option) => {
+        const selected = value === option.value;
+        return (
+          <button
+            aria-pressed={selected}
+            className={[
+              "h-8 rounded-[6px] px-3 text-[14px] font-medium transition-colors",
+              selected
+                ? "bg-app-panel-soft text-app-text shadow-[0_1px_0_rgba(25,22,18,0.04)]"
+                : "text-app-muted hover:text-app-text",
+            ].join(" ")}
+            key={option.value}
+            onClick={() => onChange(option.value)}
+            type="button"
+          >
+            {option.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function ToggleSwitch({
   checked,
   label,
@@ -300,6 +337,7 @@ export function SettingsDialog({
     setChineseVoiceURI,
     setCloudVoice,
     setEnglishVoiceURI,
+    setPlaybackProvider,
     setRate,
     voices,
   } = useSpeechPreferences();
@@ -598,6 +636,13 @@ export function SettingsDialog({
               {activeTab === "voice" ? (
                 <div>
                   <>
+                    <SettingRow label="播放来源">
+                      <PlaybackProviderControl
+                        onChange={setPlaybackProvider}
+                        value={preferences.playbackProvider}
+                      />
+                    </SettingRow>
+                    {preferences.playbackProvider === "cloud" ? (
                     <SettingRow label="阿里云音色">
                       <CloudVoiceSelect
                         onChange={setCloudVoice}
@@ -606,7 +651,8 @@ export function SettingsDialog({
                         value={preferences.cloudVoice}
                       />
                     </SettingRow>
-                    {isSupported ? (
+                    ) : null}
+                    {preferences.playbackProvider === "local" && isSupported ? (
                       <>
                       <SettingRow label="本机中文音色">
                         <VoiceSelect
@@ -629,11 +675,12 @@ export function SettingsDialog({
                         />
                       </SettingRow>
                       </>
-                    ) : (
+                    ) : null}
+                    {preferences.playbackProvider === "local" && !isSupported ? (
                     <div className="mt-4 rounded-[8px] border border-app-border bg-app-panel-soft px-4 py-3 text-[14px] leading-6 text-app-muted">
                       当前浏览器不支持本机语音播放。
                     </div>
-                    )}
+                    ) : null}
                     <SettingRow label="语速">
                       <div className="flex w-full items-center gap-3 md:w-[360px]">
                         <input

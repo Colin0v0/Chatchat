@@ -27,34 +27,17 @@ def build_audio_services(settings: Settings) -> AudioServices:
         timeout_seconds=settings.audio_tts_timeout_seconds,
         max_chars=settings.audio_tts_max_chars,
     )
-    provider = settings.audio_transcription_provider.strip().lower()
-    if provider in {"api", "openai", "openai-compatible", "openai_compatible", "dashscope"}:
-        return AudioServices(
-            transcriber=OpenAICompatibleAudioTranscriber(
-                model_name=settings.audio_transcription_model,
-                base_url=settings.audio_transcription_base_url.strip() or settings.dashscope_base_url,
-                api_key=settings.audio_transcription_api_key.strip() or settings.dashscope_api_key,
-                enabled=settings.audio_transcription_enabled,
-                language=settings.audio_transcription_language,
-                timeout_seconds=settings.audio_transcription_timeout_seconds,
-                max_request_bytes=settings.audio_transcription_api_max_bytes,
-                min_duration_ms=settings.audio_transcription_min_duration_ms,
-                min_rms_dbfs=settings.audio_transcription_min_rms_dbfs,
-                allowed_languages=settings.audio_transcription_allowed_languages,
-            ),
-            synthesizer=synthesizer,
-        )
-
     return AudioServices(
-        transcriber=AudioTranscriber(
+        transcriber=OpenAICompatibleAudioTranscriber(
             model_name=settings.audio_transcription_model,
-            device=settings.audio_transcription_device,
+            base_url=settings.audio_transcription_base_url.strip() or settings.dashscope_base_url,
+            api_key=settings.audio_transcription_api_key.strip() or settings.dashscope_api_key,
             enabled=settings.audio_transcription_enabled,
             language=settings.audio_transcription_language,
-            vad_model=settings.audio_transcription_vad_model,
+            timeout_seconds=settings.audio_transcription_timeout_seconds,
+            max_request_bytes=settings.audio_transcription_api_max_bytes,
             min_duration_ms=settings.audio_transcription_min_duration_ms,
             min_rms_dbfs=settings.audio_transcription_min_rms_dbfs,
-            allowed_languages=settings.audio_transcription_allowed_languages,
         ),
         synthesizer=synthesizer,
     )

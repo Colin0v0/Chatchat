@@ -84,13 +84,13 @@ class ProviderPreset:
 
 
 def _provider_family(provider_name: str) -> str:
-    if provider_name in {"openai", "openai_local", "codex", "trio"}:
+    if provider_name in {"openai", "codex", "trio"}:
         return "openai"
     if provider_name == "claude":
         return "anthropic"
     if provider_name == "gemini":
         return "gemini"
-    return "ollama"
+    return "openai"
 
 
 def _resolve_config_value(env_name: str) -> str | None:
@@ -137,7 +137,7 @@ def _resolve_api_key(*, api_key: str | None, api_key_env: str | None) -> str | N
 
 
 def _normalize_provider(value: str | None, fallback_model_id: str) -> Provider:
-    if value in {"ollama", "openai", "openai_local", "codex", "gemini", "trio", "claude"}:
+    if value in {"openai", "codex", "gemini", "trio", "claude"}:
         return cast(Provider, value)
     provider, _ = model_provider_and_name(fallback_model_id)
     return provider
@@ -181,9 +181,9 @@ def _normalize_reasoning_continuation(value: str) -> ReasoningContinuation:
 
 def _normalize_native_multimodal_mode(value: str) -> NativeMultimodalMode:
     normalized = value.strip().lower()
-    if normalized in {"false", "local", "codex", "gemini", "claude"}:
+    if normalized in {"false", "codex", "gemini", "claude"}:
         return cast(NativeMultimodalMode, normalized)
-    raise ModelCatalogError("Invalid runtime.native_multimodal_mode. Expected one of: false, local, codex, gemini, claude")
+    raise ModelCatalogError("Invalid runtime.native_multimodal_mode. Expected one of: false, codex, gemini, claude")
 
 
 def _read_bool(raw: dict[str, object], key: str, path: str, *, default: bool = False) -> bool:
@@ -251,7 +251,7 @@ def _parse_provider_presets(payload: dict[str, object]) -> dict[str, ProviderPre
             raise ModelCatalogError(f"providers.{name} must be an object")
 
         provider_raw = _read_optional_string(item, "provider", f"providers.{name}")
-        provider = _normalize_provider(provider_raw.strip(), "ollama:placeholder") if provider_raw and provider_raw.strip() else None
+        provider = _normalize_provider(provider_raw.strip(), "openai:placeholder") if provider_raw and provider_raw.strip() else None
 
         endpoints = _read_optional_object(item, "endpoints", f"providers.{name}") or {}
         base_url = _resolve_env_value(_read_optional_string(endpoints, "chat", f"providers.{name}.endpoints"))
@@ -403,8 +403,6 @@ def _resolve_native_multimodal_from_profile(
     explicit_mode = _read_optional_string(runtime_cfg, "native_multimodal_mode", f"{row_path}.runtime")
     if explicit_mode:
         return _normalize_native_multimodal_mode(explicit_mode)
-    if provider_name == "openai_local" and capabilities.transport_file_upload:
-        return "local"
     if provider_name == "codex" and capabilities.transport_file_upload:
         return "codex"
     if provider_name == "gemini" and capabilities.transport_inline_data:
@@ -635,10 +633,6 @@ def resolve_native_multimodal_mode(model_id: str) -> NativeMultimodalMode:
 
 def uses_native_multimodal(model_id: str) -> bool:
     return resolve_native_multimodal_mode(model_id) != "false"
-
-
-def uses_local_native_multimodal(model_id: str) -> bool:
-    return resolve_native_multimodal_mode(model_id) == "local"
 
 
 def uses_codex_native_multimodal(model_id: str) -> bool:

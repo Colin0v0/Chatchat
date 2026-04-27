@@ -6,7 +6,7 @@ export type ReasoningProfileValue = "off" | "auto" | "low" | "medium" | "high" |
 export type ReasoningControl = "none" | "toggle" | "effort" | "budget" | "prompt_tag";
 export type ReasoningVisibility = "none" | "summary" | "full";
 export type ReasoningContinuation = "none" | "stateful" | "signature";
-export type NativeMultimodalMode = "false" | "local" | "codex" | "gemini" | "claude";
+export type NativeMultimodalMode = "false" | "codex" | "gemini" | "claude";
 
 export interface MessageAttachment {
   id: number | string;

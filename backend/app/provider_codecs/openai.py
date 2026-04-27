@@ -12,15 +12,6 @@ def _normalize_reasoning_profile(reasoning_profile: str | None) -> str:
     return (reasoning_profile or "").strip().lower()
 
 
-def _toggle_reasoning_state(reasoning_profile: str | None) -> str | None:
-    normalized = _normalize_reasoning_profile(reasoning_profile)
-    if normalized in {"", "auto", "provider_default"}:
-        return None
-    if normalized == "off":
-        return "disabled"
-    return "enabled"
-
-
 def _reasoning_effort(reasoning_profile: str | None) -> str | None:
     normalized = _normalize_reasoning_profile(reasoning_profile)
     if normalized in {"", "auto", "provider_default"}:
@@ -40,11 +31,6 @@ def apply_reasoning_controls(
     provider: Provider,
     reasoning_profile: str | None,
 ) -> None:
-    if provider == "openai_local":
-        toggle_state = _toggle_reasoning_state(reasoning_profile)
-        if toggle_state is not None:
-            payload["thinking"] = {"type": toggle_state}
-        return
     if provider == "codex":
         effort = _reasoning_effort(reasoning_profile)
         if effort is not None:

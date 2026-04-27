@@ -12,7 +12,6 @@ from .catalog import (
     uses_claude_native_multimodal,
     uses_codex_native_multimodal,
     uses_gemini_native_multimodal,
-    uses_local_native_multimodal,
     uses_native_multimodal,
     validate_model_catalog,
 )
@@ -33,7 +32,6 @@ __all__ = [
     "uses_claude_native_multimodal",
     "uses_codex_native_multimodal",
     "uses_gemini_native_multimodal",
-    "uses_local_native_multimodal",
     "uses_native_multimodal",
     "validate_model_catalog",
 ]

@@ -1,51 +1,29 @@
 from __future__ import annotations
 
-import asyncio
-import json
 import logging
-import re
-from typing import cast
 
 import httpx
 
-from ...chat.types import ChatMessagePayload
 from ...core.config import Settings
-from ...core.http import limited_request, shared_http_clients
-from ...llm.capabilities import Provider, model_provider_and_name, normalize_base_url
-from ...provider_transports.openai import (
-    _extract_responses_output,
-    _parse_openai_json_response,
-    openai_base_url,
-    openai_headers,
-)
-from ...llm.ollama_runtime import ollama_keep_alive_value
-from ...provider_codecs.openai import (
-    apply_reasoning_controls,
-    apply_responses_reasoning_controls,
-    responses_message_payload,
-)
-from ...providers import resolve_model_profile
+from ...core.http import limited_request
+from ...llm.capabilities import normalize_base_url
 from .types import RetrievalCandidate
 
-JSON_SCORE_PATTERN = re.compile(r'"score"\s*:\s*([01](?:\.\d+)?)')
-NUMBER_PATTERN = re.compile(r'([01](?:\.\d+)?)')
 logger = logging.getLogger("chatchat.rerank")
+DASHSCOPE_RERANK_URL = "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank"
+DASHSCOPE_RERANK_PROVIDERS = {"dashscope", "aliyun", "bailian", "alibabacloud"}
+DASHSCOPE_SCORE_KEYS = ("relevance_score", "score")
 
 
 class ModelReranker:
     def __init__(self, settings: Settings, rerank_window: int):
         self._settings = settings
         self._model_id = settings.knowledge_rerank_model.strip()
-        self._provider, self._upstream_model, self._base_url_override, self._api_key_override = (
-            self._resolve_model_target(self._model_id)
-        )
+        self._provider = self._resolve_provider()
+        self._upstream_model = self._resolve_model_name(self._model_id)
         self._rerank_window = max(1, rerank_window)
         self._max_chars = max(240, settings.knowledge_rerank_max_chars)
         self._max_concurrency = max(1, settings.knowledge_rerank_max_concurrency)
-        self._num_ctx = max(256, settings.knowledge_rerank_num_ctx)
-        self._base_url = settings.ollama_base_url.rstrip("/")
-        self._request_timeout = httpx.Timeout(settings.request_timeout_seconds, connect=10.0)
-        self._keep_alive = ollama_keep_alive_value(settings.ollama_keep_alive_seconds)
         self._disabled_reason = self._detect_disabled_reason()
 
         if self._model_id and self._disabled_reason:
@@ -76,9 +54,7 @@ class ModelReranker:
             return self._finalize(candidates)
 
         rerank_slice = candidates[: self._rerank_window]
-        scores = await asyncio.gather(
-            *(self._score_candidate(query=query, candidate=candidate) for candidate in rerank_slice)
-        )
+        scores = await self._score_candidates_dashscope(query=query, candidates=rerank_slice)
 
         reranked: list[RetrievalCandidate] = []
         for index, candidate in enumerate(candidates):
@@ -99,345 +75,153 @@ class ModelReranker:
             candidate.final_score = candidate.hybrid_score
         return candidates
 
-    def _resolve_model_target(
-        self,
-        model_id: str,
-    ) -> tuple[Provider, str, str | None, str | None]:
-        profile = resolve_model_profile(model_id) if model_id else None
-        if profile is not None:
-            return (
-                cast(Provider, profile.provider_name),
-                profile.upstream_model,
-                profile.chat_base_url,
-                profile.api_key,
-            )
+    def _resolve_provider(self) -> str:
+        configured = str(getattr(self._settings, "knowledge_rerank_provider", "dashscope")).strip().lower()
+        if configured in DASHSCOPE_RERANK_PROVIDERS:
+            return "dashscope"
+        return configured or "dashscope"
 
-        provider, model_name = model_provider_and_name(model_id)
-        return provider, model_name, None, None
+    def _resolve_model_name(self, model_id: str) -> str:
+        parts = model_id.split(":", 1)
+        if len(parts) == 2 and parts[0].strip().lower() in DASHSCOPE_RERANK_PROVIDERS:
+            return parts[1].strip()
+        if len(parts) == 2:
+            return ""
+        return model_id.strip()
 
     def _detect_disabled_reason(self) -> str | None:
-        normalized = self._model_id.strip().lower()
+        normalized = self._model_id.strip()
         if not normalized:
             return "unconfigured"
-        if self._provider == "ollama" and "qwen3-reranker" in normalized:
-            return "ollama_rerank_unsupported"
+        if self._provider != "dashscope":
+            return "unsupported_provider"
+        if not self._upstream_model:
+            return "unsupported_model_provider"
+        if not self._dashscope_api_key():
+            return "dashscope_api_key_missing"
         return None
 
-    async def _score_candidate(
+    async def _score_candidates_dashscope(
         self,
         *,
         query: str,
-        candidate: RetrievalCandidate,
-    ) -> float:
-        if self._provider == "codex":
-            return await self._score_candidate_codex(query=query, candidate=candidate)
-        if self._provider in ("openai", "openai_local", "trio"):
-            return await self._score_candidate_openai(query=query, candidate=candidate)
-        return await self._score_candidate_ollama(query=query, candidate=candidate)
+        candidates: list[RetrievalCandidate],
+    ) -> list[float]:
+        if not candidates:
+            return []
 
-    async def _score_candidate_codex(
-        self,
-        *,
-        query: str,
-        candidate: RetrievalCandidate,
-    ) -> float:
-        prompt = self._build_prompt(query=query, candidate=candidate)
-        client = await shared_http_clients.get_client(
-            base_url=normalize_base_url(openai_base_url(self._provider, self._base_url_override)),
-            headers=openai_headers(self._provider, self._api_key_override),
-            timeout=httpx.Timeout(
-                self._settings.request_timeout_seconds,
-                connect=self._settings.openai_connect_timeout_seconds,
-            ),
-            limits=httpx.Limits(
-                max_connections=max(1, self._settings.http_pool_max_connections),
-                max_keepalive_connections=max(1, self._settings.http_pool_max_keepalive_connections),
-            ),
+        timeout_seconds = max(
+            1.0,
+            float(getattr(self._settings, "knowledge_rerank_timeout_seconds", 30.0)),
         )
-        gate, max_concurrency = self._request_gate()
-        retry_errors: list[str] = []
-
-        for attempt in range(2):
-            payload = self._build_codex_payload(prompt)
-            if attempt > 0:
-                # Retry with lower reasoning overhead to maximize deterministic short JSON output.
-                payload["reasoning"] = {"effort": "minimal"}
-
-            async with limited_request(gate=gate, max_concurrency=max_concurrency):
-                response = await client.post("/responses", json=payload)
+        payload = self._build_dashscope_rerank_payload(query=query, candidates=candidates)
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(timeout_seconds, connect=min(10.0, timeout_seconds)),
+        ) as client:
+            async with limited_request(gate="dashscope_rerank", max_concurrency=self._max_concurrency):
+                response = await client.post(
+                    self._dashscope_rerank_url(),
+                    headers=self._dashscope_headers(),
+                    json=payload,
+                )
                 response.raise_for_status()
 
-            payload_data = _parse_openai_json_response(response, context="responses.create")
-            content = self._extract_codex_content(payload_data)
+        return self._parse_dashscope_rerank_scores(response.json(), expected_count=len(candidates))
 
+    def _build_dashscope_rerank_payload(
+        self,
+        *,
+        query: str,
+        candidates: list[RetrievalCandidate],
+    ) -> dict[str, object]:
+        documents = [self._candidate_document_text(candidate) for candidate in candidates]
+        return {
+            "model": self._upstream_model,
+            "input": {
+                "query": query.strip(),
+                "documents": documents,
+            },
+            "parameters": {
+                "return_documents": False,
+                "top_n": len(documents),
+            },
+        }
+
+    def _parse_dashscope_rerank_scores(self, payload: object, *, expected_count: int) -> list[float]:
+        if not isinstance(payload, dict):
+            raise RuntimeError("DashScope rerank returned a non-object response.")
+
+        raw_results: object = None
+        output = payload.get("output")
+        if isinstance(output, dict):
+            raw_results = output.get("results")
+        if raw_results is None:
+            raw_results = payload.get("results")
+        if not isinstance(raw_results, list):
+            raise RuntimeError("DashScope rerank response did not include results.")
+
+        scores = [0.0] * max(0, expected_count)
+        for item in raw_results:
+            if not isinstance(item, dict):
+                continue
+            raw_index = item.get("index")
+            if isinstance(raw_index, bool):
+                continue
             try:
-                score = self._parse_score(content)
-                return max(0.0, min(1.0, score))
-            except RuntimeError as exc:
-                # Some OpenAI-compatible routers occasionally return empty message text while still
-                # carrying partial structured payload. Try parsing from the raw response body.
-                try:
-                    fallback_raw = json.dumps(payload_data, ensure_ascii=False)
-                    score = self._parse_score(fallback_raw)
-                    return max(0.0, min(1.0, score))
-                except RuntimeError:
-                    retry_errors.append(str(exc))
-                    if attempt == 0:
-                        logger.warning(
-                            "codex rerank response parse failed; retrying once | model=%s | reason=%s",
-                            self._upstream_model,
-                            exc,
-                        )
-                        continue
-                    break
+                index = int(raw_index)
+            except (TypeError, ValueError):
+                continue
+            if index < 0 or index >= len(scores):
+                continue
 
-        raise RuntimeError(
-            "Reranker could not parse a score from codex response. "
-            f"Last errors: {' | '.join(retry_errors) if retry_errors else 'unknown'}"
+            raw_score = next((item.get(key) for key in DASHSCOPE_SCORE_KEYS if key in item), None)
+            if isinstance(raw_score, bool):
+                continue
+            try:
+                score = float(raw_score)
+            except (TypeError, ValueError):
+                continue
+            scores[index] = max(0.0, min(1.0, score))
+
+        return scores
+
+    def _candidate_document_text(self, candidate: RetrievalCandidate) -> str:
+        title = " | ".join(
+            part.strip()
+            for part in (candidate.chunk.path, candidate.chunk.heading)
+            if part.strip()
         )
-
-    async def _score_candidate_openai(
-        self,
-        *,
-        query: str,
-        candidate: RetrievalCandidate,
-    ) -> float:
-        prompt = self._build_prompt(query=query, candidate=candidate)
-        client = await shared_http_clients.get_client(
-            base_url=normalize_base_url(openai_base_url(self._provider, self._base_url_override)),
-            headers=openai_headers(self._provider, self._api_key_override),
-            timeout=httpx.Timeout(
-                self._settings.request_timeout_seconds,
-                connect=self._settings.openai_connect_timeout_seconds,
-            ),
-            limits=httpx.Limits(
-                max_connections=max(1, self._settings.http_pool_max_connections),
-                max_keepalive_connections=max(1, self._settings.http_pool_max_keepalive_connections),
-            ),
-        )
-        gate, max_concurrency = self._request_gate()
-        payload = self._build_openai_payload(prompt)
-
-        async with limited_request(gate=gate, max_concurrency=max_concurrency):
-            response = await client.post("/chat/completions", json=payload)
-            response.raise_for_status()
-
-        payload_data = response.json()
-        if not isinstance(payload_data, dict):
-            raise RuntimeError("Reranker returned an unexpected response shape.")
-        content = self._extract_openai_content(payload_data)
-        score = self._parse_score(content)
-        return max(0.0, min(1.0, score))
-
-    def _build_openai_payload(self, prompt: str) -> dict[str, object]:
-        payload: dict[str, object] = {
-            "model": self._upstream_model,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a strict retrieval reranker. "
-                        "Return JSON only in the exact form {\"score\": 0.00}."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": prompt,
-                },
-            ],
-            "stream": False,
-            "temperature": 0,
-            "max_tokens": 24,
-        }
-        apply_reasoning_controls(payload, provider=self._provider, reasoning_profile="off")
-        return payload
-
-    def _build_codex_payload(self, prompt: str) -> dict[str, object]:
-        payload: dict[str, object] = {
-            "model": self._upstream_model,
-            "input": [
-                responses_message_payload(
-                    ChatMessagePayload(
-                        role="system",
-                        content=(
-                            "You are a strict retrieval reranker. "
-                            "Return JSON only in the exact form {\"score\": 0.00}."
-                        ),
-                    )
-                ),
-                responses_message_payload(
-                    ChatMessagePayload(
-                        role="user",
-                        content=prompt,
-                    )
-                ),
-            ],
-            "max_output_tokens": 64,
-            "text": {"format": {"type": "json_object"}},
-        }
-        apply_responses_reasoning_controls(payload, reasoning_profile="off")
-        return payload
-
-    def _extract_codex_content(self, payload: dict[str, object]) -> str:
-        output = _extract_responses_output(payload)
-        message = output.get("message", "").strip()
-        if message:
-            return message
-
-        output_text = payload.get("output_text")
-        if isinstance(output_text, str) and output_text.strip():
-            return output_text.strip()
-
-        collected_chunks: list[str] = []
-        items = payload.get("output")
-        if isinstance(items, list):
-            for item in items:
-                if not isinstance(item, dict):
-                    continue
-                content = item.get("content")
-                if isinstance(content, list):
-                    for part in content:
-                        if not isinstance(part, dict):
-                            continue
-                        text = part.get("text")
-                        if isinstance(text, str) and text.strip():
-                            collected_chunks.append(text.strip())
-                summary = item.get("summary")
-                if isinstance(summary, list):
-                    for part in summary:
-                        if not isinstance(part, dict):
-                            continue
-                        text = part.get("text")
-                        if isinstance(text, str) and text.strip():
-                            collected_chunks.append(text.strip())
-                refusal = item.get("refusal")
-                if isinstance(refusal, str) and refusal.strip():
-                    collected_chunks.append(refusal.strip())
-
-        return "\n".join(collected_chunks).strip()
-
-    async def _score_candidate_ollama(
-        self,
-        *,
-        query: str,
-        candidate: RetrievalCandidate,
-    ) -> float:
-        prompt = self._build_prompt(query=query, candidate=candidate)
-        client = await shared_http_clients.get_client(
-            base_url=self._base_url,
-            timeout=self._request_timeout,
-            limits=httpx.Limits(max_connections=32, max_keepalive_connections=16),
-        )
-
-        async with limited_request(gate="ollama", max_concurrency=self._max_concurrency):
-            response = await client.post(
-                "/api/generate",
-                json={
-                    "model": self._upstream_model,
-                    "prompt": prompt,
-                    "format": "json",
-                    "stream": False,
-                    "keep_alive": self._keep_alive,
-                    "options": {
-                        "temperature": 0,
-                        "num_predict": 16,
-                        "num_ctx": self._num_ctx,
-                    },
-                },
-            )
-            response.raise_for_status()
-
-        payload = response.json()
-        content = str(payload.get("response", "")).strip()
-        score = self._parse_score(content)
-        return max(0.0, min(1.0, score))
-
-    def _request_gate(self) -> tuple[str, int]:
-        if self._provider == "openai_local":
-            return "openai_local", min(
-                self._max_concurrency,
-                max(1, self._settings.openai_local_http_max_concurrency),
-            )
-        if self._provider == "codex":
-            return "codex", min(
-                self._max_concurrency,
-                max(1, self._settings.openai_http_max_concurrency),
-            )
-        if self._provider == "openai":
-            return "openai", min(
-                self._max_concurrency,
-                max(1, self._settings.openai_http_max_concurrency),
-            )
-        if self._provider == "trio":
-            return "trio", min(
-                self._max_concurrency,
-                max(1, self._settings.openai_http_max_concurrency),
-            )
-        return "ollama", self._max_concurrency
-
-    def _extract_openai_content(self, payload: dict[str, object]) -> str:
-        choices = payload.get("choices")
-        if not isinstance(choices, list) or not choices:
-            raise RuntimeError("Reranker returned no choices.")
-
-        first = choices[0]
-        if not isinstance(first, dict):
-            raise RuntimeError("Reranker returned an invalid choice payload.")
-        message = first.get("message")
-        if not isinstance(message, dict):
-            raise RuntimeError("Reranker returned an invalid message payload.")
-        content = message.get("content", "")
-        if isinstance(content, str):
-            return content.strip()
-        if isinstance(content, list):
-            text_parts: list[str] = []
-            for item in content:
-                if isinstance(item, dict):
-                    text = item.get("text")
-                    if isinstance(text, str) and text.strip():
-                        text_parts.append(text.strip())
-            return "\n".join(text_parts).strip()
-        return str(content).strip()
-
-    def _build_prompt(self, *, query: str, candidate: RetrievalCandidate) -> str:
         passage = self._truncate(candidate.chunk.content)
+        if title:
+            return f"{title}\n{passage}".strip()
+        return passage
+
+    def _dashscope_headers(self) -> dict[str, str]:
+        api_key = self._dashscope_api_key()
+        if not api_key:
+            raise RuntimeError("KNOWLEDGE_RERANK_API_KEY or DASHSCOPE_API_KEY is required for DashScope rerank.")
+        return {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+
+    def _dashscope_api_key(self) -> str:
         return (
-            "You are a strict retrieval reranker.\n"
-            "Judge how useful the passage is for answering the query.\n"
-            "Return valid JSON only in the exact form {\"score\": 0.00}.\n"
-            "Do not output markdown, punctuation art, explanations, or any extra keys.\n"
-            "Use a score between 0 and 1.\n"
-            "1.0 means the passage is highly relevant and directly useful.\n"
-            "0.0 means the passage is irrelevant.\n\n"
-            f"Query:\n{query.strip()}\n\n"
-            f"Passage title:\n{candidate.chunk.path} | {candidate.chunk.heading}\n\n"
-            f"Passage:\n{passage}\n"
+            str(getattr(self._settings, "knowledge_rerank_api_key", "")).strip()
+            or str(getattr(self._settings, "dashscope_api_key", "")).strip()
         )
+
+    def _dashscope_rerank_url(self) -> str:
+        configured_url = str(getattr(self._settings, "knowledge_rerank_base_url", "")).strip()
+        normalized = normalize_base_url(configured_url or DASHSCOPE_RERANK_URL)
+        if "/services/rerank/" in normalized or normalized.endswith("/reranks"):
+            return normalized
+        if normalized.endswith("/api/v1"):
+            return f"{normalized}/services/rerank/text-rerank/text-rerank"
+        return f"{normalized}/api/v1/services/rerank/text-rerank/text-rerank"
 
     def _truncate(self, value: str) -> str:
         normalized = value.strip()
         if len(normalized) <= self._max_chars:
             return normalized
         return normalized[: self._max_chars].rstrip()
-
-    def _parse_score(self, content: str) -> float:
-        if not content:
-            raise RuntimeError("Reranker returned an empty response.")
-
-        try:
-            payload = json.loads(content)
-        except json.JSONDecodeError:
-            payload = None
-
-        if isinstance(payload, dict):
-            raw = payload.get("score")
-            if isinstance(raw, (int, float)):
-                return float(raw)
-            if isinstance(raw, str):
-                return float(raw.strip())
-
-        matched = JSON_SCORE_PATTERN.search(content) or NUMBER_PATTERN.search(content)
-        if matched:
-            return float(matched.group(1))
-
-        raise RuntimeError(f"Reranker returned an invalid score payload: {content[:160]}")

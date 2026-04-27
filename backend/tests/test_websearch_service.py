@@ -19,7 +19,7 @@ def make_settings():
         web_search_api_key="test-key",
         web_search_timeout_seconds=20.0,
         web_search_max_results=5,
-        web_search_translation_model="openai_local:claude-haiku-4-5",
+        web_search_translation_model="codex:gpt-5.2",
     )
 
 

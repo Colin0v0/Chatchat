@@ -5,6 +5,7 @@ import { canUseSpeechSynthesis, speakSpeechUtterance } from "../../../lib/speech
 import { synthesizeSpeech } from "../../../lib/api";
 
 type MessageId = number | string;
+type PlaybackProvider = SpeechPreferences["playbackProvider"];
 
 type PlaybackState = {
   audio: HTMLAudioElement | null;
@@ -47,6 +48,10 @@ function canUseHtmlAudio() {
   return typeof window !== "undefined" && "Audio" in window;
 }
 
+function canUsePlaybackProvider(provider: PlaybackProvider) {
+  return provider === "local" ? canUseSpeechSynthesis() : canUseHtmlAudio() || canUseSpeechSynthesis();
+}
+
 function preferredVoiceURIForLanguage(lang: string, preferences: SpeechPreferences) {
   return lang.toLowerCase().startsWith("zh")
     ? preferences.chineseVoiceURI
@@ -86,7 +91,7 @@ export function useMessageSpeechPlayback(preferences: SpeechPreferences) {
     utterance: null,
   });
   const [playingMessageId, setPlayingMessageId] = useState<MessageId | null>(null);
-  const [isSupported, setIsSupported] = useState(() => canUseHtmlAudio() || canUseSpeechSynthesis());
+  const [isSupported, setIsSupported] = useState(() => canUsePlaybackProvider(preferences.playbackProvider));
 
   const stopPlayback = useCallback(() => {
     playbackRef.current.token += 1;
@@ -139,7 +144,7 @@ export function useMessageSpeechPlayback(preferences: SpeechPreferences) {
       const playBrowserFallback = () => {
         if (!canUseSpeechSynthesis()) {
           clearIfCurrent();
-          setIsSupported(canUseHtmlAudio() || canUseSpeechSynthesis());
+          setIsSupported(canUsePlaybackProvider(preferences.playbackProvider));
           return false;
         }
 
@@ -165,13 +170,13 @@ export function useMessageSpeechPlayback(preferences: SpeechPreferences) {
 
         if (!speakSpeechUtterance(utterance)) {
           clearIfCurrent();
-          setIsSupported(canUseHtmlAudio() || canUseSpeechSynthesis());
+          setIsSupported(canUsePlaybackProvider(preferences.playbackProvider));
           return false;
         }
         return true;
       };
 
-      if (!canUseHtmlAudio()) {
+      if (preferences.playbackProvider === "local" || !canUseHtmlAudio()) {
         return playBrowserFallback();
       }
 
@@ -209,14 +214,15 @@ export function useMessageSpeechPlayback(preferences: SpeechPreferences) {
       preferences.chineseVoiceURI,
       preferences.cloudVoice,
       preferences.englishVoiceURI,
+      preferences.playbackProvider,
       preferences.rate,
       stopPlayback,
     ],
   );
 
   useEffect(() => {
-    setIsSupported(canUseHtmlAudio() || canUseSpeechSynthesis());
-  }, []);
+    setIsSupported(canUsePlaybackProvider(preferences.playbackProvider));
+  }, [preferences.playbackProvider]);
 
   useEffect(() => {
     return () => {

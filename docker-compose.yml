@@ -44,9 +44,6 @@ services:
     environment:
       DATABASE_URL: ${BACKEND_DATABASE_URL:-postgresql+psycopg://chatchat:chatchat@postgres:5432/chatchat}
       REDIS_URL: ${BACKEND_REDIS_URL:-redis://redis:6379/0}
-      RAG_EMBEDDING_MODEL: ${RAG_EMBEDDING_MODEL:-nomic-embed-text}
-      RAG_TOP_K: ${RAG_TOP_K:-4}
-      RAG_SECTION_MAX_CHARS: ${RAG_SECTION_MAX_CHARS:-1400}
       AUDIO_TRANSCRIPTION_MODEL: ${AUDIO_TRANSCRIPTION_MODEL:-qwen3-asr-flash}
     extra_hosts:
       - "host:host-gateway"

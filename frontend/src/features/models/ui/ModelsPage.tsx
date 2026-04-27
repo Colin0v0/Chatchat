@@ -15,7 +15,6 @@ function providerLabel(model: ModelOption): string {
 function supportsImage(model: ModelOption): boolean {
   return (
     Boolean(model.capabilities?.input.image)
-    || model.native_multimodal_mode === "local"
     || model.native_multimodal_mode === "codex"
     || model.native_multimodal_mode === "gemini"
     || model.native_multimodal_mode === "claude"

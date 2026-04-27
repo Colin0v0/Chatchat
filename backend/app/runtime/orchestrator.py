@@ -133,7 +133,7 @@ async def stream_chat_run(
             token_budget=strategy.history_token_budget,
         )
         include_image_context = profile.native_multimodal_mode == "false"
-        include_file_context = strategy.file_retrieval_enabled and profile.native_multimodal_mode != "local"
+        include_file_context = strategy.file_retrieval_enabled
         message_history_service = MessageHistoryService(run_db, services.attachment_context_service)
         needs_retrieval_grounding = (
             include_file_context

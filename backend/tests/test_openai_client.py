@@ -144,13 +144,6 @@ class OpenAIClientStreamParsingTests(unittest.IsolatedAsyncioTestCase):
 
 
 class OpenAIReasoningControlsTests(unittest.TestCase):
-    def test_apply_reasoning_controls_uses_local_thinking_flag_for_openai_local(self):
-        payload: dict[str, object] = {}
-
-        apply_reasoning_controls(payload, provider="openai_local", reasoning_profile="medium")
-
-        self.assertEqual(payload, {"thinking": {"type": "enabled"}})
-
     def test_apply_reasoning_controls_uses_reasoning_effort_for_codex(self):
         payload: dict[str, object] = {}
 
@@ -169,13 +162,6 @@ class OpenAIReasoningControlsTests(unittest.TestCase):
         payload: dict[str, object] = {}
 
         apply_reasoning_controls(payload, provider="openai", reasoning_profile="high")
-
-        self.assertEqual(payload, {})
-
-    def test_apply_reasoning_controls_skips_auto_for_toggle_models(self):
-        payload: dict[str, object] = {}
-
-        apply_reasoning_controls(payload, provider="openai_local", reasoning_profile="auto")
 
         self.assertEqual(payload, {})
 

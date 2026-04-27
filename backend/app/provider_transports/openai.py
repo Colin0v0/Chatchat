@@ -58,8 +58,6 @@ def _openai_stream_timeout() -> httpx.Timeout:
 
 
 def _request_gate(provider: Provider) -> tuple[str, int]:
-    if provider == "openai_local":
-        return ("openai_local", max(1, settings.openai_local_http_max_concurrency))
     if provider == "codex":
         return ("codex", max(1, settings.openai_http_max_concurrency))
     if provider == "trio":
@@ -80,8 +78,6 @@ def openai_base_url(provider: Provider = "openai", base_url_override: str | None
 
     if base_url_override:
         return _normalize_provider_base_url(base_url_override)
-    if provider == "openai_local":
-        return settings.openai_local_base_url
     if provider == "codex":
         return _normalize_provider_base_url(settings.codex_base_url)
     if provider == "trio":
@@ -95,16 +91,12 @@ def openai_upstream_service_base_url(
 ) -> str:
     if base_url_override:
         return openai_base_url(provider, base_url_override)
-    if provider == "openai_local":
-        return settings.openai_local_upstream_service_base_url or settings.openai_local_base_url
     return openai_base_url(provider)
 
 
 def openai_headers(provider: Provider = "openai", api_key_override: str | None = None) -> dict[str, str]:
     headers: dict[str, str] = {}
-    if provider == "openai_local":
-        configured_api_key = settings.openai_local_api_key
-    elif provider == "codex":
+    if provider == "codex":
         configured_api_key = settings.codex_api_key
     elif provider == "trio":
         configured_api_key = settings.trio_api_key
@@ -146,8 +138,6 @@ async def _openai_upstream_client(
 
 
 def supports_chat_completions_streaming(provider: Provider) -> bool:
-    if provider == "openai_local":
-        return settings.openai_local_stream
     if provider == "trio":
         return False
     return True
@@ -170,7 +160,7 @@ async def _list_openai_models_for_provider(provider: Provider) -> list[Discovere
         return [
             DiscoveredModel(
                 id=namespaced_model(provider, model),
-                supports_thinking=provider == "openai_local",
+                supports_thinking=False,
                 native_multimodal="false",
             )
             for model in filter_chat_model_names(allowlist)
@@ -185,7 +175,7 @@ async def _list_openai_models_for_provider(provider: Provider) -> list[Discovere
     return [
         DiscoveredModel(
             id=namespaced_model(provider, model),
-            supports_thinking=provider == "openai_local",
+            supports_thinking=False,
             native_multimodal="false",
         )
         for model in models
@@ -202,10 +192,6 @@ async def list_codex_models() -> list[DiscoveredModel]:
 
 async def list_trio_models() -> list[DiscoveredModel]:
     return await _list_openai_models_for_provider("trio")
-
-
-async def list_openai_local_models() -> list[DiscoveredModel]:
-    return await _list_openai_models_for_provider("openai_local")
 
 
 async def upload_openai_file(
@@ -486,7 +472,6 @@ __all__ = [
     "apply_reasoning_controls",
     "apply_responses_reasoning_controls",
     "list_codex_models",
-    "list_openai_local_models",
     "list_openai_models",
     "list_trio_models",
     "openai_base_url",

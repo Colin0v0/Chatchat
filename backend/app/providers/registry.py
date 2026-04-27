@@ -3,7 +3,6 @@ from __future__ import annotations
 from .anthropic_family import AnthropicProviderAdapter
 from .base import ProviderAdapter
 from .gemini_family import GeminiProviderAdapter
-from .ollama_family import OllamaProviderAdapter
 from .openai_family import OpenAIProviderAdapter
 
 
@@ -13,7 +12,6 @@ class ProviderRegistry:
             "openai": OpenAIProviderAdapter(),
             "anthropic": AnthropicProviderAdapter(),
             "gemini": GeminiProviderAdapter(),
-            "ollama": OllamaProviderAdapter(),
         }
 
     def get(self, family: str) -> ProviderAdapter:
