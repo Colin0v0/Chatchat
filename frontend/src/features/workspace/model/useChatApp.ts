@@ -103,6 +103,20 @@ const CONVERSATION_EXPORT_MESSAGE_LIMIT = 100;
 const ACTIVE_CHAT_CONVERSATION_CACHE_STORAGE_KEY = "chatchat.active-chat-conversations";
 const DEBATE_TRANSIENT_STATE_STORAGE_KEY = "chatchat.debate-transient-states";
 const DEFAULT_IMAGE_SIZE = "1024x1024";
+const IMAGE_ATTACHMENT_EXTENSIONS = new Set([".gif", ".jpeg", ".jpg", ".png", ".webp"]);
+
+function fileExtension(name: string) {
+  const dotIndex = name.lastIndexOf(".");
+  return dotIndex >= 0 ? name.slice(dotIndex).toLowerCase() : "";
+}
+
+function fileLooksLikeImage(file: File) {
+  return file.type.startsWith("image/") || IMAGE_ATTACHMENT_EXTENSIONS.has(fileExtension(file.name));
+}
+
+function modelAllowsImageAttachments(model: ModelOption) {
+  return model.capabilities?.input.image ?? model.supports_attachment_upload;
+}
 
 function loadStoredChatConversationCache(): Record<number, ConversationDetail> {
   if (typeof window === "undefined") {
@@ -431,6 +445,7 @@ export function useChatApp({
     [],
   );
   const attachmentUploadAvailable = selectedModelOption.supports_attachment_upload;
+  const imageUploadAvailable = modelAllowsImageAttachments(selectedModelOption);
   const selectedModelReasoningKey = useMemo(
     () =>
       [
@@ -449,6 +464,26 @@ export function useChatApp({
     transientAttachmentUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
     transientAttachmentUrlsRef.current = [];
   }, []);
+
+  const handleSelectAttachments = useCallback(
+    (files: FileList | File[]) => {
+      const selectedFiles = Array.from(files);
+      if (selectedFiles.length === 0) {
+        return;
+      }
+
+      const allowedFiles = imageUploadAvailable
+        ? selectedFiles
+        : selectedFiles.filter((file) => !fileLooksLikeImage(file));
+      if (allowedFiles.length < selectedFiles.length) {
+        setError("当前模型不支持图片上传，请切换到 Claude/Gemini/Codex 等多模态模型。");
+      }
+      if (allowedFiles.length > 0) {
+        addAttachments(allowedFiles);
+      }
+    },
+    [addAttachments, imageUploadAvailable],
+  );
 
   const writeChatConversationCache = useCallback((cache: Record<number, ConversationDetail>) => {
     chatConversationCacheRef.current = cache;
@@ -1104,6 +1139,20 @@ export function useChatApp({
     });
   }, [cancelRecording, clearAttachments, closeMobileSidebar, isDesktop]);
 
+  const handleCancelCreateDebate = useCallback(() => {
+    onSectionRouteChange?.("chats");
+    startTransition(() => {
+      setActiveSection("chats");
+      setActiveConversationId(null);
+      setActiveConversation(null);
+      setActiveDebateId(null);
+      setActiveDebate(null);
+      setDebateCreateOpen(false);
+      setCollapsedMessageIds(new Set());
+      setError(null);
+    });
+  }, [onSectionRouteChange]);
+
   const handleSelectDebate = useCallback(
     (sessionId: number) => {
       cancelRecording();
@@ -1580,6 +1629,10 @@ export function useChatApp({
     if ((!message && pendingFiles.length === 0) || isRecording || isStreaming || isTranscribing) {
       return;
     }
+    if (!imageUploadAvailable && pendingFiles.some(fileLooksLikeImage)) {
+      setError("当前模型不支持图片上传，请切换到 Claude/Gemini/Codex 等多模态模型。");
+      return;
+    }
     if (effectiveComposerMode === "image") {
       if (!message || pendingFiles.length > 0) {
         return;
@@ -1713,6 +1766,7 @@ export function useChatApp({
     composerMode,
     draft,
     draftAttachments,
+    imageUploadAvailable,
     imageSize,
     isRecording,
     isStreaming,
@@ -1982,7 +2036,7 @@ export function useChatApp({
           defaultProModelId: selectedModel,
           defaultConModelId: selectedModel,
           models: availableModels,
-          onCancel: () => setDebateCreateOpen(false),
+          onCancel: handleCancelCreateDebate,
           onCreate: handleCreateDebate,
         }
       : null,
@@ -2035,7 +2089,7 @@ export function useChatApp({
           onRetry: handleRetryAssistant,
           onStartEditingUserMessage: handleStartEditingUserMessage,
           onSubmitEditingUserMessage: (messageId: number | string) => void handleSubmitEditedUserMessage(messageId),
-          onSelectAttachments: addAttachments,
+          onSelectAttachments: handleSelectAttachments,
           onNewDebate: handleNewDebate,
           onSend: () => void handleSend(),
           onStop: handleStop,
@@ -2112,7 +2166,7 @@ export function useChatApp({
       onModelChange: handleModelChange,
       onReasoningProfileChange: handleReasoningProfileChange,
       onRemoveDraftAttachment: removeAttachment,
-      onSelectAttachments: addAttachments,
+      onSelectAttachments: handleSelectAttachments,
       onNewDebate: handleNewDebate,
       onSend: () => void handleSend(),
       onStop: handleStop,

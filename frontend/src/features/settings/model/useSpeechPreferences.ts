@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { canUseSpeechSynthesis, unlockSpeechSynthesis } from "../../../lib/speechSynthesis";
+import { DEFAULT_CLOUD_VOICE_ID } from "./cloudVoices";
+
 export interface SpeechPreferences {
+  cloudVoice: string;
   chineseVoiceURI: string | null;
   englishVoiceURI: string | null;
   rate: number;
@@ -11,19 +15,12 @@ const STORAGE_KEY = "chatchat.speech-preferences";
 const UPDATED_EVENT = "chatchat:speech-preferences-updated";
 
 const DEFAULT_PREFERENCES: SpeechPreferences = {
+  cloudVoice: DEFAULT_CLOUD_VOICE_ID,
   chineseVoiceURI: null,
   englishVoiceURI: null,
   rate: 1,
   autoPlayAssistant: false,
 };
-
-function canUseSpeechSynthesis() {
-  return (
-    typeof window !== "undefined"
-    && "speechSynthesis" in window
-    && "SpeechSynthesisUtterance" in window
-  );
-}
 
 function clampRate(value: number) {
   if (!Number.isFinite(value)) {
@@ -42,6 +39,10 @@ function normalizeVoiceURI(value: unknown) {
 
 function normalizePreferences(value: StoredSpeechPreferences | null | undefined): SpeechPreferences {
   return {
+    cloudVoice:
+      typeof value?.cloudVoice === "string" && value.cloudVoice.trim()
+        ? value.cloudVoice
+        : DEFAULT_PREFERENCES.cloudVoice,
     chineseVoiceURI: normalizeVoiceURI(value?.chineseVoiceURI),
     englishVoiceURI: normalizeVoiceURI(value?.englishVoiceURI),
     rate: clampRate(typeof value?.rate === "number" ? value.rate : DEFAULT_PREFERENCES.rate),
@@ -130,6 +131,35 @@ export function useSpeechPreferences() {
   }, [refreshVoices]);
 
   useEffect(() => {
+    if (!preferences.autoPlayAssistant || !canUseSpeechSynthesis()) {
+      return;
+    }
+
+    let removeActivationListeners = () => undefined;
+    const handleUserActivation = () => {
+      unlockSpeechSynthesis();
+      removeActivationListeners();
+    };
+    const activationOptions: AddEventListenerOptions = { capture: true, once: true, passive: true };
+    const keyboardOptions: AddEventListenerOptions = { capture: true, once: true };
+    const removeOptions: EventListenerOptions = { capture: true };
+
+    removeActivationListeners = () => {
+      window.removeEventListener("pointerdown", handleUserActivation, removeOptions);
+      window.removeEventListener("touchstart", handleUserActivation, removeOptions);
+      window.removeEventListener("mousedown", handleUserActivation, removeOptions);
+      window.removeEventListener("keydown", handleUserActivation, removeOptions);
+    };
+
+    window.addEventListener("pointerdown", handleUserActivation, activationOptions);
+    window.addEventListener("touchstart", handleUserActivation, activationOptions);
+    window.addEventListener("mousedown", handleUserActivation, activationOptions);
+    window.addEventListener("keydown", handleUserActivation, keyboardOptions);
+
+    return removeActivationListeners;
+  }, [preferences.autoPlayAssistant]);
+
+  useEffect(() => {
     function handleStorage(event: StorageEvent) {
       if (event.key !== STORAGE_KEY) {
         return;
@@ -177,8 +207,14 @@ export function useSpeechPreferences() {
     selectedChineseVoice,
     selectedEnglishVoice,
     setAutoPlayAssistant: useCallback(
-      (value: boolean) => updatePreferences({ autoPlayAssistant: value }),
-      [updatePreferences],
+      (value: boolean) => {
+        if (value) {
+          unlockSpeechSynthesis();
+          refreshVoices();
+        }
+        updatePreferences({ autoPlayAssistant: value });
+      },
+      [refreshVoices, updatePreferences],
     ),
     setRate: useCallback(
       (value: number) => updatePreferences({ rate: clampRate(value) }),
@@ -190,6 +226,10 @@ export function useSpeechPreferences() {
     ),
     setEnglishVoiceURI: useCallback(
       (value: string | null) => updatePreferences({ englishVoiceURI: value }),
+      [updatePreferences],
+    ),
+    setCloudVoice: useCallback(
+      (value: string) => updatePreferences({ cloudVoice: value }),
       [updatePreferences],
     ),
     voices,

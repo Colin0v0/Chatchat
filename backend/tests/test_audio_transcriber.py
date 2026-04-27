@@ -5,7 +5,7 @@ import unittest
 import wave
 from io import BytesIO
 
-from app.audio.transcriber import AudioTranscriber
+from app.audio.transcriber import AudioTranscriber, OpenAICompatibleAudioTranscriber
 
 
 def _wav_bytes(samples: list[int], *, sample_rate: int = 16000) -> bytes:
@@ -153,6 +153,36 @@ class AudioTranscriberTests(unittest.TestCase):
         self.assertEqual(text, "你好")
         self.assertEqual(fake_model.calls, [True, False])
         self.assertIs(fake_model.vad_model, original_vad_model)
+
+    def test_openai_compatible_audio_transcriber_builds_qwen_asr_payload(self):
+        transcriber = OpenAICompatibleAudioTranscriber(
+            model_name="qwen3-asr-flash",
+            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+            api_key="test-key",
+            enabled=True,
+        )
+        payload = transcriber._request_payload("data:audio/wav;base64,AAAA")
+
+        self.assertEqual(payload["model"], "qwen3-asr-flash")
+        message = payload["messages"][0]
+        audio_block = message["content"][0]
+        self.assertEqual(audio_block["type"], "input_audio")
+        self.assertEqual(audio_block["input_audio"]["data"], "data:audio/wav;base64,AAAA")
+        self.assertEqual(payload["asr_options"], {"enable_itn": False, "language": "zh"})
+
+    def test_openai_compatible_audio_transcriber_extracts_text(self):
+        transcriber = OpenAICompatibleAudioTranscriber(
+            model_name="qwen3-asr-flash",
+            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+            api_key="test-key",
+            enabled=True,
+        )
+
+        text = transcriber._extract_api_text(
+            {"choices": [{"message": {"content": "你好"}}]}
+        )
+
+        self.assertEqual(text, "你好")
 
 
 if __name__ == "__main__":

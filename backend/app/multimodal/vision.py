@@ -46,6 +46,8 @@ class ImageVision:
         )
 
     def describe(self, image_path: Path) -> VisionDescription:
+        if not self._model_name:
+            raise RuntimeError("Local image vision is disabled in the current environment.")
         with self._runtime.lease() as runtime:
             with Image.open(image_path) as image_file:
                 image = image_file.convert("RGB")

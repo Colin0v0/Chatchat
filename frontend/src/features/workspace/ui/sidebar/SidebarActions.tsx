@@ -86,24 +86,32 @@ export function SidebarAction({
 
 export function SidebarBrand({
   compact = false,
+  gapClassName = "gap-3",
   logoFrameClassName = "h-9 w-9",
+  showSubtitle = true,
+  titleClassName = "text-[15px] font-semibold tracking-[-0.02em]",
   title = "Chatchat",
 }: {
   compact?: boolean;
+  gapClassName?: string;
   logoFrameClassName?: string;
+  showSubtitle?: boolean;
+  titleClassName?: string;
   title?: string;
 }) {
   return (
-    <div className="flex min-w-0 items-center gap-3">
+    <div className={`flex min-w-0 items-center ${gapClassName}`}>
       <div className={`flex shrink-0 items-center justify-center text-[#13227a] ${logoFrameClassName}`}>
         <AppLogo className="h-[22px] w-[22px]" />
       </div>
       {!compact ? (
         <div className="min-w-0">
-          <div className="truncate text-[15px] font-semibold tracking-[-0.02em]">{title}</div>
-          <div className="truncate text-[13px] tracking-[0.08em] text-app-muted lowercase">
-            personal workspace
-          </div>
+          <div className={`truncate ${titleClassName}`}>{title}</div>
+          {showSubtitle ? (
+            <div className="truncate text-[13px] tracking-[0.08em] text-app-muted lowercase">
+              personal workspace
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>
@@ -430,7 +438,7 @@ export function MobileSidebarFooter({
 
   return (
     <div className="shrink-0 border-t border-app-border/70 px-4 pt-3 pb-4">
-      <div className="flex min-h-9 items-center justify-end gap-1">
+      <div className="flex min-h-9 items-center justify-start gap-1">
         {onOpenSettings ? (
           <SidebarFooterAction
             active={settingsActive}

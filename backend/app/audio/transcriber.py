@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import gc
 import io
 import logging
@@ -13,6 +14,8 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from threading import Lock
 from typing import Any, Callable, Iterator
+
+import httpx
 
 from ..schemas import AudioTranscriptionOut
 from .ffmpeg import transcode_audio_to_wav
@@ -412,3 +415,129 @@ class AudioTranscriber:
         if len(compact_text) <= 3 and not MEANINGFUL_TRANSCRIPT_PATTERN.search(compact_text):
             return True
         return len(compact_text) <= 4 and bool(UNWANTED_SHORT_SCRIPT_PATTERN.search(compact_text))
+
+
+class OpenAICompatibleAudioTranscriber(AudioTranscriber):
+    def __init__(
+        self,
+        *,
+        model_name: str,
+        base_url: str,
+        api_key: str,
+        enabled: bool,
+        language: str = "zh",
+        timeout_seconds: float = 60.0,
+        max_request_bytes: int = 10 * 1024 * 1024,
+        min_duration_ms: int = 650,
+        min_rms_dbfs: float = -65.0,
+        allowed_languages: str = "zh,en",
+    ):
+        super().__init__(
+            model_name=model_name,
+            device="api",
+            enabled=enabled,
+            language=language,
+            vad_model="",
+            min_duration_ms=min_duration_ms,
+            min_rms_dbfs=min_rms_dbfs,
+            allowed_languages=allowed_languages,
+        )
+        self._base_url = base_url.rstrip("/")
+        self._api_key = api_key.strip()
+        self._timeout_seconds = max(1.0, timeout_seconds)
+        self._max_request_bytes = max(1, max_request_bytes)
+
+    @property
+    def requires_local_gpu(self) -> bool:
+        return False
+
+    def load(self) -> None:
+        if not self._enabled:
+            return
+        if not self._base_url:
+            raise AudioModelLoadError("Audio transcription API base URL is not configured.")
+        if not self._api_key:
+            raise AudioModelLoadError("Audio transcription API key is not configured.")
+
+    def unload(self) -> None:
+        return
+
+    def _transcribe_wav(self, wav_bytes: bytes) -> str:
+        self.load()
+        data_url = self._wav_data_url(wav_bytes)
+        if len(data_url.encode("utf-8")) > self._max_request_bytes:
+            raise RuntimeError("Audio request is too large for the configured transcription API.")
+
+        try:
+            with httpx.Client(
+                base_url=self._base_url,
+                headers=self._headers(),
+                timeout=self._timeout_seconds,
+            ) as client:
+                response = client.post(
+                    "chat/completions",
+                    json=self._request_payload(data_url),
+                )
+                response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            status_code = exc.response.status_code
+            raise RuntimeError(f"Audio transcription API failed: HTTP {status_code}") from exc
+        except httpx.HTTPError as exc:
+            raise RuntimeError(f"Audio transcription API failed: {exc}") from exc
+
+        return self._extract_api_text(response.json()).strip()
+
+    def _request_payload(self, data_url: str) -> dict[str, object]:
+        asr_options: dict[str, object] = {"enable_itn": False}
+        if self._language not in {"auto", "nospeech"}:
+            asr_options["language"] = self._language
+
+        return {
+            "model": self._model_name,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_audio",
+                            "input_audio": {"data": data_url},
+                        },
+                    ],
+                }
+            ],
+            "stream": False,
+            "asr_options": asr_options,
+        }
+
+    def _extract_api_text(self, payload: object) -> str:
+        if not isinstance(payload, dict):
+            raise RuntimeError("Audio transcription API returned a non-object response.")
+        choices = payload.get("choices")
+        if not isinstance(choices, list) or not choices:
+            raise RuntimeError("Audio transcription API response did not include choices.")
+        first_choice = choices[0]
+        if not isinstance(first_choice, dict):
+            raise RuntimeError("Audio transcription API response included an invalid choice.")
+        message = first_choice.get("message")
+        if not isinstance(message, dict):
+            raise RuntimeError("Audio transcription API response did not include a message.")
+        content = message.get("content", "")
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts: list[str] = []
+            for item in content:
+                if isinstance(item, dict) and isinstance(item.get("text"), str):
+                    parts.append(item["text"])
+            return "".join(parts)
+        return ""
+
+    def _headers(self) -> dict[str, str]:
+        return {
+            "Authorization": f"Bearer {self._api_key}",
+            "Content-Type": "application/json",
+        }
+
+    def _wav_data_url(self, wav_bytes: bytes) -> str:
+        encoded = base64.b64encode(wav_bytes).decode("ascii")
+        return f"data:audio/wav;base64,{encoded}"

@@ -1,8 +1,9 @@
 {
   "providers": {
-    "openai_default": {
+    "deepseek_default": {
       "provider": "openai",
-      "api_key_env": "OPENAI_API_KEY"
+      "base_url": "${DEEPSEEK_BASE_URL}",
+      "api_key_env": "DEEPSEEK_API_KEY"
     },
     "trio_default": {
       "provider": "trio",
@@ -35,7 +36,7 @@
     {
       "id": "openai:deepseek-v4-flash",
       "display_name": "DeepSeek v4 Flash",
-      "provider_ref": "openai_default",
+      "provider_ref": "deepseek_default",
       "upstream_model": "deepseek-v4-flash",
       "limits": {
         "context_window": 200000
@@ -46,7 +47,7 @@
       "capabilities": {
         "input": {
           "text": true,
-          "image": true,
+          "image": false,
           "pdf": true,
           "other_file": true,
           "audio": true
@@ -84,7 +85,7 @@
     {
       "id": "openai:deepseek-v4-pro",
       "display_name": "DeepSeek v4 Pro",
-      "provider_ref": "openai_default",
+      "provider_ref": "deepseek_default",
       "upstream_model": "deepseek-v4-pro",
       "limits": {
         "context_window": 200000
@@ -95,7 +96,7 @@
       "capabilities": {
         "input": {
           "text": true,
-          "image": true,
+          "image": false,
           "pdf": true,
           "other_file": true,
           "audio": true

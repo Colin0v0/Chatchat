@@ -7,7 +7,8 @@ Chatchat 是一个面向个人/小团队的聊天工作台，当前提供：
 - 推理展示：支持 reasoning/thinking 流式展示与持久化
 - 检索增强：用户知识库 `RAG`、`Web Search`
 - 多模态输入：图片、PDF、DOCX、XLSX、CSV、文本类文件
-- 语音转写：可选本地 `SenseVoice / FunASR`
+- 语音转写：百炼 `qwen3-asr-flash`
+- 语音播放：百炼 `cosyvoice-v3-flash`，浏览器本机语音兜底
 - 记忆系统：全局记忆、会话记忆、工作记忆、候选记忆、记忆文档
 
 当前代码默认遵循这几个原则：
@@ -124,6 +125,7 @@ Chatchat/
   - 不复用 `/v1/files` 直传链路
 
 当前 `native_multimodal` 由 [backend/model_catalog.json](backend/model_catalog.json) 控制。
+`capabilities.input.*` 会同时约束前端上传入口和后端校验；当前 DeepSeek v4 Pro / Flash 已关闭图片上传，避免进入本地 OCR / 视觉链路。
 
 ### 4. 认证与用户
 
@@ -198,22 +200,42 @@ CHATCHAT_ENV=deploy.wsl python app.py
 
 ### 关键环境变量
 
+#### 数据库 / 缓存
+
+本地开发使用 `docker-compose.dev-infra.yml` 里的 Postgres / Redis：
+
+```env
+DATABASE_URL=postgresql+psycopg://chatchat_dev:chatchat_dev@127.0.0.1:5433/chatchat_dev
+REDIS_URL=redis://127.0.0.1:6380/0
+```
+
+完整 Docker 部署使用 `docker-compose.yml` 里的内置服务：
+
+```env
+DATABASE_URL=postgresql+psycopg://chatchat:chatchat@postgres:5432/chatchat
+REDIS_URL=redis://redis:6379/0
+```
+
 #### 模型与路由
 
 ```env
-OPENAI_BASE_URL=
-OPENAI_API_KEY=
+DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
+DEEPSEEK_API_KEY=
 CODEX_BASE_URL=
 CODEX_API_KEY=
 OPENAI_LOCAL_BASE_URL=
 OPENAI_LOCAL_UPSTREAM_SERVICE_BASE_URL=
 OPENAI_LOCAL_API_KEY=
+DASHSCOPE_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+DASHSCOPE_API_KEY=
 OLLAMA_BASE_URL=
 MODEL_CATALOG_PATH=./model_catalog.json
 MODEL_CATALOG_STRICT=true
 DEFAULT_PROVIDER=openai
-DEFAULT_MODEL=openai:deepseek-chat
+DEFAULT_MODEL=openai:deepseek-v4-flash
 ```
+
+DeepSeek 聊天模型走 `DEEPSEEK_*`，百炼 `DASHSCOPE_*` 只用于 embedding、语音输入和语音播放。
 
 如果要接入 OpenAI Codex，推荐单独配置：
 
@@ -244,8 +266,11 @@ MEMORY_REFRESH_MAX_CONCURRENCY=1
 
 ```env
 KNOWLEDGE_STORAGE_ROOT=./storage/knowledge
-KNOWLEDGE_EMBEDDING_MODEL=qwen3-embedding:0.6b
-KNOWLEDGE_RERANK_MODEL=codex:gpt-5.2
+KNOWLEDGE_EMBEDDING_PROVIDER=dashscope
+KNOWLEDGE_EMBEDDING_MODEL=text-embedding-v4
+KNOWLEDGE_EMBEDDING_DIMENSIONS=1024
+KNOWLEDGE_EMBEDDING_BATCH_SIZE=8
+KNOWLEDGE_RERANK_MODEL=openai:deepseek-v4-flash
 KNOWLEDGE_MAX_FILE_SIZE_BYTES=2097152
 KNOWLEDGE_MAX_DOCUMENTS_PER_USER=100
 KNOWLEDGE_MAX_TOTAL_SIZE_BYTES=104857600
@@ -257,21 +282,26 @@ WEB_SEARCH_API_KEY=
 WEB_SEARCH_TRANSLATION_MODEL=openai_local:claude-haiku-4-5
 ```
 
+切换 embedding 模型后，旧知识库向量需要重新索引。
+
 #### 语音
 
 ```env
 AUDIO_TRANSCRIPTION_ENABLED=true
+AUDIO_TRANSCRIPTION_PROVIDER=dashscope
 AUDIO_TRANSCRIPTION_EAGER_LOAD=false
-AUDIO_TRANSCRIPTION_MODEL=iic/SenseVoiceSmall
+AUDIO_TRANSCRIPTION_MODEL=qwen3-asr-flash
+AUDIO_TRANSCRIPTION_TIMEOUT_SECONDS=60
 AUDIO_TRANSCRIPTION_DEVICE=cpu
+AUDIO_TTS_ENABLED=true
+AUDIO_TTS_MODEL=cosyvoice-v3-flash
+AUDIO_TTS_VOICE=longanyang
+AUDIO_TTS_FORMAT=mp3
+AUDIO_TTS_SAMPLE_RATE=24000
+AUDIO_TTS_TIMEOUT_SECONDS=60
 ```
 
-如果当前环境没有装 `funasr`，请直接关闭语音：
-
-```env
-AUDIO_TRANSCRIPTION_ENABLED=false
-AUDIO_TRANSCRIPTION_EAGER_LOAD=false
-```
+Embedding、语音输入和语音播放默认复用 `DASHSCOPE_API_KEY`。TTS 默认使用百炼原生语音合成接口，只有需要改代理地址时才配置 `AUDIO_TTS_BASE_URL`。
 
 ## 本地开发
 
@@ -310,6 +340,8 @@ npm run dev
 
 - `frontend`
 - `backend`
+
+默认后端依赖不安装 torch / transformers / funasr / rapidocr 等本地大模型栈，适合纯 CPU + API 模型部署。
 
 `Ollama` 默认仍然跑在宿主机，不放进容器。
 
@@ -407,6 +439,7 @@ OPENAI_LOCAL_UPSTREAM_SERVICE_BASE_URL=http://127.0.0.1:61527/v1
 - `POST /api/memories/{id}/dismiss`
 - `DELETE /api/memories/items/{id}`
 - `POST /api/audio/transcribe`
+- `POST /api/audio/speech`
 
 说明：
 

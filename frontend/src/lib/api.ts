@@ -1,4 +1,5 @@
 import type {
+  AudioSpeechResult,
   AudioTranscriptionResult,
 } from "../types";
 import { assertApiResponse, toApiUrl } from "../shared/api/http";
@@ -80,4 +81,21 @@ export async function transcribeAudio(file: Blob): Promise<AudioTranscriptionRes
   });
   await assertApiResponse(response);
   return response.json() as Promise<AudioTranscriptionResult>;
+}
+
+export async function synthesizeSpeech(payload: {
+  text: string;
+  voice?: string | null;
+  rate?: number | null;
+}): Promise<AudioSpeechResult> {
+  const response = await fetch(toApiUrl("/api/audio/speech"), {
+    credentials: "include",
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+  await assertApiResponse(response);
+  return response.json() as Promise<AudioSpeechResult>;
 }

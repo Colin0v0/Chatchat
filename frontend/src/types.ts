@@ -443,6 +443,17 @@ export interface AudioTranscriptionResult {
   reason?: string | null;
 }
 
+export interface AudioSpeechResult {
+  url: string;
+  content_type: string;
+  model: string;
+  voice: string;
+  audio_id?: string | null;
+  expires_at?: number | null;
+  request_id?: string | null;
+  characters?: number | null;
+}
+
 type StreamResumeMetadata = {
   run_id?: string;
   seq?: number;

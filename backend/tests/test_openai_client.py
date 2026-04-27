@@ -16,6 +16,7 @@ from app.provider_transports.openai import (
     _iter_openai_stream_payloads,
     openai_base_url,
     openai_headers,
+    openai_upstream_service_base_url,
     supports_chat_completions_streaming,
 )
 
@@ -196,6 +197,30 @@ class OpenAICompatibleProviderTests(unittest.TestCase):
             self.assertEqual(openai_base_url("trio"), "https://pytrio.cn/api/v1")
         finally:
             settings.trio_base_url = original
+
+    def test_codex_base_url_adds_v1_for_bare_host(self):
+        from app.core.config import settings
+
+        original = settings.codex_base_url
+        settings.codex_base_url = "https://api.ikuncode.cc"
+        try:
+            self.assertEqual(openai_base_url("codex"), "https://api.ikuncode.cc/v1")
+            self.assertEqual(
+                openai_base_url("codex", "https://custom.example.com"),
+                "https://custom.example.com/v1",
+            )
+            self.assertEqual(
+                openai_upstream_service_base_url("codex", "https://files.example.com"),
+                "https://files.example.com/v1",
+            )
+        finally:
+            settings.codex_base_url = original
+
+    def test_codex_base_url_preserves_configured_path(self):
+        self.assertEqual(
+            openai_base_url("codex", "https://api.ikuncode.cc/api/v1"),
+            "https://api.ikuncode.cc/api/v1",
+        )
 
     def test_openai_headers_reads_trio_api_key(self):
         from app.core.config import settings

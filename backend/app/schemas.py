@@ -300,6 +300,23 @@ class AudioTranscriptionOut(BaseModel):
     reason: Optional[str] = None
 
 
+class AudioSpeechIn(BaseModel):
+    text: str
+    voice: Optional[str] = None
+    rate: Optional[float] = None
+
+
+class AudioSpeechOut(BaseModel):
+    url: str
+    content_type: str
+    model: str
+    voice: str
+    audio_id: Optional[str] = None
+    expires_at: Optional[int] = None
+    request_id: Optional[str] = None
+    characters: Optional[int] = None
+
+
 class KnowledgeDocumentOut(BaseModel):
     id: int
     title: str

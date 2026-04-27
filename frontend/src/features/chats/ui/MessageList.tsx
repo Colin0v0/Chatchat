@@ -169,7 +169,7 @@ function AssistantActions({
   isPlaybackSupported: boolean;
   isPlaying?: boolean;
   onFeedback?: (messageId: number, value: FeedbackValue | null) => void;
-  onTogglePlayback?: (messageId: number | string, content: string) => void;
+  onTogglePlayback?: (messageId: number | string, content: string) => void | Promise<unknown>;
   onRetry?: (messageId: number | string) => void;
 }) {
   const [copied, setCopied] = useState(false);
@@ -219,7 +219,7 @@ function AssistantActions({
         active={isPlaying}
         ariaLabel={isPlaying ? "Stop playback" : "Play response"}
         disabled={!isPlaybackSupported}
-        onClick={() => onTogglePlayback?.(messageId, content)}
+        onClick={() => void onTogglePlayback?.(messageId, content)}
         title={isPlaybackSupported ? undefined : "Speech playback is not supported in this browser."}
       >
         {isPlaying ? <Square className="size-3.5 fill-current" /> : <Volume2 className="size-4" />}
@@ -424,7 +424,7 @@ export function MessageList({
       return;
     }
 
-    togglePlayback(latestAssistant.id, latestAssistant.content);
+    void togglePlayback(latestAssistant.id, latestAssistant.content);
   }, [isStreaming, items, playingMessageId, preferences.autoPlayAssistant, togglePlayback]);
 
   return (

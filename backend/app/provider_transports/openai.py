@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
@@ -67,12 +68,22 @@ def _request_gate(provider: Provider) -> tuple[str, int]:
 
 
 def openai_base_url(provider: Provider = "openai", base_url_override: str | None = None) -> str:
+    def _normalize_provider_base_url(raw_url: str) -> str:
+        if provider != "codex":
+            return raw_url
+
+        normalized = normalize_base_url(raw_url)
+        parsed = urlsplit(normalized)
+        if parsed.path.rstrip("/"):
+            return normalized
+        return urlunsplit((parsed.scheme, parsed.netloc, "/v1", "", ""))
+
     if base_url_override:
-        return base_url_override
+        return _normalize_provider_base_url(base_url_override)
     if provider == "openai_local":
         return settings.openai_local_base_url
     if provider == "codex":
-        return settings.codex_base_url
+        return _normalize_provider_base_url(settings.codex_base_url)
     if provider == "trio":
         return settings.trio_base_url
     return settings.openai_base_url
@@ -83,7 +94,7 @@ def openai_upstream_service_base_url(
     base_url_override: str | None = None,
 ) -> str:
     if base_url_override:
-        return base_url_override
+        return openai_base_url(provider, base_url_override)
     if provider == "openai_local":
         return settings.openai_local_upstream_service_base_url or settings.openai_local_base_url
     return openai_base_url(provider)

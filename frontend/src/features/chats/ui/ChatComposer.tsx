@@ -27,11 +27,14 @@ import { ComposerMobileToolbar } from "./composer/ComposerMobileToolbar";
 import { ModelSelect } from "../../models/ui/ModelSelect";
 import { ReasoningProfileSelect } from "../../models/ui/ReasoningProfileSelect";
 
-const ATTACHMENT_ACCEPT = [
+const IMAGE_ATTACHMENT_ACCEPT = [
   "image/png",
   "image/jpeg",
   "image/webp",
   "image/gif",
+];
+
+const FILE_ATTACHMENT_ACCEPT = [
   ".pdf",
   ".txt",
   ".md",
@@ -50,7 +53,10 @@ const ATTACHMENT_ACCEPT = [
   ".csv",
   ".xlsx",
   ".docx",
-].join(",");
+];
+
+const ATTACHMENT_ACCEPT = [...IMAGE_ATTACHMENT_ACCEPT, ...FILE_ATTACHMENT_ACCEPT].join(",");
+const FILE_ONLY_ATTACHMENT_ACCEPT = FILE_ATTACHMENT_ACCEPT.join(",");
 
 interface ChatComposerProps {
   value: string;
@@ -421,6 +427,9 @@ export function ChatComposer({
   const imageMode = composerMode === "image";
   const voiceDisabled = isStreaming || isTranscribing;
   const selectedModelOption = findModelOption(models, model);
+  const attachmentAccept = selectedModelOption.capabilities?.input.image === false
+    ? FILE_ONLY_ATTACHMENT_ACCEPT
+    : ATTACHMENT_ACCEPT;
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
@@ -506,7 +515,7 @@ export function ChatComposer({
         onDrop={handleDrop}
       >
         <input
-          accept={ATTACHMENT_ACCEPT}
+          accept={attachmentAccept}
           className="hidden"
           multiple
           onChange={handleSelectAttachments}

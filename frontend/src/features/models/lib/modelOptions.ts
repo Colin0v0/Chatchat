@@ -16,7 +16,7 @@ export function createModelOption(id: string): ModelOption {
       capabilities: {
         input: {
           text: true,
-          image: true,
+          image: false,
           pdf: true,
           other_file: true,
           audio: true,
@@ -67,7 +67,7 @@ export function createModelOption(id: string): ModelOption {
       capabilities: {
         input: {
           text: true,
-          image: true,
+          image: false,
           pdf: true,
           other_file: true,
           audio: false,

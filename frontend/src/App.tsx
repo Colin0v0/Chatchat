@@ -183,7 +183,6 @@ export default function App() {
       <section className="flex min-h-[100dvh] items-center justify-center bg-app-bg px-6">
         <div className="flex flex-col items-center gap-4 text-center text-app-muted">
           <LoaderCircle className="size-8 animate-spin text-app-muted" />
-          <p className="text-[14px]">正在连接服务...</p>
         </div>
       </section>
     );
