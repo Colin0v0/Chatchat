@@ -34,6 +34,8 @@ interface ConversationViewProps {
   reserveThinkingSpace: boolean;
   reasoningProfile: ReasoningProfileValue;
   toolMode: ToolMode;
+  knowledgeFolders: string[];
+  knowledgeFolder: string;
   submitBlocked: boolean;
   submitBlockedReason: string | null;
   streamingStatusLabel: string | null;
@@ -43,6 +45,7 @@ interface ConversationViewProps {
   onComposerModeChange: (value: ComposerMode) => void;
   onImageSizeChange: (value: string) => void;
   onReasoningProfileChange: (value: ReasoningProfileValue) => void;
+  onKnowledgeFolderChange: (value: string) => void;
   onCancelEditingUserMessage: () => void;
   onLoadEarlierMessages: () => Promise<void> | void;
   onRemoveDraftAttachment: (attachmentId: string) => void;
@@ -81,6 +84,8 @@ export function ConversationView({
   reserveThinkingSpace,
   reasoningProfile,
   toolMode,
+  knowledgeFolders,
+  knowledgeFolder,
   submitBlocked,
   submitBlockedReason,
   streamingStatusLabel,
@@ -90,6 +95,7 @@ export function ConversationView({
   onComposerModeChange,
   onImageSizeChange,
   onReasoningProfileChange,
+  onKnowledgeFolderChange,
   onCancelEditingUserMessage,
   onLoadEarlierMessages,
   onRemoveDraftAttachment,
@@ -292,6 +298,9 @@ export function ConversationView({
           onImageSizeChange={onImageSizeChange}
           onModelChange={onModelChange}
           onReasoningProfileChange={onReasoningProfileChange}
+          knowledgeFolders={knowledgeFolders}
+          knowledgeFolder={knowledgeFolder}
+          onKnowledgeFolderChange={onKnowledgeFolderChange}
           onRemoveAttachment={onRemoveDraftAttachment}
           onSelectAttachments={onSelectAttachments}
           onNewDebate={onNewDebate}

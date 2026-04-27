@@ -113,6 +113,13 @@ Chatchat/
 - `rag`：检索当前用户上传的 Markdown 知识库
 - `web`：联网搜索
 
+知识库支持逻辑文件夹分组：
+
+- 可以上传单个/多个 Markdown 到指定分组
+- 可以直接上传文件夹，保留目录相对路径
+- 可以在知识库页面按分组查看、筛选、批量移动、批量删除
+- 聊天开启知识库模式后，可以选择检索全部知识库、默认分组或某个文件夹分组
+
 `rag` 模式当前会先做一层“查询重写”：
 
 - 结合最近几轮对话，把“它 / 那个 / 上面那段”改写成更完整的检索问题
@@ -437,6 +444,7 @@ docker compose logs -f
 - `POST /api/knowledge/reindex`
 - `DELETE /api/knowledge/documents/{id}`
 - `POST /api/knowledge/documents/delete`
+- `PATCH /api/knowledge/documents/folder`
 - `GET /api/memories`
 - `POST /api/memories/items`
 - `PATCH /api/memories/items/{id}`
@@ -449,6 +457,7 @@ docker compose logs -f
 说明：
 
 - `rag` 模式现在只检索当前登录用户自己的 Markdown 知识库
+- 知识库文档支持 `folder/path` 逻辑分组，上传文件夹时会保留相对目录
 - 查询重写会在 `rag` 检索前结合最近会话，把模糊问题改成更完整的知识库查询
 - 知识库 `v1` 只支持 `.md` 上传，不再维护全局 Obsidian 扫描链路
 - 支持批量上传和批量删除 Markdown 文档

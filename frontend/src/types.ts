@@ -274,6 +274,7 @@ export interface ChatStreamRequest {
   files?: File[];
   model?: string | null;
   tool_mode: ToolMode;
+  knowledge_folders?: string[];
   reasoning_profile?: ReasoningProfileValue | null;
 }
 
@@ -316,6 +317,7 @@ export interface RegenerateChatRequest {
   edited_content?: string | null;
   model?: string | null;
   tool_mode: ToolMode;
+  knowledge_folders?: string[];
   reasoning_profile?: ReasoningProfileValue | null;
 }
 
@@ -324,6 +326,8 @@ export type KnowledgeDocumentStatus = "pending" | "indexing" | "ready" | "failed
 export interface KnowledgeDocument {
   id: number;
   title: string;
+  folder: string;
+  path: string;
   mime_type: string;
   extension: string;
   size_bytes: number;
@@ -364,6 +368,16 @@ export interface KnowledgeBatchUploadResult {
 export interface KnowledgeBatchDeleteResult {
   deleted_count: number;
   deleted_ids: number[];
+}
+
+export interface KnowledgeBatchMoveResult {
+  moved_count: number;
+  documents: KnowledgeDocument[];
+}
+
+export interface KnowledgeFolderDeleteResult {
+  folder: string;
+  moved_document_count: number;
 }
 
 export type MemoryScope = "working" | "global" | "conversation";

@@ -11,6 +11,7 @@ export {
   deleteKnowledgeDocuments,
   fetchKnowledgeDocuments,
   fetchKnowledgeStatus,
+  moveKnowledgeDocuments,
   reindexKnowledgeDocument,
   reindexKnowledgeDocuments,
   uploadKnowledgeDocuments,

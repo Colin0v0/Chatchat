@@ -70,6 +70,7 @@ class RegenerateRequest(BaseModel):
     model: Optional[str] = None
     tool_mode: ToolMode = "none"
     reasoning_profile: Optional[ReasoningProfileValue] = None
+    knowledge_folders: list[str] = Field(default_factory=list)
 
 
 class MessageFeedbackUpdate(BaseModel):
@@ -320,6 +321,8 @@ class AudioSpeechOut(BaseModel):
 class KnowledgeDocumentOut(BaseModel):
     id: int
     title: str
+    folder: str = ""
+    path: str = ""
     mime_type: str
     extension: str
     size_bytes: int
@@ -330,6 +333,19 @@ class KnowledgeDocumentOut(BaseModel):
     updated_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class KnowledgeFolderCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+
+
+class KnowledgeFolderDeleteIn(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+
+
+class KnowledgeFolderDeleteResult(BaseModel):
+    folder: str
+    moved_document_count: int = 0
 
 
 class KnowledgeStatusOut(BaseModel):
@@ -366,6 +382,16 @@ class KnowledgeBatchDeleteIn(BaseModel):
 class KnowledgeBatchDeleteResult(BaseModel):
     deleted_count: int = 0
     deleted_ids: list[int] = Field(default_factory=list)
+
+
+class KnowledgeBatchMoveIn(BaseModel):
+    document_ids: list[int] = Field(min_length=1)
+    folder: str = Field(default="", max_length=255)
+
+
+class KnowledgeBatchMoveResult(BaseModel):
+    moved_count: int = 0
+    documents: list[KnowledgeDocumentOut] = Field(default_factory=list)
 
 
 class MemoryItemOut(BaseModel):

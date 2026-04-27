@@ -39,6 +39,11 @@ class User(Base):
         cascade="all, delete-orphan",
         order_by="KnowledgeDocument.updated_at",
     )
+    knowledge_folders: Mapped[list["KnowledgeFolder"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+        order_by="KnowledgeFolder.name",
+    )
     sessions: Mapped[list["UserSession"]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
@@ -446,6 +451,7 @@ class KnowledgeDocument(Base):
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     title: Mapped[str] = mapped_column(String(255))
+    folder: Mapped[str] = mapped_column(String(255), default="")
     mime_type: Mapped[str] = mapped_column(String(128))
     extension: Mapped[str] = mapped_column(String(32), default=".md")
     size_bytes: Mapped[int] = mapped_column(Integer)
@@ -473,6 +479,33 @@ class KnowledgeDocument(Base):
     @property
     def chunk_count(self) -> int:
         return len(self.chunks)
+
+    @property
+    def path(self) -> str:
+        normalized_folder = (self.folder or "").strip().strip("/")
+        if not normalized_folder:
+            return self.title
+        return f"{normalized_folder}/{self.title}"
+
+
+class KnowledgeFolder(Base):
+    __tablename__ = "knowledge_folders"
+    __table_args__ = (UniqueConstraint("user_id", "name", name="uq_knowledge_folders_user_name"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    name: Mapped[str] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    user: Mapped[User] = relationship(back_populates="knowledge_folders")
 
 
 class KnowledgeChunk(Base):

@@ -3,10 +3,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { KnowledgeDocument, KnowledgeReindexResult, KnowledgeStatus } from "../../../types";
 import { useLatestRequestGuard } from "../../../shared/hooks/useLatestRequestGuard";
 import {
+  createKnowledgeFolder,
   deleteKnowledgeDocument,
   deleteKnowledgeDocuments,
+  deleteKnowledgeFolder,
   fetchKnowledgeDocuments,
+  fetchKnowledgeFolders,
   fetchKnowledgeStatus,
+  moveKnowledgeDocuments,
   reindexKnowledgeDocument,
   reindexKnowledgeDocuments,
   uploadKnowledgeDocuments,
@@ -34,6 +38,7 @@ export function useKnowledgeManager({ enabled }: { enabled: boolean }) {
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [savedFolders, setSavedFolders] = useState<string[]>([]);
   const [updateResult, setUpdateResult] = useState<KnowledgeReindexResult | null>(null);
   const [selectedDocumentIds, setSelectedDocumentIds] = useState<number[]>([]);
   const loadGuard = useLatestRequestGuard();
@@ -43,15 +48,17 @@ export function useKnowledgeManager({ enabled }: { enabled: boolean }) {
     setIsLoading(true);
     setError(null);
     try {
-      const [nextDocuments, nextStatus] = await Promise.all([
+      const [nextDocuments, nextStatus, nextFolders] = await Promise.all([
         fetchKnowledgeDocuments(),
         fetchKnowledgeStatus(),
+        fetchKnowledgeFolders(),
       ]);
       if (!loadGuard.isCurrent(requestId)) {
         return;
       }
       setDocuments(nextDocuments);
       setStatus(nextStatus);
+      setSavedFolders(nextFolders);
       setSelectedDocumentIds((current) =>
         current.filter((documentId) => nextDocuments.some((document) => document.id === documentId)),
       );
@@ -84,8 +91,69 @@ export function useKnowledgeManager({ enabled }: { enabled: boolean }) {
     return () => window.clearInterval(timer);
   }, [enabled, loadKnowledge, status.indexing_document_count]);
 
+  const folders = useMemo(() => {
+    const unique = new Set<string>(savedFolders);
+    documents.forEach((document) => {
+      const folder = (document.folder ?? "").trim();
+      if (folder) {
+        unique.add(folder);
+      }
+    });
+    return Array.from(unique).sort((left, right) => left.localeCompare(right, "zh-CN"));
+  }, [documents, savedFolders]);
+
+  const createFolder = useCallback(
+    async (name: string) => {
+      const trimmed = name.trim();
+      if (!trimmed) {
+        return null;
+      }
+      setIsSaving(true);
+      setError(null);
+      setUpdateResult(null);
+      try {
+        const folder = await createKnowledgeFolder(trimmed);
+        setSavedFolders((current) =>
+          Array.from(new Set([...current, folder])).sort((left, right) => left.localeCompare(right, "zh-CN")),
+        );
+        return folder;
+      } catch (createError) {
+        setError(createError instanceof Error ? createError.message : "Failed to create knowledge folder.");
+        return null;
+      } finally {
+        setIsSaving(false);
+      }
+    },
+    [],
+  );
+
+  const removeFolder = useCallback(
+    async (name: string) => {
+      const trimmed = name.trim();
+      if (!trimmed) {
+        return false;
+      }
+      setIsSaving(true);
+      setError(null);
+      setUpdateResult(null);
+      try {
+        await deleteKnowledgeFolder(trimmed);
+        setSavedFolders((current) => current.filter((folder) => folder !== trimmed));
+        setSelectedDocumentIds([]);
+        await loadKnowledge();
+        return true;
+      } catch (deleteError) {
+        setError(deleteError instanceof Error ? deleteError.message : "Failed to delete knowledge folder.");
+        return false;
+      } finally {
+        setIsSaving(false);
+      }
+    },
+    [loadKnowledge],
+  );
+
   const uploadDocuments = useCallback(
-    async (files: File[]) => {
+    async (files: File[], folder = "", relativePaths: string[] = []) => {
       if (files.length === 0) {
         return;
       }
@@ -93,7 +161,7 @@ export function useKnowledgeManager({ enabled }: { enabled: boolean }) {
       setError(null);
       setUpdateResult(null);
       try {
-        await uploadKnowledgeDocuments(files);
+        await uploadKnowledgeDocuments(files, { folder, relativePaths });
         await loadKnowledge();
       } catch (uploadError) {
         setError(uploadError instanceof Error ? uploadError.message : "Failed to upload knowledge documents.");
@@ -102,6 +170,27 @@ export function useKnowledgeManager({ enabled }: { enabled: boolean }) {
       }
     },
     [loadKnowledge],
+  );
+
+  const moveSelectedDocuments = useCallback(
+    async (folder: string) => {
+      if (selectedDocumentIds.length === 0) {
+        return;
+      }
+      setIsSaving(true);
+      setError(null);
+      setUpdateResult(null);
+      try {
+        await moveKnowledgeDocuments(selectedDocumentIds, folder);
+        setSelectedDocumentIds([]);
+        await loadKnowledge();
+      } catch (moveError) {
+        setError(moveError instanceof Error ? moveError.message : "Failed to move knowledge documents.");
+      } finally {
+        setIsSaving(false);
+      }
+    },
+    [loadKnowledge, selectedDocumentIds],
   );
 
   const reindexDocument = useCallback(
@@ -178,10 +267,13 @@ export function useKnowledgeManager({ enabled }: { enabled: boolean }) {
     () => ({
       documents,
       error,
+      folders,
       isLoading,
       isSaving,
       isUpdating: isUpdating || status.indexing_document_count > 0,
       isAllSelected: documents.length > 0 && selectedDocumentIds.length === documents.length,
+      onCreateFolder: createFolder,
+      onDeleteFolder: removeFolder,
       onDelete: (documentId: number) => void removeDocument(documentId),
       onDeleteSelected: () => void removeSelectedDocuments(),
       onRefresh: () => void loadKnowledge(),
@@ -190,6 +282,14 @@ export function useKnowledgeManager({ enabled }: { enabled: boolean }) {
         setSelectedDocumentIds((current) =>
           current.length === documents.length ? [] : documents.map((document) => document.id),
         ),
+      onSelectMany: (documentIds: number[], selected: boolean) =>
+        setSelectedDocumentIds((current) => {
+          if (!selected) {
+            const idsToRemove = new Set(documentIds);
+            return current.filter((documentId) => !idsToRemove.has(documentId));
+          }
+          return Array.from(new Set([...current, ...documentIds]));
+        }),
       onSelectOne: (documentId: number) =>
         setSelectedDocumentIds((current) =>
           current.includes(documentId)
@@ -197,7 +297,9 @@ export function useKnowledgeManager({ enabled }: { enabled: boolean }) {
             : [...current, documentId],
         ),
       onUpdate: () => void updateKnowledge(),
-      onUploadMany: (files: File[]) => void uploadDocuments(files),
+      onMoveSelected: (folder: string) => void moveSelectedDocuments(folder),
+      onUploadMany: (files: File[], folder?: string, relativePaths?: string[]) =>
+        void uploadDocuments(files, folder, relativePaths),
       selectedDocumentIds,
       status,
       updateResult,
@@ -205,13 +307,17 @@ export function useKnowledgeManager({ enabled }: { enabled: boolean }) {
     [
       documents,
       error,
+      folders,
       isLoading,
       isSaving,
       isUpdating,
       loadKnowledge,
+      moveSelectedDocuments,
       removeDocument,
+      removeFolder,
       removeSelectedDocuments,
       reindexDocument,
+      createFolder,
       selectedDocumentIds,
       status,
       updateKnowledge,

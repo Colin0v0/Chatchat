@@ -379,6 +379,7 @@ export function useChatApp({
   const [reasoningProfile, setReasoningProfile] = useState<ReasoningProfileValue>("off");
   const [collapsedMessageIds, setCollapsedMessageIds] = useState<Set<number | string>>(new Set());
   const [toolMode, setToolMode] = useState<ToolMode>("none");
+  const [knowledgeFolder, setKnowledgeFolder] = useState("");
   const [landingHeroAnimated, setLandingHeroAnimated] = useState(false);
   const [landingTitle] = useState(() => pickLandingTitle());
   const [error, setError] = useState<string | null>(null);
@@ -388,7 +389,7 @@ export function useChatApp({
     activeConversationId: activeConversationId && activeConversationId > 0 ? activeConversationId : null,
     enabled: activeSection === "memories",
   });
-  const knowledgeManager = useKnowledgeManager({ enabled: activeSection === "knowledge" });
+  const knowledgeManager = useKnowledgeManager({ enabled: activeSection === "knowledge" || toolMode === "knowledge" });
   const { addAttachments, clearAttachments, draftAttachments, removeAttachment, replaceAttachments } =
     useComposerAttachments();
   const { cancelRecording, isRecording, recordingError, startRecording, stopRecording } =
@@ -459,6 +460,19 @@ export function useChatApp({
     () => reasoningRequestValueForModel(selectedModelOption, reasoningProfile),
     [reasoningProfile, selectedModelOption],
   );
+  const activeKnowledgeFolders = useMemo(
+    () => (toolMode === "knowledge" && knowledgeFolder ? [knowledgeFolder] : []),
+    [knowledgeFolder, toolMode],
+  );
+
+  useEffect(() => {
+    if (!knowledgeFolder || knowledgeFolder === "__root__") {
+      return;
+    }
+    if (!knowledgeManager.folders.includes(knowledgeFolder)) {
+      setKnowledgeFolder("");
+    }
+  }, [knowledgeFolder, knowledgeManager.folders]);
 
   const clearTransientAttachmentUrls = useCallback(() => {
     transientAttachmentUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
@@ -1751,6 +1765,7 @@ export function useChatApp({
             model: effectiveModel,
             reasoning_profile: effectiveReasoningProfile,
             tool_mode: toolMode,
+            knowledge_folders: activeKnowledgeFolders,
           },
           { onEvent, signal },
         ),
@@ -1762,6 +1777,7 @@ export function useChatApp({
   }, [
     activeConversation,
     activeReasoningRequest,
+    activeKnowledgeFolders,
     clearAttachments,
     composerMode,
     draft,
@@ -1854,6 +1870,7 @@ export function useChatApp({
                 model: effectiveModel,
                 reasoning_profile: effectiveReasoningProfile,
                 tool_mode: toolMode,
+                knowledge_folders: activeKnowledgeFolders,
               },
               { onEvent, signal },
             );
@@ -1868,6 +1885,7 @@ export function useChatApp({
               model: effectiveModel,
               reasoning_profile: effectiveReasoningProfile,
               tool_mode: toolMode,
+              knowledge_folders: activeKnowledgeFolders,
             },
             { onEvent, signal },
           );
@@ -1881,6 +1899,7 @@ export function useChatApp({
     [
       activeConversation,
       activeReasoningRequest,
+      activeKnowledgeFolders,
       isStreaming,
       refreshConversations,
       runStream,
@@ -2075,6 +2094,8 @@ export function useChatApp({
           imageSize,
           reserveThinkingSpace: activeReasoningRequest !== null && activeReasoningRequest !== "off",
           reasoningProfile,
+          knowledgeFolders: knowledgeManager.folders,
+          knowledgeFolder,
           onChangeDraft: setDraft,
           onComposerModeChange: handleComposerModeChange,
           onImageSizeChange: setImageSize,
@@ -2083,6 +2104,7 @@ export function useChatApp({
           onLoadEarlierMessages: () => void handleLoadEarlierMessages(),
           onModelChange: handleModelChange,
           onReasoningProfileChange: handleReasoningProfileChange,
+          onKnowledgeFolderChange: setKnowledgeFolder,
           onCancelEditingUserMessage: handleCancelEditingUserMessage,
           onChangeEditingUserMessage: setEditingUserMessageContent,
           onRemoveDraftAttachment: removeAttachment,
@@ -2159,12 +2181,15 @@ export function useChatApp({
       composerMode,
       imageSize,
       reasoningProfile,
+      knowledgeFolders: knowledgeManager.folders,
+      knowledgeFolder,
       onAnimationComplete: handleLandingAnimationComplete,
       onChangeDraft: setDraft,
       onComposerModeChange: handleComposerModeChange,
       onImageSizeChange: setImageSize,
       onModelChange: handleModelChange,
       onReasoningProfileChange: handleReasoningProfileChange,
+      onKnowledgeFolderChange: setKnowledgeFolder,
       onRemoveDraftAttachment: removeAttachment,
       onSelectAttachments: handleSelectAttachments,
       onNewDebate: handleNewDebate,

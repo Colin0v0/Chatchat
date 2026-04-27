@@ -71,6 +71,7 @@ class ToolRuntimeService:
                     db=request.db,
                     user_id=request.user_id,
                     query=rewrite_result.effective_query,
+                    folders=list(request.plan.policy.knowledge_folders),
                 )
             )
         if "search" in request.plan.requested_tools:

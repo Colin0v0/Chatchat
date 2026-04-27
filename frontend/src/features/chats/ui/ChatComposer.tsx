@@ -3,6 +3,7 @@ import {
   BookOpen,
   ChevronUp,
   Check,
+  FolderInput,
   Globe,
   Image,
   LoaderCircle,
@@ -26,6 +27,7 @@ import { ComposerAttachmentStrip } from "./composer/ComposerAttachmentStrip";
 import { ComposerMobileToolbar } from "./composer/ComposerMobileToolbar";
 import { ModelSelect } from "../../models/ui/ModelSelect";
 import { ReasoningProfileSelect } from "../../models/ui/ReasoningProfileSelect";
+import { cn, sidebarMenuPanelClass } from "../../workspace/ui/sidebar/styles";
 
 const IMAGE_ATTACHMENT_ACCEPT = [
   "image/png",
@@ -80,6 +82,9 @@ interface ChatComposerProps {
   reasoningProfile: ReasoningProfileValue;
   onReasoningProfileChange: (value: ReasoningProfileValue) => void;
   toolMode: ToolMode;
+  knowledgeFolders: string[];
+  knowledgeFolder: string;
+  onKnowledgeFolderChange: (value: string) => void;
   submitBlocked: boolean;
   submitBlockedReason: string | null;
   attachmentUploadAvailable: boolean;
@@ -87,6 +92,154 @@ interface ChatComposerProps {
   onToggleWeb: () => void;
   onToggleRecording: () => void;
   centered?: boolean;
+}
+
+const ROOT_KNOWLEDGE_FOLDER_VALUE = "__root__";
+const INLINE_SELECT_BUTTON_CLASS =
+  "inline-flex h-10 min-w-0 items-center rounded-[8px] border border-app-border bg-app-panel-strong px-3 text-left text-[14px] font-medium tracking-[-0.02em] text-[#5f564a] transition hover:bg-app-panel-soft";
+const INLINE_SELECT_ITEM_CLASS =
+  "flex h-10 w-full items-center justify-between gap-3 px-3 py-0 text-left text-[14px] font-medium tracking-[-0.02em] transition-colors focus:outline-none focus-visible:outline-none";
+
+function knowledgeFolderLeaf(value: string): string {
+  const parts = value.split("/").filter(Boolean);
+  return parts.length > 0 ? parts[parts.length - 1] : value;
+}
+
+function knowledgeFolderFullLabel(value: string): string {
+  if (!value) {
+    return "全部知识库";
+  }
+  if (value === ROOT_KNOWLEDGE_FOLDER_VALUE) {
+    return "默认分组";
+  }
+  return value;
+}
+
+function knowledgeFolderShortLabel(value: string): string {
+  if (!value) {
+    return "全部";
+  }
+  if (value === ROOT_KNOWLEDGE_FOLDER_VALUE) {
+    return "默认";
+  }
+  return knowledgeFolderLeaf(value);
+}
+
+function KnowledgeScopeMenu({
+  compact = false,
+  disabled,
+  folders,
+  value,
+  onChange,
+}: {
+  compact?: boolean;
+  disabled: boolean;
+  folders: string[];
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const options = [
+    { label: "全部知识库", value: "" },
+    { label: "默认分组", value: ROOT_KNOWLEDGE_FOLDER_VALUE },
+    ...folders.map((folder) => ({ label: folder, value: folder })),
+  ];
+  const selectedLabel = compact ? knowledgeFolderShortLabel(value) : knowledgeFolderFullLabel(value);
+
+  useEffect(() => {
+    function handlePointerDown(event: MouseEvent) {
+      if (!menuRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    }
+
+    function handleKeyDown(event: globalThis.KeyboardEvent) {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    }
+
+    window.addEventListener("mousedown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("mousedown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, []);
+
+  return (
+    <div className={cn("relative min-w-0", compact ? "w-10 shrink-0" : "shrink-0")} ref={menuRef}>
+      <button
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        aria-label={`知识库范围：${knowledgeFolderFullLabel(value)}`}
+        className={cn(
+          INLINE_SELECT_BUTTON_CLASS,
+          "relative",
+          compact ? "w-10 justify-center px-0" : "min-w-[150px] max-w-[240px] justify-between gap-2",
+          disabled
+            ? "cursor-not-allowed text-app-muted/45 hover:bg-app-panel-strong"
+            : open
+              ? "border-app-border-strong bg-app-panel-soft text-app-text"
+              : "hover:text-app-text",
+        )}
+        disabled={disabled}
+        onClick={() => setOpen((current) => !current)}
+        title={`知识库范围：${knowledgeFolderFullLabel(value)}`}
+        type="button"
+      >
+        {compact ? (
+          <FolderInput className="size-4 shrink-0" />
+        ) : (
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="shrink-0 whitespace-nowrap text-[#5f564a]">知识库:</span>
+            <span className="min-w-0 truncate text-[#5f564a]">{selectedLabel}</span>
+          </span>
+        )}
+        {compact ? (
+          value ? <span className="absolute right-2 top-2 size-1.5 rounded-full bg-app-accent-strong" /> : null
+        ) : (
+          <ChevronUp className={`size-4 shrink-0 text-[#5f564a] transition-transform ${open ? "" : "rotate-180"}`} />
+        )}
+      </button>
+
+      {open ? (
+        <div
+          className={cn(
+            `absolute bottom-[calc(100%+8px)] left-0 z-20 max-h-[260px] overflow-y-auto ${sidebarMenuPanelClass}`,
+            compact ? "w-[min(240px,calc(100vw-2rem))]" : "min-w-full sm:w-max sm:max-w-[280px]",
+          )}
+          role="listbox"
+        >
+          {options.map((option) => {
+            const selected = option.value === value;
+            return (
+              <button
+                aria-selected={selected}
+                className={cn(
+                  INLINE_SELECT_ITEM_CLASS,
+                  selected
+                    ? "bg-app-panel-soft text-app-text"
+                    : "bg-app-panel-strong text-[#5f564a] hover:bg-app-panel-soft hover:text-app-text",
+                )}
+                key={option.value || "all"}
+                onClick={() => {
+                  onChange(option.value);
+                  setOpen(false);
+                }}
+                role="option"
+                type="button"
+              >
+                <span className="min-w-0 truncate">{option.label}</span>
+                {selected ? <Check className="size-4 shrink-0 text-[#5b4128]" /> : null}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function ComposerToolsMenu({
@@ -289,20 +442,21 @@ function ImageSizeControl({
   }, []);
 
   return (
-    <div className={`relative shrink-0 ${compact && !labelOnly ? "w-full" : ""}`} ref={menuRef}>
+    <div className={cn("relative min-w-0", compact && !labelOnly ? "w-full" : "shrink-0")} ref={menuRef}>
       <button
         aria-expanded={open}
         aria-haspopup="listbox"
         aria-label="图片尺寸"
-        className={`inline-flex h-10 min-w-0 items-center gap-2 rounded-[8px] border border-app-border bg-app-panel-strong px-3 text-left text-[14px] font-medium text-[#5f564a] transition hover:bg-app-panel-soft ${
-          labelOnly ? "min-w-[78px] justify-between" : compact ? "w-full justify-between" : "min-w-[150px]"
-        } ${
+        className={cn(
+          INLINE_SELECT_BUTTON_CLASS,
+          "gap-2",
+          labelOnly ? "min-w-[78px] justify-between" : compact ? "w-full justify-between" : "min-w-[150px] justify-between",
           disabled
-            ? "cursor-not-allowed opacity-55"
+            ? "cursor-not-allowed opacity-55 hover:bg-app-panel-strong"
             : open
               ? "bg-app-panel-soft"
-              : ""
-        }`}
+              : "",
+        )}
         disabled={disabled}
         onClick={() => setOpen((current) => !current)}
         type="button"
@@ -316,9 +470,10 @@ function ImageSizeControl({
 
       {open ? (
         <div
-          className={`absolute bottom-[calc(100%+8px)] left-0 z-30 overflow-hidden rounded-[8px] border border-app-border bg-app-panel-strong shadow-[0_16px_40px_rgba(34,24,16,0.12)] ${
-            labelOnly ? "w-[min(170px,calc(100vw-2rem))]" : "w-full"
-          }`}
+          className={cn(
+            `absolute bottom-[calc(100%+8px)] left-0 z-20 min-w-full ${sidebarMenuPanelClass}`,
+            labelOnly ? "w-[min(170px,calc(100vw-2rem))]" : "sm:w-max sm:max-w-[190px]",
+          )}
         >
           <div className="max-h-[210px] overflow-y-auto" role="listbox">
             {IMAGE_SIZE_OPTIONS.map((choice) => {
@@ -326,11 +481,12 @@ function ImageSizeControl({
               return (
                 <button
                   aria-selected={selected}
-                  className={`flex h-10 w-full items-center justify-between gap-2 px-3 py-0 text-left text-[14px] font-medium transition-colors ${
+                  className={cn(
+                    INLINE_SELECT_ITEM_CLASS,
                     selected
                       ? "bg-app-panel-soft text-[#5f564a]"
-                      : "bg-app-panel-strong text-[#5f564a] hover:bg-app-panel-soft"
-                  }`}
+                      : "bg-app-panel-strong text-[#5f564a] hover:bg-app-panel-soft",
+                  )}
                   key={choice.value}
                   onClick={() => {
                     onChange(choice.value);
@@ -412,6 +568,9 @@ export function ChatComposer({
   reasoningProfile,
   onReasoningProfileChange,
   toolMode,
+  knowledgeFolders,
+  knowledgeFolder,
+  onKnowledgeFolderChange,
   submitBlocked,
   submitBlockedReason,
   attachmentUploadAvailable,
@@ -425,6 +584,7 @@ export function ChatComposer({
   const hasDraft = value.trim().length > 0 || attachments.length > 0;
   const canSubmit = !submitBlocked && hasDraft;
   const imageMode = composerMode === "image";
+  const showKnowledgeScope = !imageMode && toolMode === "knowledge";
   const voiceDisabled = isStreaming || isTranscribing;
   const selectedModelOption = findModelOption(models, model);
   const attachmentAccept = selectedModelOption.capabilities?.input.image === false
@@ -567,6 +727,14 @@ export function ChatComposer({
                 value={reasoningProfile}
               />
             ) : null}
+            {showKnowledgeScope ? (
+              <KnowledgeScopeMenu
+                disabled={isStreaming}
+                folders={knowledgeFolders}
+                onChange={onKnowledgeFolderChange}
+                value={knowledgeFolder}
+              />
+            ) : null}
           </div>
 
           <ComposerVoiceButton
@@ -595,7 +763,7 @@ export function ChatComposer({
 
         <div className="px-3 pb-3 pt-1 md:hidden">
           <div className="flex items-center justify-between gap-2">
-            <div className="min-w-0">
+            <div className="flex min-w-0 items-center gap-1.5">
               <ComposerMobileToolbar
                 attachmentUploadAvailable={attachmentUploadAvailable && !imageMode}
                 attachmentsPresent={attachments.length > 0}
@@ -621,6 +789,15 @@ export function ChatComposer({
                 selectedModelOption={selectedModelOption}
                 toolMode={toolMode}
               />
+              {showKnowledgeScope ? (
+                <KnowledgeScopeMenu
+                  compact
+                  disabled={isStreaming}
+                  folders={knowledgeFolders}
+                  onChange={onKnowledgeFolderChange}
+                  value={knowledgeFolder}
+                />
+              ) : null}
             </div>
 
             <div className="ml-auto flex shrink-0 items-center gap-2">

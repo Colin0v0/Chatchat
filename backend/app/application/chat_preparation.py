@@ -84,6 +84,7 @@ async def prepare_chat_stream_run_request(
     message: str,
     model: str | None,
     tool_mode: ToolMode,
+    knowledge_folders: list[str],
     reasoning_profile: ReasoningProfileValue | None,
     files: list[UploadFile] | None,
 ) -> ChatRunRequest:
@@ -132,6 +133,7 @@ async def prepare_chat_stream_run_request(
         history_messages=list(conversation.messages),
         query=content,
         tool_mode=tool_mode,
+        knowledge_folders=knowledge_folders,
         reasoning_profile=reasoning_profile,
     )
 
@@ -186,5 +188,6 @@ def prepare_regeneration_run_request(
         history_messages=regeneration.history_messages,
         query=query,
         tool_mode=payload.tool_mode,
+        knowledge_folders=payload.knowledge_folders,
         reasoning_profile=payload.reasoning_profile,
     )

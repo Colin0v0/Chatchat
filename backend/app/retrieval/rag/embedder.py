@@ -76,7 +76,7 @@ class OpenAICompatibleEmbedder:
                 embedding=embedding,
                 tags=list(chunk.tags),
             )
-            for chunk, embedding in zip(chunk_specs, embeddings, strict=False)
+            for chunk, embedding in zip(chunk_specs, embeddings)
         ]
         failed_chunks = max(0, len(chunk_specs) - len(embedded_chunks))
         return embedded_chunks, failed_chunks

@@ -22,6 +22,8 @@ interface LandingViewProps {
   imageSize: string;
   reasoningProfile: ReasoningProfileValue;
   toolMode: ToolMode;
+  knowledgeFolders: string[];
+  knowledgeFolder: string;
   submitBlocked: boolean;
   submitBlockedReason: string | null;
   shouldAnimate: boolean;
@@ -32,6 +34,7 @@ interface LandingViewProps {
   onComposerModeChange: (value: ComposerMode) => void;
   onImageSizeChange: (value: string) => void;
   onReasoningProfileChange: (value: ReasoningProfileValue) => void;
+  onKnowledgeFolderChange: (value: string) => void;
   onRemoveDraftAttachment: (attachmentId: string) => void;
   onSelectAttachments: (files: FileList | File[]) => void;
   onSend: () => void;
@@ -62,6 +65,8 @@ export function LandingView({
   imageSize,
   reasoningProfile,
   toolMode,
+  knowledgeFolders,
+  knowledgeFolder,
   submitBlocked,
   submitBlockedReason,
   shouldAnimate,
@@ -72,6 +77,7 @@ export function LandingView({
   onComposerModeChange,
   onImageSizeChange,
   onReasoningProfileChange,
+  onKnowledgeFolderChange,
   onRemoveDraftAttachment,
   onSelectAttachments,
   onSend,
@@ -142,6 +148,9 @@ export function LandingView({
           onImageSizeChange={onImageSizeChange}
           onModelChange={onModelChange}
           onReasoningProfileChange={onReasoningProfileChange}
+          knowledgeFolders={knowledgeFolders}
+          knowledgeFolder={knowledgeFolder}
+          onKnowledgeFolderChange={onKnowledgeFolderChange}
           onRemoveAttachment={onRemoveDraftAttachment}
           onSelectAttachments={onSelectAttachments}
           onNewDebate={onNewDebate}
