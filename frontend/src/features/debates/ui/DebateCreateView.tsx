@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 
-import { INITIAL_CHAT_MODEL } from "../../chats/lib/constants";
 import { ModelSelect } from "../../models/ui/ModelSelect";
 import type { ModelOption } from "../../../types";
 
@@ -38,7 +37,7 @@ export function DebateCreateView({
   const [topic, setTopic] = useState("");
   const [proModelId, setProModelId] = useState(defaultProModelId);
   const [conModelId, setConModelId] = useState(defaultConModelId);
-  const [judgeModelId, setJudgeModelId] = useState(INITIAL_CHAT_MODEL);
+  const [judgeModelId, setJudgeModelId] = useState(defaultProModelId);
   const [proStyle, setProStyle] = useState("");
   const [conStyle, setConStyle] = useState("");
   const [openingDurationInput, setOpeningDurationInput] = useState(
@@ -56,7 +55,7 @@ export function DebateCreateView({
   const [submitting, setSubmitting] = useState(false);
 
   const normalizedModels = useMemo(() => (models.length > 0 ? models : []), [models]);
-  const submitDisabled = submitting || !topic.trim() || !proModelId || !conModelId;
+  const submitDisabled = submitting || !topic.trim() || !proModelId || !conModelId || !judgeModelId;
 
   async function handleSubmit() {
     if (submitDisabled) {

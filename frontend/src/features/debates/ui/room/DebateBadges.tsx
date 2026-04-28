@@ -67,17 +67,19 @@ function SideModelMeta({
 
 function FreeDebateClockCard({
   active,
+  counting,
   label,
   remainingMs,
   side,
 }: {
   active: boolean;
+  counting: boolean;
   label: string;
   remainingMs: number;
   side: DebateParticipant["side"];
 }) {
-  const isImminent = active && remainingMs <= 1_500;
-  const isWarning = active && !isImminent && remainingMs <= 3_000;
+  const isImminent = counting && remainingMs <= 1_500;
+  const isWarning = counting && !isImminent && remainingMs <= 3_000;
   const accentClass = isImminent
     ? "border-[#c95b4b] bg-[#fff0ec]"
     : isWarning
@@ -99,7 +101,9 @@ function FreeDebateClockCard({
     : isWarning
       ? "即将到时"
       : active
-        ? "当前正在消耗时间"
+        ? counting
+          ? "当前正在消耗时间"
+          : "正在思考"
         : "等待发言";
   const statusClass = isImminent
     ? "text-[#b44131]"
@@ -131,6 +135,8 @@ export function DebateStageHeader({
   conRemainingMs,
   proActive,
   conActive,
+  proCounting,
+  conCounting,
 }: {
   showStageHeader: boolean;
   showStageTimer: boolean;
@@ -142,6 +148,8 @@ export function DebateStageHeader({
   conRemainingMs: number;
   proActive: boolean;
   conActive: boolean;
+  proCounting: boolean;
+  conCounting: boolean;
 }) {
   if (!showStageHeader) {
     return null;
@@ -170,12 +178,14 @@ export function DebateStageHeader({
           <div className="grid gap-3 md:grid-cols-2">
             <FreeDebateClockCard
               active={proActive}
+              counting={proCounting}
               label="正方计时"
               remainingMs={proRemainingMs}
               side="pro"
             />
             <FreeDebateClockCard
               active={conActive}
+              counting={conCounting}
               label="反方计时"
               remainingMs={conRemainingMs}
               side="con"

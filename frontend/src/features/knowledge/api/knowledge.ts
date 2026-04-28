@@ -27,6 +27,13 @@ export function deleteKnowledgeFolder(name: string) {
   });
 }
 
+export function renameKnowledgeFolder(name: string, newName: string) {
+  return apiFetch<string>("/api/knowledge/folders", {
+    method: "PATCH",
+    body: JSON.stringify({ name, new_name: newName }),
+  });
+}
+
 export function fetchKnowledgeDocuments() {
   return apiFetch<KnowledgeDocument[]>("/api/knowledge/documents");
 }

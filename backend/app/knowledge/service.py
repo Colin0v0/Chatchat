@@ -163,6 +163,91 @@ class KnowledgeService:
             "moved_document_count": len(documents),
         }
 
+    def rename_folder(self, *, db: Session, user_id: int, name: str, new_name: str) -> str | None:
+        folder = self._sanitize_folder(name)
+        target_folder = self._sanitize_folder(new_name)
+        if not folder:
+            raise ValueError("Default folder cannot be renamed.")
+        if not target_folder:
+            raise ValueError("Folder name is required.")
+        if len(target_folder) > 255:
+            raise ValueError("Folder names must be 255 characters or shorter.")
+        if folder == target_folder:
+            return target_folder
+
+        folder_model = db.scalar(
+            select(KnowledgeFolder).where(
+                KnowledgeFolder.user_id == user_id,
+                KnowledgeFolder.name == folder,
+            )
+        )
+        target_folder_model = db.scalar(
+            select(KnowledgeFolder).where(
+                KnowledgeFolder.user_id == user_id,
+                KnowledgeFolder.name == target_folder,
+            )
+        )
+        target_document_count = db.scalar(
+            select(func.count(KnowledgeDocument.id)).where(
+                KnowledgeDocument.user_id == user_id,
+                KnowledgeDocument.folder == target_folder,
+            )
+        ) or 0
+        if target_folder_model is not None or target_document_count > 0:
+            raise ValueError("Target folder already exists.")
+
+        documents = list(
+            db.scalars(
+                select(KnowledgeDocument)
+                .options(selectinload(KnowledgeDocument.chunks))
+                .where(
+                    KnowledgeDocument.user_id == user_id,
+                    KnowledgeDocument.folder == folder,
+                )
+                .order_by(KnowledgeDocument.id.asc())
+            ).all()
+        )
+        if folder_model is None and not documents:
+            return None
+
+        target_paths = [
+            self._document_path_for(folder=target_folder, title=document.title)
+            for document in documents
+        ]
+        if len(target_paths) != len(set(target_paths)):
+            raise ValueError("Renaming this folder would create duplicate document paths.")
+
+        existing_documents = list(
+            db.scalars(
+                select(KnowledgeDocument).where(
+                    KnowledgeDocument.user_id == user_id,
+                    KnowledgeDocument.folder != folder,
+                )
+            ).all()
+        )
+        existing_paths = {document.path for document in existing_documents}
+        duplicated = sorted(path for path in target_paths if path in existing_paths)
+        if duplicated:
+            raise ValueError("These knowledge paths already exist: " + ", ".join(duplicated))
+
+        if folder_model is None:
+            folder_model = KnowledgeFolder(user_id=user_id, name=target_folder)
+            db.add(folder_model)
+        else:
+            folder_model.name = target_folder
+            db.add(folder_model)
+
+        for document in documents:
+            document.folder = target_folder
+            db.add(document)
+            for chunk in document.chunks:
+                chunk.path = document.path
+                chunk.directory = target_folder
+                db.add(chunk)
+
+        db.commit()
+        return target_folder
+
     def status(self, *, db: Session, user_id: int) -> dict[str, int]:
         counts = db.execute(
             select(

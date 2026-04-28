@@ -87,7 +87,7 @@ function resolveResumableStreamingTurn(session: DebateSessionDetail) {
     };
   }
 
-  const parsedStartedAt = parseUtcTimestamp(currentPendingTurn.created_at);
+  const parsedStartedAt = parseUtcTimestamp(currentPendingTurn.answer_started_at);
   return {
     turnId: currentPendingTurn.id,
     startedAtMs: Number.isFinite(parsedStartedAt) ? parsedStartedAt : null,
@@ -501,6 +501,7 @@ export function DebateRoomView({
     const hasStageTicker =
       roomSession.stage !== "free_debate" &&
       activeTimedTurn != null &&
+      activeStreamingTurnStartedAtMs != null &&
       stageBudgetMs(roomSession, activeTimedTurn.stage) > 0;
 
     if (!hasFreeDebateTicker && !hasStageTicker) {
@@ -512,6 +513,7 @@ export function DebateRoomView({
     return () => window.clearInterval(timerId);
   }, [
     activeTimedTurn,
+    activeStreamingTurnStartedAtMs,
     freeDebateState?.active_side,
     freeDebateState?.active_turn_started_at,
     roomSession.stage,
@@ -744,7 +746,14 @@ export function DebateRoomView({
       }
       if (event.type === "meta" && event.turn.kind === "speaker_turn") {
         setActiveStreamingTurnId(typeof event.turn.id === "number" ? event.turn.id : null);
-        setActiveStreamingTurnStartedAtMs(Date.now());
+        setActiveStreamingTurnStartedAtMs(null);
+      }
+      if (event.type === "speaker_clock") {
+        const parsedStartedAt = parseUtcTimestamp(event.started_at);
+        if (Number.isFinite(parsedStartedAt)) {
+          setActiveStreamingTurnId(event.turn_id);
+          setActiveStreamingTurnStartedAtMs(parsedStartedAt);
+        }
       }
       if (event.type === "turn_done" || event.type === "done") {
         if (event.type === "done") {
@@ -1198,8 +1207,12 @@ export function DebateRoomView({
     locallyFinalizingTurnId == null && activeTimedTurn?.speaker_participant_id != null
       ? (participantMap.get(activeTimedTurn.speaker_participant_id)?.side ?? null)
       : null;
+  const activeTimedCountingSide =
+    activeStreamingTurnStartedAtMs != null ? activeTimedSide : null;
   const freeDebateActiveSide =
     freeDebateExpiredTurnId == null ? freeDebateState?.active_side ?? null : null;
+  const freeDebateCountingSide =
+    freeDebateState?.active_turn_started_at ? freeDebateActiveSide : null;
   const judgeScoringSource =
     (aiSuggestion?.scoring_json as Record<string, unknown> | undefined) ??
     roomSession.judge_decision?.scoring_json;
@@ -1294,6 +1307,11 @@ export function DebateRoomView({
                       ? freeDebateActiveSide === "con"
                       : activeTimedSide === "con"
                   }
+                  conCounting={
+                    roomSession.stage === "free_debate"
+                      ? freeDebateCountingSide === "con"
+                      : activeTimedCountingSide === "con"
+                  }
                   conModelLabel={conModelLabel}
                   conRemainingMs={conRemainingMs}
                   participantWinner={participantWinner}
@@ -1301,6 +1319,11 @@ export function DebateRoomView({
                     roomSession.stage === "free_debate"
                       ? freeDebateActiveSide === "pro"
                       : activeTimedSide === "pro"
+                  }
+                  proCounting={
+                    roomSession.stage === "free_debate"
+                      ? freeDebateCountingSide === "pro"
+                      : activeTimedCountingSide === "pro"
                   }
                   proModelLabel={proModelLabel}
                   proRemainingMs={proRemainingMs}

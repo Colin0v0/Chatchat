@@ -1,11 +1,20 @@
-import { Check, ChevronDown, UserRound, Volume2, X, type LucideIcon } from "lucide-react";
+import { Check, ChevronDown, Image as ImageIcon, UserRound, Volume2, X, type LucideIcon } from "lucide-react";
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 
 import { changePassword } from "../../auth/api/session";
+import {
+  IMAGE_OUTPUT_FORMAT_OPTIONS,
+  IMAGE_QUALITY_OPTIONS,
+  IMAGE_SIZE_OPTIONS,
+  imageOutputFormatChoiceForValue,
+  imageQualityChoiceForValue,
+  imageSizeChoiceForValue,
+} from "../../chats/lib/imageSizeOptions";
 import { CLOUD_VOICE_OPTIONS, type CloudVoiceOption } from "../model/cloudVoices";
 import { useSpeechPreferences, type SpeechPlaybackProvider } from "../model/useSpeechPreferences";
 
-type SettingsTab = "account" | "voice";
+type SettingsTab = "account" | "voice" | "image";
+type ImageSelectKind = "size" | "quality" | "format";
 type SpeechLanguage = "zh" | "en";
 type VoiceSelectKind = "cloud" | SpeechLanguage;
 type PasswordMessage = { tone: "error" | "success"; text: string };
@@ -45,7 +54,7 @@ function SettingRow({
   label: string;
 }) {
   return (
-    <div className="grid min-h-[60px] items-center gap-2 border-b border-app-border/70 py-4 last:border-b-0 md:min-h-[56px] md:grid-cols-[100px_minmax(0,1fr)] md:gap-5 md:py-3">
+    <div className="grid min-h-[61px] items-center gap-2 border-b border-app-border/70 py-4 last:border-b-0 md:min-h-[61px] md:grid-cols-[100px_minmax(0,1fr)] md:gap-5 md:py-3">
       <div className="text-[15px] font-semibold tracking-[-0.01em] text-app-text md:text-[14px] md:font-medium">{label}</div>
       <div className="min-w-0">{children}</div>
     </div>
@@ -72,17 +81,88 @@ function VoiceOption({
         disabled
           ? "cursor-not-allowed text-app-muted/45"
           : selected
-            ? "bg-app-panel-soft text-app-text"
-            : "text-app-muted hover:bg-app-panel-soft hover:text-app-text",
+            ? "bg-app-panel-soft/70 text-app-text"
+            : "text-app-muted hover:bg-app-panel-soft/45 hover:text-app-text",
       ].join(" ")}
       onClick={onClick}
       role="option"
-      title={label}
       type="button"
     >
       <span className="min-w-0 truncate">{label}</span>
       {selected ? <Check className="size-4 shrink-0" /> : null}
     </button>
+  );
+}
+
+function SettingSelect({
+  label,
+  onChange,
+  onOpenChange,
+  open,
+  options,
+  value,
+}: {
+  label: string;
+  onChange: (value: string) => void;
+  onOpenChange: (open: boolean) => void;
+  open: boolean;
+  options: Array<{ label: string; value: string }>;
+  value: string;
+}) {
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const listboxId = useId();
+  const selectedOption = options.find((option) => option.value === value) ?? options[0];
+
+  useEffect(() => {
+    function handlePointerDown(event: MouseEvent) {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        onOpenChange(false);
+      }
+    }
+
+    window.addEventListener("mousedown", handlePointerDown);
+    return () => window.removeEventListener("mousedown", handlePointerDown);
+  }, [onOpenChange]);
+
+  return (
+    <div className="relative w-full md:w-[360px]" ref={rootRef}>
+      <button
+        aria-controls={listboxId}
+        aria-expanded={open}
+        aria-label={`${label}：${selectedOption?.label ?? ""}`}
+        className={[
+          "flex h-9 w-full items-center justify-between gap-3 rounded-[8px] border px-3 text-left text-[14px] transition-colors",
+          open
+            ? "border-app-border-strong bg-app-panel-soft/70 text-app-text"
+            : "border-app-border/85 bg-app-panel text-app-text hover:border-app-border-strong hover:bg-app-panel-soft/55",
+        ].join(" ")}
+        onClick={() => onOpenChange(!open)}
+        type="button"
+      >
+        <span className="min-w-0 truncate">{selectedOption?.label ?? ""}</span>
+        <ChevronDown className={`size-4 shrink-0 text-app-muted transition ${open ? "rotate-180" : ""}`} />
+      </button>
+
+      {open ? (
+        <div
+          className="app-scrollbar absolute left-0 right-0 top-[calc(100%+8px)] z-20 max-h-[216px] overflow-y-auto overscroll-contain rounded-[8px] border border-app-border bg-app-panel-strong p-1.5"
+          id={listboxId}
+          role="listbox"
+        >
+          {options.map((option) => (
+            <VoiceOption
+              key={option.value}
+              label={option.label}
+              onClick={() => {
+                onChange(option.value);
+                onOpenChange(false);
+              }}
+              selected={option.value === selectedOption?.value}
+            />
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -136,7 +216,7 @@ function VoiceSelect({
 
       {open ? (
         <div
-          className="app-scrollbar absolute left-0 right-0 top-[calc(100%+8px)] z-20 max-h-[216px] overflow-y-auto overscroll-contain rounded-[8px] border border-app-border bg-app-panel-strong p-1.5 shadow-[0_16px_42px_rgba(34,24,16,0.16)]"
+          className="app-scrollbar absolute left-0 right-0 top-[calc(100%+8px)] z-20 max-h-[216px] overflow-y-auto overscroll-contain rounded-[8px] border border-app-border bg-app-panel-strong p-1.5"
           id={listboxId}
           role="listbox"
         >
@@ -216,7 +296,7 @@ function CloudVoiceSelect({
 
       {open ? (
         <div
-          className="app-scrollbar absolute left-0 right-0 top-[calc(100%+8px)] z-20 max-h-[216px] overflow-y-auto overscroll-contain rounded-[8px] border border-app-border bg-app-panel-strong p-1.5 shadow-[0_16px_42px_rgba(34,24,16,0.16)]"
+          className="app-scrollbar absolute left-0 right-0 top-[calc(100%+8px)] z-20 max-h-[216px] overflow-y-auto overscroll-contain rounded-[8px] border border-app-border bg-app-panel-strong p-1.5"
           id={listboxId}
           role="listbox"
         >
@@ -250,14 +330,14 @@ function PlaybackProviderControl({
   ];
 
   return (
-    <div className="grid w-full grid-cols-2 rounded-[8px] border border-app-border/85 bg-app-panel p-1 md:w-[360px]">
+    <div className="grid h-9 w-full grid-cols-2 rounded-[8px] border border-app-border/85 bg-app-panel p-1 md:w-[360px]">
       {options.map((option) => {
         const selected = value === option.value;
         return (
           <button
             aria-pressed={selected}
             className={[
-              "h-8 rounded-[6px] px-3 text-[14px] font-medium transition-colors",
+              "h-7 rounded-[6px] px-3 text-[14px] font-medium transition-colors",
               selected
                 ? "bg-app-panel-soft text-app-text shadow-[0_1px_0_rgba(25,22,18,0.04)]"
                 : "text-app-muted hover:text-app-text",
@@ -307,18 +387,32 @@ function ToggleSwitch({
 const SETTINGS_TABS: Array<{ icon: LucideIcon; id: SettingsTab; label: string }> = [
   { icon: UserRound, id: "account", label: "账户" },
   { icon: Volume2, id: "voice", label: "语音" },
+  { icon: ImageIcon, id: "image", label: "图片" },
 ];
 
 export function SettingsDialog({
+  imageOutputFormat,
+  imageQuality,
+  imageSize,
   onClose,
+  onImageOutputFormatChange,
+  onImageQualityChange,
+  onImageSizeChange,
   open,
   username,
 }: {
+  imageOutputFormat: string;
+  imageQuality: string;
+  imageSize: string;
   onClose: () => void;
+  onImageOutputFormatChange: (value: string) => void;
+  onImageQualityChange: (value: string) => void;
+  onImageSizeChange: (value: string) => void;
   open: boolean;
   username: string;
 }) {
   const [activeTab, setActiveTab] = useState<SettingsTab>("account");
+  const [openImageSelect, setOpenImageSelect] = useState<ImageSelectKind | null>(null);
   const [openVoiceSelect, setOpenVoiceSelect] = useState<VoiceSelectKind | null>(null);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -344,6 +438,9 @@ export function SettingsDialog({
   const chineseVoices = filterVoicesByLanguage(voices, "zh");
   const englishVoices = filterVoicesByLanguage(voices, "en");
   const activeTitle = SETTINGS_TABS.find((item) => item.id === activeTab)?.label ?? "设置";
+  const normalizedImageSize = imageSizeChoiceForValue(imageSize).value;
+  const normalizedImageQuality = imageQualityChoiceForValue(imageQuality).value;
+  const normalizedImageOutputFormat = imageOutputFormatChoiceForValue(imageOutputFormat).value;
 
   function validatePasswordChange(): string | null {
     if (!currentPassword) {
@@ -400,6 +497,9 @@ export function SettingsDialog({
     if (!open || activeTab !== "voice") {
       setOpenVoiceSelect(null);
     }
+    if (!open || activeTab !== "image") {
+      setOpenImageSelect(null);
+    }
   }, [activeTab, open]);
 
   useEffect(() => {
@@ -426,13 +526,17 @@ export function SettingsDialog({
           setOpenVoiceSelect(null);
           return;
         }
+        if (openImageSelect) {
+          setOpenImageSelect(null);
+          return;
+        }
         onClose();
       }
     }
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onClose, open, openVoiceSelect]);
+  }, [onClose, open, openImageSelect, openVoiceSelect]);
 
   if (!open) {
     return null;
@@ -486,7 +590,7 @@ export function SettingsDialog({
             </button>
           </header>
 
-          <div className="grid shrink-0 grid-cols-2 gap-2 border-b border-app-border/70 px-4 py-3 md:hidden">
+          <div className="grid shrink-0 grid-cols-3 gap-2 border-b border-app-border/70 px-4 py-3 md:hidden">
             {SETTINGS_TABS.map((item) => {
               const active = activeTab === item.id;
               return (
@@ -522,8 +626,8 @@ export function SettingsDialog({
                           className={[
                             "inline-flex h-8 items-center justify-center px-0 text-[14px] font-medium transition-colors md:h-9",
                             passwordFormOpen
-                              ? "text-app-text hover:text-app-accent-strong"
-                              : "text-app-text hover:text-app-accent-strong md:text-app-accent-strong",
+                              ? "text-app-muted hover:text-app-text"
+                              : "text-app-muted hover:text-app-text",
                           ].join(" ")}
                           onClick={() => {
                             setPasswordFormOpen((current) => !current);
@@ -538,7 +642,7 @@ export function SettingsDialog({
                         </button>
                         {passwordFormOpen ? (
                           <button
-                            className="inline-flex h-8 items-center justify-center px-0 text-[14px] font-medium text-app-text transition-colors hover:text-app-accent-strong disabled:cursor-not-allowed disabled:opacity-55 md:h-9 md:text-app-accent-strong"
+                            className="inline-flex h-8 items-center justify-center px-0 text-[14px] font-medium text-app-muted transition-colors hover:text-app-text disabled:cursor-not-allowed disabled:opacity-55 md:h-9"
                             disabled={isChangingPassword}
                             form={passwordFormId}
                             type="submit"
@@ -630,6 +734,43 @@ export function SettingsDialog({
                     ) : null}
                   </form>
                   ) : null}
+                </div>
+              ) : null}
+
+              {activeTab === "image" ? (
+                <div>
+                  <>
+                    <SettingRow label="尺寸">
+                      <SettingSelect
+                        label="图片尺寸"
+                        onChange={onImageSizeChange}
+                        onOpenChange={(nextOpen) => setOpenImageSelect(nextOpen ? "size" : null)}
+                        open={openImageSelect === "size"}
+                        options={IMAGE_SIZE_OPTIONS}
+                        value={normalizedImageSize}
+                      />
+                    </SettingRow>
+                    <SettingRow label="质量">
+                      <SettingSelect
+                        label="图片质量"
+                        onChange={onImageQualityChange}
+                        onOpenChange={(nextOpen) => setOpenImageSelect(nextOpen ? "quality" : null)}
+                        open={openImageSelect === "quality"}
+                        options={IMAGE_QUALITY_OPTIONS}
+                        value={normalizedImageQuality}
+                      />
+                    </SettingRow>
+                    <SettingRow label="格式">
+                      <SettingSelect
+                        label="图片格式"
+                        onChange={onImageOutputFormatChange}
+                        onOpenChange={(nextOpen) => setOpenImageSelect(nextOpen ? "format" : null)}
+                        open={openImageSelect === "format"}
+                        options={IMAGE_OUTPUT_FORMAT_OPTIONS}
+                        value={normalizedImageOutputFormat}
+                      />
+                    </SettingRow>
+                  </>
                 </div>
               ) : null}
 

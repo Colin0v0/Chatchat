@@ -13,6 +13,7 @@ import {
   moveKnowledgeDocuments,
   reindexKnowledgeDocument,
   reindexKnowledgeDocuments,
+  renameKnowledgeFolder,
   uploadKnowledgeDocuments,
 } from "../api/knowledge";
 
@@ -152,6 +153,35 @@ export function useKnowledgeManager({ enabled }: { enabled: boolean }) {
     [loadKnowledge],
   );
 
+  const renameFolder = useCallback(
+    async (name: string, newName: string) => {
+      const trimmed = name.trim();
+      const nextName = newName.trim();
+      if (!trimmed || !nextName) {
+        return null;
+      }
+      setIsSaving(true);
+      setError(null);
+      setUpdateResult(null);
+      try {
+        const renamedFolder = await renameKnowledgeFolder(trimmed, nextName);
+        setSavedFolders((current) =>
+          Array.from(
+            new Set(current.map((folder) => (folder === trimmed ? renamedFolder : folder)).concat(renamedFolder)),
+          ).sort((left, right) => left.localeCompare(right, "zh-CN")),
+        );
+        await loadKnowledge();
+        return renamedFolder;
+      } catch (renameError) {
+        setError(renameError instanceof Error ? renameError.message : String(renameError));
+        return null;
+      } finally {
+        setIsSaving(false);
+      }
+    },
+    [loadKnowledge],
+  );
+
   const uploadDocuments = useCallback(
     async (files: File[], folder = "", relativePaths: string[] = []) => {
       if (files.length === 0) {
@@ -278,6 +308,7 @@ export function useKnowledgeManager({ enabled }: { enabled: boolean }) {
       onDeleteSelected: () => void removeSelectedDocuments(),
       onRefresh: () => void loadKnowledge(),
       onReindex: (documentId: number) => void reindexDocument(documentId),
+      onRenameFolder: renameFolder,
       onSelectAll: () =>
         setSelectedDocumentIds((current) =>
           current.length === documents.length ? [] : documents.map((document) => document.id),
@@ -316,6 +347,7 @@ export function useKnowledgeManager({ enabled }: { enabled: boolean }) {
       removeDocument,
       removeFolder,
       removeSelectedDocuments,
+      renameFolder,
       reindexDocument,
       createFolder,
       selectedDocumentIds,

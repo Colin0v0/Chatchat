@@ -185,6 +185,7 @@ export interface DebateTurn {
   content: string;
   reasoning?: string | null;
   created_at: string | null;
+  answer_started_at?: string | null;
   elapsed_ms?: number | null;
   truncated?: boolean;
 }
@@ -554,6 +555,11 @@ type DebateStreamEventPayload =
       type: "reasoning";
       turn_id: number;
       content: string;
+    }
+  | {
+      type: "speaker_clock";
+      turn_id: number;
+      started_at: string;
     }
   | {
       type: "turn_done";

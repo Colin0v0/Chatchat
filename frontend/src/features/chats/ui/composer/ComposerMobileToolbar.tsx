@@ -10,7 +10,6 @@ interface ComposerMobileToolbarProps {
   isStreaming: boolean;
   composerMode: ComposerMode;
   onComposerModeChange: (value: ComposerMode) => void;
-  imageSizeControl?: ReactNode;
   onAddAttachment: () => void;
   onNewDebate: () => void;
   onReasoningProfileChange: (value: ReasoningProfileValue) => void;
@@ -67,7 +66,6 @@ export function ComposerMobileToolbar({
   isStreaming,
   composerMode,
   onComposerModeChange,
-  imageSizeControl = null,
   onAddAttachment,
   onNewDebate,
   onReasoningProfileChange,
@@ -115,7 +113,7 @@ export function ComposerMobileToolbar({
           </button>
 
           {menuOpen ? (
-            <div className="absolute bottom-[calc(100%+10px)] left-0 z-20 w-[min(220px,calc(100vw-5rem))] overflow-hidden rounded-lg border border-app-border bg-app-panel-strong shadow-[0_18px_40px_rgba(39,28,18,0.14)]">
+            <div className="absolute bottom-[calc(100%+10px)] left-0 z-20 w-[min(220px,calc(100vw-5rem))] overflow-hidden rounded-lg border border-app-border bg-app-panel-strong">
               <MobileMenuAction
                 disabled={addDisabled}
                 icon={<Paperclip className="size-4" />}
@@ -167,7 +165,6 @@ export function ComposerMobileToolbar({
             </div>
           ) : null}
         </div>
-        {imageMode ? imageSizeControl : null}
         {!imageMode ? (
           <div className="min-w-0">
             <ReasoningProfileSelect

@@ -240,6 +240,7 @@ class DebateTurnOut(BaseModel):
     content: str = ""
     reasoning: Optional[str] = None
     created_at: Optional[datetime] = None
+    answer_started_at: Optional[str] = None
     elapsed_ms: Optional[int] = None
     truncated: bool = False
 
@@ -356,6 +357,11 @@ class KnowledgeFolderCreate(BaseModel):
 
 class KnowledgeFolderDeleteIn(BaseModel):
     name: str = Field(min_length=1, max_length=255)
+
+
+class KnowledgeFolderRenameIn(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    new_name: str = Field(min_length=1, max_length=255)
 
 
 class KnowledgeFolderDeleteResult(BaseModel):

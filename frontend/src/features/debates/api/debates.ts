@@ -76,6 +76,8 @@ function normalizeDebateTurn(value: unknown): DebateTurn | null {
     content: typeof payload.content === "string" ? payload.content : "",
     reasoning: typeof payload.reasoning === "string" ? payload.reasoning : null,
     created_at: typeof payload.created_at === "string" ? payload.created_at : null,
+    answer_started_at:
+      typeof payload.answer_started_at === "string" ? payload.answer_started_at : null,
     elapsed_ms:
       typeof payload.elapsed_ms === "number" && Number.isFinite(payload.elapsed_ms)
         ? payload.elapsed_ms

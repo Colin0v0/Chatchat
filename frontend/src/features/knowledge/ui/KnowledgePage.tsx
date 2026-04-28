@@ -1,15 +1,15 @@
 import {
   Check,
   ChevronDown,
-  FileText,
   FileUp,
   Folder,
   FolderOpen,
   FolderUp,
+  Pencil,
   RefreshCw,
   Search,
   Trash2,
-  UploadCloud,
+  X,
 } from "lucide-react";
 import {
   useEffect,
@@ -45,6 +45,7 @@ type KnowledgeManagerProps = {
   onMoveSelected: (folder: string) => void;
   onRefresh: () => void;
   onReindex: (documentId: number) => void;
+  onRenameFolder: (name: string, newName: string) => Promise<string | null>;
   onSelectAll: () => void;
   onSelectMany: (documentIds: number[], selected: boolean) => void;
   onSelectOne: (documentId: number) => void;
@@ -213,7 +214,7 @@ function FolderPicker({
       {open ? (
         <div
           className={cn(
-            "absolute left-0 top-[calc(100%+8px)] z-20 max-h-[260px] w-full overflow-y-auto",
+            "absolute left-0 top-[calc(100%+8px)] z-50 max-h-[260px] w-full overflow-y-auto",
             sidebarMenuPanelClass,
           )}
           role="listbox"
@@ -261,33 +262,18 @@ function DocumentRow({
   onSelect: (documentId: number) => void;
   selected: boolean;
 }) {
-  const normalizedExtension = document.extension.replace(/^\./, "").toLowerCase();
-  const formatLabel =
-    !normalizedExtension || normalizedExtension === "md" || normalizedExtension === "markdown"
-      ? "MD"
-      : normalizedExtension.toUpperCase();
-
   return (
-    <div className="group grid gap-3 border-b border-app-border px-3 py-3 last:border-b-0 md:grid-cols-[minmax(0,1fr)_140px_120px_92px] md:items-center">
-      <div className="flex min-w-0 items-start gap-3">
+    <div className="group grid gap-2 border-b border-app-border px-3 py-2.5 last:border-b-0 md:grid-cols-[minmax(0,1fr)_auto_auto_auto] md:items-center">
+      <div className="flex min-w-0 items-center gap-3">
         <input
           aria-label={`选择 ${document.title}`}
           checked={selected}
-          className="mt-1 h-4 w-4 shrink-0 rounded border-app-border text-app-accent-strong focus:ring-app-accent-strong"
+          className="h-4 w-4 shrink-0 rounded border-app-border text-app-accent-strong focus:ring-app-accent-strong"
           onChange={() => onSelect(document.id)}
           type="checkbox"
         />
-        <div className="flex size-9 shrink-0 items-center justify-center rounded-[8px] border border-app-border bg-app-panel">
-          <FileText className="size-4 text-app-muted" />
-        </div>
         <div className="min-w-0">
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="min-w-0 truncate text-[15px] font-semibold text-app-text">{document.title}</span>
-            <span className="shrink-0 rounded-[6px] border border-app-border px-1.5 py-0.5 text-[11px] font-semibold text-app-muted">
-              {formatLabel}
-            </span>
-          </div>
-          <div className="mt-1 truncate text-[12px] text-app-muted">{document.path || document.title}</div>
+          <div className="truncate text-[15px] font-medium text-app-text">{document.title}</div>
           {document.error_message ? (
             <div className="mt-2 text-[12px] leading-5 text-[#9d3d32]">{document.error_message}</div>
           ) : null}
@@ -299,14 +285,16 @@ function DocumentRow({
           {statusLabel(document)}
         </span>
       </div>
-      <div className="flex flex-wrap gap-x-3 gap-y-1 text-[12px] text-app-muted md:block">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-app-muted md:flex-nowrap">
         <span>{formatBytes(document.size_bytes)}</span>
-        <span className="md:mt-1 md:block">{document.chunk_count} 分块</span>
-        <span className="md:mt-1 md:block">{formatTimestamp(document.updated_at)}</span>
+        <span className="text-app-muted/55">/</span>
+        <span>{document.chunk_count} 分块</span>
+        <span className="text-app-muted/55">/</span>
+        <span>{formatTimestamp(document.updated_at)}</span>
       </div>
       <div className="flex items-center justify-end gap-1">
         <button
-          className="flex h-9 w-9 items-center justify-center rounded-[8px] text-app-muted transition hover:bg-app-panel-soft hover:text-app-text"
+          className="flex h-8 w-8 items-center justify-center rounded-[8px] text-app-muted transition hover:bg-app-panel-soft hover:text-app-text"
           onClick={() => onReindex(document.id)}
           title="重新索引"
           type="button"
@@ -314,7 +302,7 @@ function DocumentRow({
           <RefreshCw className="size-4" />
         </button>
         <button
-          className="flex h-9 w-9 items-center justify-center rounded-[8px] text-app-muted transition hover:bg-[#fbefed] hover:text-[#9d3d32]"
+          className="flex h-8 w-8 items-center justify-center rounded-[8px] text-app-muted transition hover:bg-[#fbefed] hover:text-[#9d3d32]"
           onClick={() => onDelete(document.id)}
           title="删除"
           type="button"
@@ -336,6 +324,8 @@ export function KnowledgePage({
   const [dragActive, setDragActive] = useState(false);
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
+  const [renamingFolder, setRenamingFolder] = useState<string | null>(null);
+  const [renameFolderName, setRenameFolderName] = useState("");
   const [uploadFolder, setUploadFolder] = useState("");
   const [moveFolder, setMoveFolder] = useState("");
   const [visibleFolder, setVisibleFolder] = useState(ALL_FOLDERS_VALUE);
@@ -355,19 +345,19 @@ export function KnowledgePage({
     () => [
       {
         count: knowledge.documents.length,
-        icon: <FolderOpen className="size-4" />,
+        icon: <FolderOpen className="size-4 text-app-muted" />,
         label: "全部资料",
         value: ALL_FOLDERS_VALUE,
       },
       {
         count: folderCounts.get("") ?? 0,
-        icon: <Folder className="size-4" />,
+        icon: <Folder className="size-4 text-app-muted" />,
         label: ROOT_FOLDER_LABEL,
         value: ROOT_FOLDER_VALUE,
       },
       ...knowledge.folders.map((folder) => ({
         count: folderCounts.get(folder) ?? 0,
-        icon: <Folder className="size-4" />,
+        icon: <Folder className="size-4 text-app-muted" />,
         label: folder,
         value: folder,
       })),
@@ -462,6 +452,38 @@ export function KnowledgePage({
     setFolderDeleteCandidate(null);
   };
 
+  const startRenamingFolder = (folder: string) => {
+    setCreatingFolder(false);
+    setNewFolderName("");
+    setRenamingFolder(folder);
+    setRenameFolderName(folder);
+  };
+
+  const cancelRenamingFolder = () => {
+    setRenamingFolder(null);
+    setRenameFolderName("");
+  };
+
+  const handleRenameFolder = async () => {
+    if (!renamingFolder) {
+      return;
+    }
+    const renamedFolder = await knowledge.onRenameFolder(renamingFolder, renameFolderName);
+    if (!renamedFolder) {
+      return;
+    }
+    if (visibleFolder === renamingFolder) {
+      setVisibleFolder(renamedFolder);
+    }
+    if (uploadFolder === renamingFolder) {
+      setUploadFolder(renamedFolder);
+    }
+    if (moveFolder === renamingFolder) {
+      setMoveFolder(renamedFolder);
+    }
+    cancelRenamingFolder();
+  };
+
   const handleUploadFiles = (files: FileList | null, includeRelativePaths: boolean) => {
     const nextFiles = Array.from(files ?? []);
     if (nextFiles.length === 0) {
@@ -516,9 +538,9 @@ export function KnowledgePage({
     <>
       <WorkspacePage
         headerPlacement="content"
-        maxWidthClassName="max-w-[1280px]"
+        maxWidthClassName="max-w-[1400px]"
         actions={
-          <div className="flex w-full items-center justify-end gap-2 sm:w-auto">
+          <div className="flex w-full items-center justify-start gap-2 sm:w-auto sm:justify-end">
             <button
               className="flex h-10 w-10 items-center justify-center rounded-[8px] border border-app-border bg-app-panel-strong text-app-muted transition hover:bg-app-panel-soft hover:text-app-text"
               onClick={knowledge.onRefresh}
@@ -565,7 +587,7 @@ export function KnowledgePage({
       />
 
       <section
-        className={`rounded-[8px] border bg-app-panel-strong p-4 transition-colors ${
+        className={`rounded-[8px] border bg-app-panel-strong transition-colors ${
           dragActive ? "border-app-accent-strong bg-app-panel-soft" : "border-app-border"
         }`}
         onDragEnter={handleDragEnter}
@@ -573,17 +595,16 @@ export function KnowledgePage({
         onDragOver={handleDragOver}
         onDrop={handleDrop}
       >
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-center">
-          <div className="flex min-w-0 items-start gap-3">
-            <div className="flex size-11 shrink-0 items-center justify-center rounded-[8px] bg-app-accent-soft text-app-accent-strong">
-              <UploadCloud className="size-5" />
-            </div>
-            <div className="min-w-0">
-              <div className="text-[17px] font-semibold text-app-text">添加资料</div>
-              <div className="mt-1 text-[13px] leading-6 text-app-muted">拖入 Markdown，或选择本地文件夹。</div>
-              <div className="mt-3 flex flex-wrap gap-2">
+        <div className="grid lg:grid-cols-[minmax(0,1fr)_380px]">
+          <div className="flex min-w-0 items-center p-5 md:p-6">
+            <div className="min-w-0 flex-1">
+              <div className="text-[18px] font-semibold text-app-text">添加资料</div>
+              <div className="mt-1 max-w-[520px] text-[13px] leading-6 text-app-muted">
+                拖入 Markdown 文件，或选择本地文件夹批量导入。
+              </div>
+              <div className="mt-4 flex flex-wrap gap-2">
                 <button
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-[8px] border border-app-border bg-app-panel px-3 text-[14px] font-medium text-app-text transition hover:bg-app-panel-soft disabled:cursor-not-allowed disabled:opacity-55"
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-[8px] border border-app-border bg-app-panel px-4 text-[14px] font-medium text-app-text transition hover:bg-app-panel-soft disabled:cursor-not-allowed disabled:opacity-55"
                   disabled={knowledge.isSaving}
                   onClick={() => uploadInputRef.current?.click()}
                   type="button"
@@ -592,7 +613,7 @@ export function KnowledgePage({
                   选择文件
                 </button>
                 <button
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-[8px] border border-app-border bg-app-panel px-3 text-[14px] font-medium text-app-text transition hover:bg-app-panel-soft disabled:cursor-not-allowed disabled:opacity-55"
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-[8px] border border-app-border bg-app-panel px-4 text-[14px] font-medium text-app-text transition hover:bg-app-panel-soft disabled:cursor-not-allowed disabled:opacity-55"
                   disabled={knowledge.isSaving}
                   onClick={() => folderInputRef.current?.click()}
                   type="button"
@@ -604,20 +625,12 @@ export function KnowledgePage({
             </div>
           </div>
 
-          <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:grid-cols-1">
+          <div className="grid content-center gap-3 border-t border-app-border p-5 md:p-6 lg:grid-cols-1 lg:border-l lg:border-t-0">
+            <div className="text-[13px] font-semibold text-app-text">归档设置</div>
             <div className="min-w-0">
               <div className="mb-1.5 text-[12px] font-medium text-app-muted">归入</div>
               <FolderPicker folders={knowledge.folders} value={uploadFolder || ROOT_FOLDER_VALUE} onChange={(value) => setUploadFolder(folderValueForView(value))} />
             </div>
-            <label className="min-w-0">
-              <div className="mb-1.5 text-[12px] font-medium text-app-muted">分组名</div>
-              <input
-                className="h-10 w-full rounded-[8px] border border-app-border bg-app-panel px-3 text-[14px] text-app-text outline-none transition placeholder:text-app-muted focus:border-app-border-strong"
-                onChange={(event) => setUploadFolder(event.target.value)}
-                placeholder={ROOT_FOLDER_LABEL}
-                value={uploadFolder}
-              />
-            </label>
           </div>
         </div>
       </section>
@@ -655,7 +668,7 @@ export function KnowledgePage({
 
       {knowledge.error ? <div className="text-[13px] leading-6 text-[#9d3d32]">{knowledge.error}</div> : null}
 
-      <section className="grid min-h-0 gap-4 lg:grid-cols-[250px_minmax(0,1fr)]">
+      <section className="grid min-h-0 gap-4 lg:grid-cols-[400px_minmax(0,1fr)]">
         <aside className="min-w-0 rounded-[8px] border border-app-border bg-app-panel-strong p-2 lg:p-3">
           <div className="mb-2 flex items-center justify-between gap-2 px-2">
             <div className="text-[12px] font-semibold uppercase tracking-[0.14em] text-app-muted">分组</div>
@@ -711,6 +724,7 @@ export function KnowledgePage({
             {folderOptions.map((option) => {
               const active = option.value === visibleFolder;
               const deletable = option.value !== ALL_FOLDERS_VALUE && option.value !== ROOT_FOLDER_VALUE;
+              const renaming = renamingFolder === option.value;
               return (
                 <div
                   className={`group flex h-10 min-w-[154px] items-center rounded-[8px] transition-colors lg:min-w-0 ${
@@ -718,35 +732,95 @@ export function KnowledgePage({
                   }`}
                   key={option.value}
                 >
-                  <button
-                    className="flex h-full min-w-0 flex-1 items-center gap-2 rounded-[8px] px-3 text-left text-[14px] font-medium"
-                    onClick={() => setActiveFolder(option.value)}
-                    type="button"
-                  >
-                    {option.icon}
-                    <span className="min-w-0 truncate">{option.label}</span>
-                  </button>
-                  {deletable ? (
-                    <button
-                      aria-label={`删除分组 ${option.label}`}
-                      className={cn(
-                        sidebarIconButtonClass,
-                        "h-8 w-8 shrink-0 opacity-100 hover:bg-[#fbefed] hover:text-[#9d3d32] lg:opacity-0 lg:group-hover:opacity-100 lg:focus-visible:opacity-100",
-                      )}
-                      disabled={knowledge.isSaving}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        setFolderDeleteCandidate(option.value);
-                      }}
-                      title="删除分组"
-                      type="button"
-                    >
-                      <Trash2 className="size-4" />
-                    </button>
-                  ) : null}
-                  <span className="mr-3 flex min-w-5 shrink-0 justify-end text-[12px] text-app-muted" title={`${option.count ?? 0} 个资料`}>
-                    {option.count}
-                  </span>
+                  {renaming ? (
+                    <>
+                      <input
+                        autoFocus
+                        className="ml-2 h-8 min-w-0 flex-1 rounded-[8px] border border-app-border bg-app-panel px-2 text-[13px] text-app-text outline-none focus:border-app-border-strong"
+                        onChange={(event) => setRenameFolderName(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            void handleRenameFolder();
+                          }
+                          if (event.key === "Escape") {
+                            cancelRenamingFolder();
+                          }
+                        }}
+                        value={renameFolderName}
+                      />
+                      <button
+                        aria-label="保存分组名称"
+                        className={cn(sidebarIconButtonClass, "h-8 w-8 shrink-0 text-app-muted hover:bg-app-panel-soft hover:text-app-text")}
+                        disabled={knowledge.isSaving || !renameFolderName.trim()}
+                        onClick={() => void handleRenameFolder()}
+                        type="button"
+                      >
+                        <Check className="size-4" />
+                      </button>
+                      <button
+                        aria-label="取消重命名"
+                        className={cn(sidebarIconButtonClass, "mr-1 h-8 w-8 shrink-0 text-app-muted hover:bg-app-panel-soft hover:text-app-text")}
+                        onClick={cancelRenamingFolder}
+                        type="button"
+                      >
+                        <X className="size-4" />
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        className={cn(
+                          "flex h-full min-w-0 flex-1 items-center gap-2 rounded-[8px] pr-3 text-left text-[14px] font-medium",
+                          deletable ? "pl-5" : "pl-3",
+                        )}
+                        onClick={() => setActiveFolder(option.value)}
+                        type="button"
+                      >
+                        {option.icon}
+                        <span className="min-w-0 truncate">{option.label}</span>
+                      </button>
+                      {deletable ? (
+                        <>
+                          <button
+                            aria-label={`重命名分组 ${option.label}`}
+                            className={cn(
+                              sidebarIconButtonClass,
+                              "h-8 w-8 shrink-0 opacity-100 hover:bg-app-panel-soft hover:text-app-text lg:opacity-0 lg:group-hover:opacity-100 lg:focus-visible:opacity-100",
+                            )}
+                            disabled={knowledge.isSaving}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              startRenamingFolder(option.value);
+                            }}
+                            title="重命名分组"
+                            type="button"
+                          >
+                            <Pencil className="size-4" />
+                          </button>
+                          <button
+                            aria-label={`删除分组 ${option.label}`}
+                            className={cn(
+                              sidebarIconButtonClass,
+                              "h-8 w-8 shrink-0 opacity-100 hover:bg-[#fbefed] hover:text-[#9d3d32] lg:opacity-0 lg:group-hover:opacity-100 lg:focus-visible:opacity-100",
+                            )}
+                            disabled={knowledge.isSaving}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setFolderDeleteCandidate(option.value);
+                            }}
+                            title="删除分组"
+                            type="button"
+                          >
+                            <Trash2 className="size-4" />
+                          </button>
+                        </>
+                      ) : null}
+                      <span className="mr-3 flex min-w-5 shrink-0 justify-end text-[12px] text-app-muted" title={`${option.count ?? 0} 个资料`}>
+                        {option.count}
+                      </span>
+                    </>
+                  )}
                 </div>
               );
             })}
