@@ -1,4 +1,4 @@
-import { BookOpen, Check, Globe, Image, Paperclip, Plus, Scale, X } from "lucide-react";
+import { BookOpen, Check, Globe, Image, Paperclip, Plus, Scale } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { ReasoningProfileSelect } from "../../../models/ui/ReasoningProfileSelect";
@@ -167,23 +167,6 @@ export function ComposerMobileToolbar({
             </div>
           ) : null}
         </div>
-        {imageMode ? (
-          <button
-            aria-label="取消图片模式"
-            className={`group inline-flex h-10 shrink-0 items-center gap-2 rounded-[8px] border border-app-border bg-app-panel-strong px-3 text-[14px] font-medium text-[#5f564a] transition-colors ${
-              isStreaming ? "cursor-not-allowed opacity-55" : "hover:bg-[#f8f3eb] hover:text-app-text"
-            }`}
-            disabled={isStreaming}
-            onClick={() => onComposerModeChange("chat")}
-            type="button"
-          >
-            <span className="flex size-4 items-center justify-center">
-              <Image className="size-4 group-hover:hidden" />
-              <X className="hidden size-4 group-hover:block" />
-            </span>
-            <span>创建图片</span>
-          </button>
-        ) : null}
         {imageMode ? imageSizeControl : null}
         {!imageMode ? (
           <div className="min-w-0">

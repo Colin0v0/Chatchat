@@ -31,6 +31,8 @@ interface ConversationViewProps {
   models: ModelOption[];
   composerMode: ComposerMode;
   imageSize: string;
+  imageQuality: string;
+  imageOutputFormat: string;
   reserveThinkingSpace: boolean;
   reasoningProfile: ReasoningProfileValue;
   toolMode: ToolMode;
@@ -44,6 +46,8 @@ interface ConversationViewProps {
   onModelChange: (value: string) => void;
   onComposerModeChange: (value: ComposerMode) => void;
   onImageSizeChange: (value: string) => void;
+  onImageQualityChange: (value: string) => void;
+  onImageOutputFormatChange: (value: string) => void;
   onReasoningProfileChange: (value: ReasoningProfileValue) => void;
   onKnowledgeFolderChange: (value: string) => void;
   onCancelEditingUserMessage: () => void;
@@ -81,6 +85,8 @@ export function ConversationView({
   models,
   composerMode,
   imageSize,
+  imageQuality,
+  imageOutputFormat,
   reserveThinkingSpace,
   reasoningProfile,
   toolMode,
@@ -94,6 +100,8 @@ export function ConversationView({
   onModelChange,
   onComposerModeChange,
   onImageSizeChange,
+  onImageQualityChange,
+  onImageOutputFormatChange,
   onReasoningProfileChange,
   onKnowledgeFolderChange,
   onCancelEditingUserMessage,
@@ -293,9 +301,13 @@ export function ConversationView({
           models={models}
           composerMode={composerMode}
           imageSize={imageSize}
+          imageQuality={imageQuality}
+          imageOutputFormat={imageOutputFormat}
           onChange={onChangeDraft}
           onComposerModeChange={onComposerModeChange}
           onImageSizeChange={onImageSizeChange}
+          onImageQualityChange={onImageQualityChange}
+          onImageOutputFormatChange={onImageOutputFormatChange}
           onModelChange={onModelChange}
           onReasoningProfileChange={onReasoningProfileChange}
           knowledgeFolders={knowledgeFolders}

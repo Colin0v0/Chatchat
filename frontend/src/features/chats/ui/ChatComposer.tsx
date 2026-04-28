@@ -3,14 +3,17 @@ import {
   BookOpen,
   ChevronUp,
   Check,
+  FileType,
   FolderInput,
   Globe,
   Image,
   LoaderCircle,
+  Maximize2,
   Mic,
   Paperclip,
   Plus,
   Scale,
+  Sparkles,
   Square,
   X,
 } from "lucide-react";
@@ -18,7 +21,11 @@ import { useEffect, useRef, useState, type ClipboardEvent, type ChangeEvent, typ
 
 import { findModelOption } from "../../models/lib/modelOptions";
 import {
+  IMAGE_OUTPUT_FORMAT_OPTIONS,
+  IMAGE_QUALITY_OPTIONS,
   IMAGE_SIZE_OPTIONS,
+  imageOutputFormatChoiceForValue,
+  imageQualityChoiceForValue,
   imageSizeChoiceForValue,
 } from "../lib/imageSizeOptions";
 import type { ComposerAttachmentDraft } from "../model/useComposerAttachments";
@@ -77,7 +84,11 @@ interface ChatComposerProps {
   onModelChange: (value: string) => void;
   composerMode: ComposerMode;
   imageSize: string;
+  imageQuality: string;
+  imageOutputFormat: string;
   onImageSizeChange: (value: string) => void;
+  onImageQualityChange: (value: string) => void;
+  onImageOutputFormatChange: (value: string) => void;
   onComposerModeChange: (value: ComposerMode) => void;
   reasoningProfile: ReasoningProfileValue;
   onReasoningProfileChange: (value: ReasoningProfileValue) => void;
@@ -403,22 +414,32 @@ function ImageModePill({ disabled, onCancel }: { disabled: boolean; onCancel: ()
   );
 }
 
-function ImageSizeControl({
+interface ImageOptionChoice {
+  value: string;
+  label: string;
+}
+
+function ImageOptionControl({
   compact = false,
   disabled,
-  labelOnly = false,
+  icon,
+  label,
+  options,
   value,
   onChange,
 }: {
   compact?: boolean;
   disabled: boolean;
-  labelOnly?: boolean;
+  icon: ReactNode;
+  label: string;
+  options: ImageOptionChoice[];
   value: string;
   onChange: (value: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
-  const selectedChoice = imageSizeChoiceForValue(value);
+  const selectedChoice = options.find((choice) => choice.value === value) ?? options[0];
+  const title = `${label}: ${selectedChoice.label}`;
 
   useEffect(() => {
     function handlePointerDown(event: MouseEvent) {
@@ -442,15 +463,14 @@ function ImageSizeControl({
   }, []);
 
   return (
-    <div className={cn("relative min-w-0", compact && !labelOnly ? "w-full" : "shrink-0")} ref={menuRef}>
+    <div className={cn("relative min-w-0", compact ? "w-10 shrink-0" : "shrink-0")} ref={menuRef}>
       <button
         aria-expanded={open}
         aria-haspopup="listbox"
-        aria-label="图片尺寸"
+        aria-label={title}
         className={cn(
           INLINE_SELECT_BUTTON_CLASS,
-          "gap-2",
-          labelOnly ? "min-w-[78px] justify-between" : compact ? "w-full justify-between" : "min-w-[150px] justify-between",
+          compact ? "w-10 justify-center px-0" : "min-w-[122px] justify-between gap-2",
           disabled
             ? "cursor-not-allowed opacity-55 hover:bg-app-panel-strong"
             : open
@@ -459,24 +479,32 @@ function ImageSizeControl({
         )}
         disabled={disabled}
         onClick={() => setOpen((current) => !current)}
+        title={title}
         type="button"
       >
-        <span className="flex min-w-0 items-center gap-2">
-          <span className="shrink-0 whitespace-nowrap text-[#5f564a]">{labelOnly ? "尺寸" : "尺寸:"}</span>
-          {labelOnly ? null : <span className="min-w-0 truncate text-[#5f564a]">{selectedChoice.label}</span>}
+        <span className="flex min-w-0 items-center gap-2 text-[#5f564a]">
+          <span className="flex size-4 shrink-0 items-center justify-center">{icon}</span>
+          {compact ? null : (
+            <>
+              <span className="shrink-0 whitespace-nowrap">{label}:</span>
+              <span className="min-w-0 truncate">{selectedChoice.label}</span>
+            </>
+          )}
         </span>
-        <ChevronUp className={`size-4 shrink-0 text-[#5f564a] transition-transform ${open ? "" : "rotate-180"}`} />
+        {compact ? null : (
+          <ChevronUp className={`size-4 shrink-0 text-[#5f564a] transition-transform ${open ? "" : "rotate-180"}`} />
+        )}
       </button>
 
       {open ? (
         <div
           className={cn(
             `absolute bottom-[calc(100%+8px)] left-0 z-20 min-w-full ${sidebarMenuPanelClass}`,
-            labelOnly ? "w-[min(170px,calc(100vw-2rem))]" : "sm:w-max sm:max-w-[190px]",
+            compact ? "w-[min(170px,calc(100vw-2rem))]" : "sm:w-max sm:max-w-[190px]",
           )}
         >
           <div className="max-h-[210px] overflow-y-auto" role="listbox">
-            {IMAGE_SIZE_OPTIONS.map((choice) => {
+            {options.map((choice) => {
               const selected = choice.value === selectedChoice.value;
               return (
                 <button
@@ -563,7 +591,11 @@ export function ChatComposer({
   onModelChange,
   composerMode,
   imageSize,
+  imageQuality,
+  imageOutputFormat,
   onImageSizeChange,
+  onImageQualityChange,
+  onImageOutputFormatChange,
   onComposerModeChange,
   reasoningProfile,
   onReasoningProfileChange,
@@ -590,6 +622,68 @@ export function ChatComposer({
   const attachmentAccept = selectedModelOption.capabilities?.input.image === false
     ? FILE_ONLY_ATTACHMENT_ACCEPT
     : ATTACHMENT_ACCEPT;
+  const normalizedImageSize = imageSizeChoiceForValue(imageSize).value;
+  const normalizedImageQuality = imageQualityChoiceForValue(imageQuality).value;
+  const normalizedImageOutputFormat = imageOutputFormatChoiceForValue(imageOutputFormat).value;
+  const imageOptionControls = imageMode ? (
+    <>
+      <ImageOptionControl
+        disabled={isStreaming}
+        icon={<Maximize2 className="size-4" />}
+        label="尺寸"
+        onChange={onImageSizeChange}
+        options={IMAGE_SIZE_OPTIONS}
+        value={normalizedImageSize}
+      />
+      <ImageOptionControl
+        disabled={isStreaming}
+        icon={<Sparkles className="size-4" />}
+        label="质量"
+        onChange={onImageQualityChange}
+        options={IMAGE_QUALITY_OPTIONS}
+        value={normalizedImageQuality}
+      />
+      <ImageOptionControl
+        disabled={isStreaming}
+        icon={<FileType className="size-4" />}
+        label="格式"
+        onChange={onImageOutputFormatChange}
+        options={IMAGE_OUTPUT_FORMAT_OPTIONS}
+        value={normalizedImageOutputFormat}
+      />
+    </>
+  ) : null;
+  const compactImageOptionControls = imageMode ? (
+    <>
+      <ImageOptionControl
+        compact
+        disabled={isStreaming}
+        icon={<Maximize2 className="size-4" />}
+        label="尺寸"
+        onChange={onImageSizeChange}
+        options={IMAGE_SIZE_OPTIONS}
+        value={normalizedImageSize}
+      />
+      <ImageOptionControl
+        compact
+        disabled={isStreaming}
+        icon={<Sparkles className="size-4" />}
+        label="质量"
+        onChange={onImageQualityChange}
+        options={IMAGE_QUALITY_OPTIONS}
+        value={normalizedImageQuality}
+      />
+      <ImageOptionControl
+        compact
+        disabled={isStreaming}
+        icon={<FileType className="size-4" />}
+        label="格式"
+        onChange={onImageOutputFormatChange}
+        options={IMAGE_OUTPUT_FORMAT_OPTIONS}
+        value={normalizedImageOutputFormat}
+      />
+    </>
+  ) : null;
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
@@ -716,9 +810,7 @@ export function ChatComposer({
             {imageMode ? (
               <ImageModePill disabled={isStreaming} onCancel={() => onComposerModeChange("chat")} />
             ) : null}
-            {imageMode ? (
-              <ImageSizeControl disabled={isStreaming} onChange={onImageSizeChange} value={imageSize} />
-            ) : null}
+            {imageOptionControls}
             {!imageMode ? <ModelSelect model={model} models={models} onChange={onModelChange} /> : null}
             {!imageMode ? (
               <ReasoningProfileSelect
@@ -773,16 +865,7 @@ export function ChatComposer({
                 onReasoningProfileChange={onReasoningProfileChange}
                 composerMode={composerMode}
                 onComposerModeChange={onComposerModeChange}
-                imageSizeControl={
-                  imageMode ? (
-                    <ImageSizeControl
-                      disabled={isStreaming}
-                      labelOnly
-                      onChange={onImageSizeChange}
-                      value={imageSize}
-                    />
-                  ) : null
-                }
+                imageSizeControl={compactImageOptionControls}
                 onToggleRag={onToggleRag}
                 onToggleWeb={onToggleWeb}
                 reasoningProfile={reasoningProfile}

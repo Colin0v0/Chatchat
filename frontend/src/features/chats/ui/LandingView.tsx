@@ -20,6 +20,8 @@ interface LandingViewProps {
   models: ModelOption[];
   composerMode: ComposerMode;
   imageSize: string;
+  imageQuality: string;
+  imageOutputFormat: string;
   reasoningProfile: ReasoningProfileValue;
   toolMode: ToolMode;
   knowledgeFolders: string[];
@@ -33,6 +35,8 @@ interface LandingViewProps {
   onModelChange: (value: string) => void;
   onComposerModeChange: (value: ComposerMode) => void;
   onImageSizeChange: (value: string) => void;
+  onImageQualityChange: (value: string) => void;
+  onImageOutputFormatChange: (value: string) => void;
   onReasoningProfileChange: (value: ReasoningProfileValue) => void;
   onKnowledgeFolderChange: (value: string) => void;
   onRemoveDraftAttachment: (attachmentId: string) => void;
@@ -63,6 +67,8 @@ export function LandingView({
   models,
   composerMode,
   imageSize,
+  imageQuality,
+  imageOutputFormat,
   reasoningProfile,
   toolMode,
   knowledgeFolders,
@@ -76,6 +82,8 @@ export function LandingView({
   onModelChange,
   onComposerModeChange,
   onImageSizeChange,
+  onImageQualityChange,
+  onImageOutputFormatChange,
   onReasoningProfileChange,
   onKnowledgeFolderChange,
   onRemoveDraftAttachment,
@@ -143,9 +151,13 @@ export function LandingView({
           models={models}
           composerMode={composerMode}
           imageSize={imageSize}
+          imageQuality={imageQuality}
+          imageOutputFormat={imageOutputFormat}
           onChange={onChangeDraft}
           onComposerModeChange={onComposerModeChange}
           onImageSizeChange={onImageSizeChange}
+          onImageQualityChange={onImageQualityChange}
+          onImageOutputFormatChange={onImageOutputFormatChange}
           onModelChange={onModelChange}
           onReasoningProfileChange={onReasoningProfileChange}
           knowledgeFolders={knowledgeFolders}

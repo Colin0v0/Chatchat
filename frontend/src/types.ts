@@ -282,6 +282,8 @@ export interface ImageGenerationRequest {
   conversation_id?: number | null;
   prompt: string;
   size?: string | null;
+  quality?: string | null;
+  output_format?: string | null;
 }
 
 export interface DebateSessionCreateRequest {
