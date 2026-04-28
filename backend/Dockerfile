@@ -1,7 +1,9 @@
-ARG DOCKER_REGISTRY=docker.io
+# 构建镜像源由 compose 显式传入，避免构建机静默使用默认仓库。
+ARG DOCKER_REGISTRY
 FROM ${DOCKER_REGISTRY}/library/python:3.11-slim
 
-ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+# Python 包源由 compose 显式传入，便于在国内构建机上固定依赖下载来源。
+ARG PIP_INDEX_URL
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1

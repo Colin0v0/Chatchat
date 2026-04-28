@@ -1,0 +1,19 @@
+services:
+  backend:
+    # 本文件只在本地电脑或高配构建机使用，给后端镜像打上 ACR 仓库地址。
+    platform: linux/amd64
+    image: ${BACKEND_IMAGE:?请设置 BACKEND_IMAGE，例如 registry.cn-hangzhou.aliyuncs.com/命名空间/chatchat-backend:latest}
+    build:
+      context: ./backend
+      args:
+        DOCKER_REGISTRY: ${DOCKER_REGISTRY:?请设置 DOCKER_REGISTRY，例如 docker.io}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:?请设置 PIP_INDEX_URL，例如 https://pypi.tuna.tsinghua.edu.cn/simple}
+
+  frontend:
+    # 本文件只在本地电脑或高配构建机使用，给前端镜像打上 ACR 仓库地址。
+    platform: linux/amd64
+    image: ${FRONTEND_IMAGE:?请设置 FRONTEND_IMAGE，例如 registry.cn-hangzhou.aliyuncs.com/命名空间/chatchat-frontend:latest}
+    build:
+      context: ./frontend
+      args:
+        DOCKER_REGISTRY: ${DOCKER_REGISTRY:?请设置 DOCKER_REGISTRY，例如 docker.io}

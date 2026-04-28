@@ -1,4 +1,5 @@
-ARG DOCKER_REGISTRY=docker.io
+# 构建镜像源由 compose 显式传入，避免构建机静默使用默认仓库。
+ARG DOCKER_REGISTRY
 FROM ${DOCKER_REGISTRY}/library/node:22-alpine AS build
 
 WORKDIR /app

@@ -1,4 +1,5 @@
 .venv/
+.env
 backend/.env
 backend/.env.deploy.wsl
 backend/.env.dev.windows

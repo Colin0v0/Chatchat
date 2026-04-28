@@ -379,10 +379,49 @@ npm run dev
 - `backend`：FastAPI 服务
 - `frontend`：Nginx 托管的前端静态资源
 
-启动：
+前后端镜像需要先在本地电脑或高配构建机 build，并推送到阿里云 ACR。先准备根目录 `.env`：
+
+```env
+POSTGRES_IMAGE=registry.cn-hangzhou.aliyuncs.com/你的命名空间/chatchat-pgvector:pg16
+REDIS_IMAGE=registry.cn-hangzhou.aliyuncs.com/你的命名空间/chatchat-redis:7-alpine
+BACKEND_IMAGE=registry.cn-hangzhou.aliyuncs.com/你的命名空间/chatchat-backend:latest
+FRONTEND_IMAGE=registry.cn-hangzhou.aliyuncs.com/你的命名空间/chatchat-frontend:latest
+POSTGRES_DB=chatchat
+POSTGRES_USER=chatchat
+POSTGRES_PASSWORD=请改成强密码
+POSTGRES_PORT=5432
+REDIS_PORT=6379
+BACKEND_DATABASE_URL=postgresql+psycopg://chatchat:请改成强密码@postgres:5432/chatchat
+BACKEND_REDIS_URL=redis://redis:6379/0
+AUDIO_TRANSCRIPTION_MODEL=qwen3-asr-flash
+BACKEND_PORT=8000
+FRONTEND_PORT=3300
+BACKEND_STORAGE_HOST_PATH=./storage
+DOCKER_REGISTRY=docker.io
+PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+```
+
+本地构建并推送：
 
 ```bash
-docker compose up -d --build
+docker login registry.cn-hangzhou.aliyuncs.com
+docker pull pgvector/pgvector:pg16
+docker pull redis:7-alpine
+docker tag pgvector/pgvector:pg16 "$POSTGRES_IMAGE"
+docker tag redis:7-alpine "$REDIS_IMAGE"
+docker compose -f docker-compose.yml -f docker-compose.build.yml build backend frontend
+docker push "$POSTGRES_IMAGE"
+docker push "$REDIS_IMAGE"
+docker push "$BACKEND_IMAGE"
+docker push "$FRONTEND_IMAGE"
+```
+
+服务器只拉取镜像并启动：
+
+```bash
+docker login registry.cn-hangzhou.aliyuncs.com
+docker compose pull
+docker compose up -d
 ```
 
 停止：
