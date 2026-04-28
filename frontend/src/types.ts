@@ -185,6 +185,7 @@ export interface DebateTurn {
   content: string;
   reasoning?: string | null;
   created_at: string | null;
+  answer_started_at?: string | null;
   elapsed_ms?: number | null;
   truncated?: boolean;
 }
@@ -282,6 +283,8 @@ export interface ImageGenerationRequest {
   conversation_id?: number | null;
   prompt: string;
   size?: string | null;
+  quality?: string | null;
+  output_format?: string | null;
 }
 
 export interface DebateSessionCreateRequest {
@@ -468,6 +471,22 @@ export interface AudioSpeechResult {
   characters?: number | null;
 }
 
+export type ImageGenerationJobStatus = "queued" | "running" | "succeeded" | "failed";
+
+export interface ImageGenerationJob {
+  job_id: number;
+  status: ImageGenerationJobStatus;
+  conversation_id: number;
+  user_message_id: number;
+  assistant_message_id?: number | null;
+  conversation_title: string;
+  content: string;
+  error_message?: string | null;
+  created_at?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+}
+
 type StreamResumeMetadata = {
   run_id?: string;
   seq?: number;
@@ -536,6 +555,11 @@ type DebateStreamEventPayload =
       type: "reasoning";
       turn_id: number;
       content: string;
+    }
+  | {
+      type: "speaker_clock";
+      turn_id: number;
+      started_at: string;
     }
   | {
       type: "turn_done";

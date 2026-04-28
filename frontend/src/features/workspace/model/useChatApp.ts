@@ -15,7 +15,11 @@ import {
   INITIAL_CHAT_MODEL,
   pickLandingTitle,
 } from "../../chats/lib/constants";
-import { resolveImageGenerationSize } from "../../chats/lib/imageSizeOptions";
+import {
+  resolveImageGenerationOutputFormat,
+  resolveImageGenerationQuality,
+  resolveImageGenerationSize,
+} from "../../chats/lib/imageSizeOptions";
 import {
   appendRetryDraft,
   createAssistantDraftMessageForModel,
@@ -40,7 +44,7 @@ import {
   renameConversation,
   updateMessageFeedback,
 } from "../../chats/api/conversations";
-import { generateImage } from "../../chats/api/generateImage";
+import { pollImageGenerationJob } from "../../chats/api/generateImage";
 import { regenerateChat, streamActiveChat, streamChat } from "../../chats/api/streamChat";
 import {
   createDebateSession,
@@ -103,6 +107,8 @@ const CONVERSATION_EXPORT_MESSAGE_LIMIT = 100;
 const ACTIVE_CHAT_CONVERSATION_CACHE_STORAGE_KEY = "chatchat.active-chat-conversations";
 const DEBATE_TRANSIENT_STATE_STORAGE_KEY = "chatchat.debate-transient-states";
 const DEFAULT_IMAGE_SIZE = "1024x1024";
+const DEFAULT_IMAGE_QUALITY = "auto";
+const DEFAULT_IMAGE_OUTPUT_FORMAT = "png";
 const IMAGE_ATTACHMENT_EXTENSIONS = new Set([".gif", ".jpeg", ".jpg", ".png", ".webp"]);
 
 function fileExtension(name: string) {
@@ -376,6 +382,8 @@ export function useChatApp({
   const [selectedModel, setSelectedModel] = useState(INITIAL_CHAT_MODEL);
   const [composerMode, setComposerModeState] = useState<ComposerMode>("chat");
   const [imageSize, setImageSize] = useState(DEFAULT_IMAGE_SIZE);
+  const [imageQuality, setImageQuality] = useState(DEFAULT_IMAGE_QUALITY);
+  const [imageOutputFormat, setImageOutputFormat] = useState(DEFAULT_IMAGE_OUTPUT_FORMAT);
   const [reasoningProfile, setReasoningProfile] = useState<ReasoningProfileValue>("off");
   const [collapsedMessageIds, setCollapsedMessageIds] = useState<Set<number | string>>(new Set());
   const [toolMode, setToolMode] = useState<ToolMode>("none");
@@ -1654,6 +1662,8 @@ export function useChatApp({
 
       const conversationModel = activeConversation?.model ?? chatModelBeforeImageRef.current;
       const imageGenerationSize = resolveImageGenerationSize(imageSize);
+      const imageGenerationQuality = resolveImageGenerationQuality(imageQuality);
+      const imageGenerationOutputFormat = resolveImageGenerationOutputFormat(imageOutputFormat);
       const tempConversationId =
         activeConversation?.id != null ? activeConversation.id : -Date.now();
       const tempUserMessageId = `user-${Date.now()}`;
@@ -1696,14 +1706,16 @@ export function useChatApp({
         },
         tempUserMessageId,
         request: ({ onEvent, signal }) =>
-          generateImage(
+          pollImageGenerationJob(
             {
               conversation_id:
                 activeConversation && activeConversation.id > 0 ? activeConversation.id : null,
               prompt: message,
               size: imageGenerationSize,
+              quality: imageGenerationQuality,
+              output_format: imageGenerationOutputFormat,
             },
-            { onEvent, signal },
+            { model: conversationModel, onEvent, signal },
           ),
       });
 
@@ -1784,6 +1796,8 @@ export function useChatApp({
     draftAttachments,
     imageUploadAvailable,
     imageSize,
+    imageQuality,
+    imageOutputFormat,
     isRecording,
     isStreaming,
     isTranscribing,
@@ -2091,14 +2105,12 @@ export function useChatApp({
           model: selectedModel,
           models: availableModels,
           composerMode,
-          imageSize,
           reserveThinkingSpace: activeReasoningRequest !== null && activeReasoningRequest !== "off",
           reasoningProfile,
           knowledgeFolders: knowledgeManager.folders,
           knowledgeFolder,
           onChangeDraft: setDraft,
           onComposerModeChange: handleComposerModeChange,
-          onImageSizeChange: setImageSize,
           onFeedback: (messageId: number, value: "up" | "down" | null) =>
             void handleMessageFeedback(messageId, value),
           onLoadEarlierMessages: () => void handleLoadEarlierMessages(),
@@ -2179,14 +2191,12 @@ export function useChatApp({
       model: selectedModel,
       models: availableModels,
       composerMode,
-      imageSize,
       reasoningProfile,
       knowledgeFolders: knowledgeManager.folders,
       knowledgeFolder,
       onAnimationComplete: handleLandingAnimationComplete,
       onChangeDraft: setDraft,
       onComposerModeChange: handleComposerModeChange,
-      onImageSizeChange: setImageSize,
       onModelChange: handleModelChange,
       onReasoningProfileChange: handleReasoningProfileChange,
       onKnowledgeFolderChange: setKnowledgeFolder,
@@ -2203,6 +2213,14 @@ export function useChatApp({
       submitBlockedReason,
       shouldAnimate: !landingHeroAnimated,
       title: landingTitle,
+    },
+    imageSettingsProps: {
+      imageSize,
+      imageQuality,
+      imageOutputFormat,
+      onImageSizeChange: setImageSize,
+      onImageQualityChange: setImageQuality,
+      onImageOutputFormatChange: setImageOutputFormat,
     },
     knowledgePageProps: {
       knowledge: knowledgeManager,

@@ -30,7 +30,6 @@ interface ConversationViewProps {
   model: string;
   models: ModelOption[];
   composerMode: ComposerMode;
-  imageSize: string;
   reserveThinkingSpace: boolean;
   reasoningProfile: ReasoningProfileValue;
   toolMode: ToolMode;
@@ -43,7 +42,6 @@ interface ConversationViewProps {
   onChangeEditingUserMessage: (value: string) => void;
   onModelChange: (value: string) => void;
   onComposerModeChange: (value: ComposerMode) => void;
-  onImageSizeChange: (value: string) => void;
   onReasoningProfileChange: (value: ReasoningProfileValue) => void;
   onKnowledgeFolderChange: (value: string) => void;
   onCancelEditingUserMessage: () => void;
@@ -80,7 +78,6 @@ export function ConversationView({
   model,
   models,
   composerMode,
-  imageSize,
   reserveThinkingSpace,
   reasoningProfile,
   toolMode,
@@ -93,7 +90,6 @@ export function ConversationView({
   onChangeEditingUserMessage,
   onModelChange,
   onComposerModeChange,
-  onImageSizeChange,
   onReasoningProfileChange,
   onKnowledgeFolderChange,
   onCancelEditingUserMessage,
@@ -292,10 +288,8 @@ export function ConversationView({
           model={model}
           models={models}
           composerMode={composerMode}
-          imageSize={imageSize}
           onChange={onChangeDraft}
           onComposerModeChange={onComposerModeChange}
-          onImageSizeChange={onImageSizeChange}
           onModelChange={onModelChange}
           onReasoningProfileChange={onReasoningProfileChange}
           knowledgeFolders={knowledgeFolders}

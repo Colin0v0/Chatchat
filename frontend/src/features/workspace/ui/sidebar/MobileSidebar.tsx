@@ -1,5 +1,5 @@
 import { ArrowLeft } from "lucide-react";
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 
 import { MobileSidebarFooter, SidebarBrand } from "./SidebarActions";
 import { SidebarContent } from "./SidebarContent";
@@ -7,8 +7,20 @@ import { SIDEBAR_MOTION, cn } from "./styles";
 import type { SidebarProps } from "./types";
 
 export function MobileSidebar({ open, isDesktop, onToggleSidebar, ...contentProps }: SidebarProps) {
+  const sidebarRootRef = useRef<HTMLDivElement | null>(null);
   const touchStartXRef = useRef<number | null>(null);
   const touchStartYRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (open) {
+      return;
+    }
+
+    const activeElement = document.activeElement;
+    if (activeElement instanceof HTMLElement && sidebarRootRef.current?.contains(activeElement)) {
+      activeElement.blur();
+    }
+  }, [open]);
 
   function handleTouchStart(event: React.TouchEvent<HTMLDivElement>) {
     const touch = event.touches[0];
@@ -42,12 +54,13 @@ export function MobileSidebar({ open, isDesktop, onToggleSidebar, ...contentProp
   return (
     <>
       <div
-        aria-hidden={!open}
         className={cn(
           "fixed inset-0 z-30 transition-opacity md:hidden",
           SIDEBAR_MOTION,
           open ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0",
         )}
+        inert={!open}
+        ref={sidebarRootRef}
       >
         <button
           aria-label="关闭侧边栏"

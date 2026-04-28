@@ -1,4 +1,4 @@
-import { BookOpen, Check, Globe, Image, Paperclip, Plus, Scale, X } from "lucide-react";
+import { BookOpen, Check, Globe, Image, Paperclip, Plus, Scale } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { ReasoningProfileSelect } from "../../../models/ui/ReasoningProfileSelect";
@@ -10,7 +10,6 @@ interface ComposerMobileToolbarProps {
   isStreaming: boolean;
   composerMode: ComposerMode;
   onComposerModeChange: (value: ComposerMode) => void;
-  imageSizeControl?: ReactNode;
   onAddAttachment: () => void;
   onNewDebate: () => void;
   onReasoningProfileChange: (value: ReasoningProfileValue) => void;
@@ -67,7 +66,6 @@ export function ComposerMobileToolbar({
   isStreaming,
   composerMode,
   onComposerModeChange,
-  imageSizeControl = null,
   onAddAttachment,
   onNewDebate,
   onReasoningProfileChange,
@@ -115,7 +113,7 @@ export function ComposerMobileToolbar({
           </button>
 
           {menuOpen ? (
-            <div className="absolute bottom-[calc(100%+10px)] left-0 z-20 w-[min(220px,calc(100vw-5rem))] overflow-hidden rounded-lg border border-app-border bg-app-panel-strong shadow-[0_18px_40px_rgba(39,28,18,0.14)]">
+            <div className="absolute bottom-[calc(100%+10px)] left-0 z-20 w-[min(220px,calc(100vw-5rem))] overflow-hidden rounded-lg border border-app-border bg-app-panel-strong">
               <MobileMenuAction
                 disabled={addDisabled}
                 icon={<Paperclip className="size-4" />}
@@ -167,24 +165,6 @@ export function ComposerMobileToolbar({
             </div>
           ) : null}
         </div>
-        {imageMode ? (
-          <button
-            aria-label="取消图片模式"
-            className={`group inline-flex h-10 shrink-0 items-center gap-2 rounded-[8px] border border-app-border bg-app-panel-strong px-3 text-[14px] font-medium text-[#5f564a] transition-colors ${
-              isStreaming ? "cursor-not-allowed opacity-55" : "hover:bg-[#f8f3eb] hover:text-app-text"
-            }`}
-            disabled={isStreaming}
-            onClick={() => onComposerModeChange("chat")}
-            type="button"
-          >
-            <span className="flex size-4 items-center justify-center">
-              <Image className="size-4 group-hover:hidden" />
-              <X className="hidden size-4 group-hover:block" />
-            </span>
-            <span>创建图片</span>
-          </button>
-        ) : null}
-        {imageMode ? imageSizeControl : null}
         {!imageMode ? (
           <div className="min-w-0">
             <ReasoningProfileSelect

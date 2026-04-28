@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import asyncio
+import logging
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import datetime
@@ -15,18 +17,19 @@ from ..chat.context import append_message_attachments, conversation_title
 from ..core.config import settings
 from ..provider_transports.openai_images import generate_openai_image
 from ..runtime.streaming import ndjson_stream_response
-from ..schemas import ImageGenerateRequest
+from ..schemas import ImageGenerateRequest, ImageGenerationJobOut
 from ..storage.access import get_user_conversation
-from ..storage.database import get_db
+from ..storage.database import SessionLocal, get_db
 from ..storage.media import (
     media_url,
     persist_generated_image,
     persist_generated_image_bytes,
     remove_media_files,
 )
-from ..storage.models import Conversation, Message, User
+from ..storage.models import Conversation, ImageGenerationJob, Message, User
 
 router = APIRouter(prefix="/api/images", tags=["images"])
+logger = logging.getLogger("chatchat.images")
 
 
 @dataclass(frozen=True)
@@ -37,6 +40,28 @@ class PersistedImageGenerationTurn:
 
 def _ndjson_event(payload: dict[str, object]) -> str:
     return json.dumps(payload, ensure_ascii=False) + "\n"
+
+
+def _job_out(*, db: Session, job: ImageGenerationJob) -> ImageGenerationJobOut:
+    conversation = db.get(Conversation, job.conversation_id)
+    assistant_message = (
+        db.get(Message, job.assistant_message_id)
+        if job.assistant_message_id is not None
+        else None
+    )
+    return ImageGenerationJobOut(
+        job_id=job.id,
+        status=job.status,
+        conversation_id=job.conversation_id,
+        user_message_id=job.user_message_id,
+        assistant_message_id=job.assistant_message_id,
+        conversation_title=conversation.title if conversation is not None else "",
+        content=assistant_message.content if assistant_message is not None else "",
+        error_message=job.error_message,
+        created_at=job.created_at,
+        started_at=job.started_at,
+        finished_at=job.finished_at,
+    )
 
 
 def _image_error_message(error: Exception) -> str:
@@ -127,6 +152,30 @@ def _persist_image_generation_turn(
     db.refresh(user_message)
     db.refresh(conversation)
     return PersistedImageGenerationTurn(conversation=conversation, user_message=user_message)
+
+
+def _persist_image_generation_job(
+    *,
+    db: Session,
+    current_user: User,
+    turn: PersistedImageGenerationTurn,
+    payload: ImageGenerateRequest,
+) -> ImageGenerationJob:
+    job = ImageGenerationJob(
+        user_id=current_user.id,
+        conversation_id=turn.conversation.id,
+        user_message_id=turn.user_message.id,
+        status="queued",
+        prompt=payload.prompt.strip(),
+        size=payload.size,
+        quality=payload.quality,
+        output_format=payload.output_format,
+        model=settings.openai_image_model.strip(),
+    )
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+    return job
 
 
 def _persist_generated_image_message(
@@ -271,6 +320,102 @@ async def _stream_image_generation(
             "content": assistant_message.content,
         }
     )
+
+
+async def _execute_image_generation_job(job_id: int) -> None:
+    db = SessionLocal()
+    try:
+        job = db.get(ImageGenerationJob, job_id)
+        if job is None:
+            return
+
+        job.status = "running"
+        job.started_at = datetime.utcnow()
+        job.updated_at = datetime.utcnow()
+        db.add(job)
+        db.commit()
+
+        try:
+            generated = await generate_openai_image(
+                prompt=job.prompt,
+                size=job.size,
+                quality=job.quality,
+                output_format=job.output_format,
+            )
+            conversation = db.get(Conversation, job.conversation_id)
+            if conversation is None:
+                raise RuntimeError("Conversation not found for image generation job.")
+            assistant_message = await _persist_generated_image_response(
+                db=db,
+                conversation=conversation,
+                prompt=job.prompt,
+                b64_json=generated.b64_json,
+                image_url=generated.url,
+                output_format=generated.output_format,
+                target_size=None,
+            )
+            job = db.get(ImageGenerationJob, job_id)
+            if job is None:
+                return
+            job.status = "succeeded"
+            job.assistant_message_id = assistant_message.id
+            job.error_message = None
+            job.finished_at = datetime.utcnow()
+            job.updated_at = datetime.utcnow()
+            db.add(job)
+            db.commit()
+        except Exception as exc:
+            logger.exception("image generation job failed | job_id=%s", job_id)
+            db.rollback()
+            job = db.get(ImageGenerationJob, job_id)
+            if job is None:
+                return
+            job.status = "failed"
+            job.error_message = _image_error_message(exc)
+            job.finished_at = datetime.utcnow()
+            job.updated_at = datetime.utcnow()
+            db.add(job)
+            db.commit()
+    finally:
+        db.close()
+
+
+def _start_image_generation_task(job_id: int) -> None:
+    # 图片任务在后台跑，前端通过短轮询读取状态，避免长连接被代理层切断。
+    asyncio.create_task(_execute_image_generation_job(job_id), name=f"image-generation-job-{job_id}")
+
+
+@router.post("/jobs", response_model=ImageGenerationJobOut)
+async def create_image_generation_job(
+    payload: ImageGenerateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
+    turn = _persist_image_generation_turn(
+        db=db,
+        current_user=current_user,
+        payload=payload,
+    )
+    job = _persist_image_generation_job(
+        db=db,
+        current_user=current_user,
+        turn=turn,
+        payload=payload,
+    )
+    _start_image_generation_task(job.id)
+    return _job_out(db=db, job=job)
+
+
+@router.get("/jobs/{job_id}", response_model=ImageGenerationJobOut)
+def get_image_generation_job(
+    job_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
+    job = db.get(ImageGenerationJob, job_id)
+    if job is None or job.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Image generation job not found")
+    return _job_out(db=db, job=job)
 
 
 @router.post("/generate")

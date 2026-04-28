@@ -26,7 +26,7 @@ from ..storage.access import (
 )
 from ..storage.database import get_db
 from ..storage.media import remove_media_files
-from ..storage.models import Conversation, MemoryItem, Run, RunEvent, User
+from ..storage.models import Conversation, ImageGenerationJob, MemoryItem, Run, RunEvent, User
 
 router = APIRouter(prefix="/api/conversations", tags=["conversations"])
 
@@ -215,5 +215,6 @@ def delete_conversation(
             MemoryItem.user_id == current_user.id,
         )
     )
+    db.execute(delete(ImageGenerationJob).where(ImageGenerationJob.conversation_id == conversation_id))
     db.delete(conversation)
     db.commit()

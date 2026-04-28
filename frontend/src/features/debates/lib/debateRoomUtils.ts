@@ -128,6 +128,14 @@ export function applyStreamEvent(
           reasoning: `${turn.reasoning ?? ""}${event.content}`,
         })),
       };
+    case "speaker_clock":
+      return {
+        ...normalizedSession,
+        turns: patchTurn(normalizedSession.turns, event.turn_id, (turn) => ({
+          ...turn,
+          answer_started_at: event.started_at,
+        })),
+      };
     case "turn_done":
       return {
         ...normalizedSession,

@@ -35,6 +35,13 @@ AI_EVALUATION_STRUCTURED_TIMEOUT_SECONDS = 35
 AI_EVALUATION_JSON_MARKER = "<AI_EVAL_JSON>"
 
 
+def _speaker_clock_event_line(turn_id: int, started_at: str) -> str:
+    return json.dumps(
+        {"type": "speaker_clock", "turn_id": turn_id, "started_at": started_at},
+        ensure_ascii=False,
+    ) + "\n"
+
+
 @asynccontextmanager
 async def reserve_model_execution(request: Request, model_id: str):
     reservation = None
@@ -87,7 +94,7 @@ async def stream_speaker_turn(
     )
     if free_debate_state is not None:
         free_debate_state["active_side"] = participant.side
-        free_debate_state["active_turn_started_at"] = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+        free_debate_state["active_turn_started_at"] = None
     session.updated_at = datetime.utcnow()
     db.add(turn)
     db.add(session)
@@ -116,9 +123,53 @@ async def stream_speaker_turn(
 
     answer_chunks: list[str] = []
     reasoning_chunks: list[str] = []
-    turn_started = time.monotonic()
+    answer_started_at_monotonic: float | None = None
     truncated = False
     stream = None
+
+    def answer_elapsed_ms() -> int:
+        if answer_started_at_monotonic is None:
+            return 0
+        return int((time.monotonic() - answer_started_at_monotonic) * 1000)
+
+    def answer_budget_exhausted() -> bool:
+        return (
+            time_budget_ms is not None
+            and answer_started_at_monotonic is not None
+            and answer_elapsed_ms() >= time_budget_ms
+        )
+
+    def next_answer_timeout_seconds() -> float | None:
+        if time_budget_ms is None or answer_started_at_monotonic is None:
+            return None
+        remaining_ms = time_budget_ms - answer_elapsed_ms()
+        return max(0, remaining_ms) / 1000
+
+    def start_answer_clock() -> list[str]:
+        nonlocal answer_started_at_monotonic
+
+        if answer_started_at_monotonic is not None:
+            return []
+
+        # 中文注释：辩论计时只统计正式正文输出，不把模型 reasoning / thinking 时间算进发言时间。
+        answer_started_at_monotonic = time.monotonic()
+        started_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+        _set_turn_meta(turn, answer_started_at=started_at)
+        events = [_speaker_clock_event_line(turn.id, started_at)]
+        db.add(turn)
+        if free_debate_state is not None:
+            free_debate_state["active_turn_started_at"] = started_at
+            _save_free_debate_state(session, free_debate_state)
+            session.updated_at = datetime.utcnow()
+            db.add(session)
+        db.commit()
+        db.refresh(turn)
+        if free_debate_state is not None:
+            db.refresh(session)
+            clock_event = _free_debate_clock_event_line(session)
+            if clock_event:
+                events.append(clock_event)
+        return events
 
     async def consume_stream() -> AsyncIterator[str]:
         nonlocal truncated
@@ -130,8 +181,7 @@ async def stream_speaker_turn(
                 truncated = bool(answer_chunks or reasoning_chunks)
                 break
 
-            elapsed_ms = int((time.monotonic() - turn_started) * 1000)
-            if time_budget_ms is not None and elapsed_ms >= time_budget_ms:
+            if answer_budget_exhausted():
                 truncated = True
                 break
 
@@ -143,13 +193,14 @@ async def stream_speaker_turn(
                     ensure_ascii=False,
                 ) + "\n"
 
-            elapsed_ms = int((time.monotonic() - turn_started) * 1000)
-            if time_budget_ms is not None and elapsed_ms >= time_budget_ms:
+            if answer_budget_exhausted():
                 truncated = True
                 break
 
             delta = chunk.output_text_delta
             if delta:
+                for event in start_answer_clock():
+                    yield event
                 answer_chunks.append(delta)
                 yield json.dumps(
                     {"type": "token", "turn_id": turn.id, "content": delta},
@@ -168,12 +219,12 @@ async def stream_speaker_turn(
                     if await request.is_disconnected():
                         truncated = bool(answer_chunks or reasoning_chunks)
                         break
-                    remaining_ms = time_budget_ms - int((time.monotonic() - turn_started) * 1000)
-                    if remaining_ms <= 0:
+                    timeout_seconds = next_answer_timeout_seconds()
+                    if timeout_seconds == 0:
                         truncated = True
                         break
                     try:
-                        event = await asyncio.wait_for(iterator.__anext__(), timeout=remaining_ms / 1000)
+                        event = await asyncio.wait_for(iterator.__anext__(), timeout=timeout_seconds)
                     except StopAsyncIteration:
                         break
                     yield event
@@ -187,7 +238,7 @@ async def stream_speaker_turn(
             except Exception:
                 logger.debug("debate stream close failed", exc_info=True)
 
-    elapsed_ms = int((time.monotonic() - turn_started) * 1000)
+    elapsed_ms = answer_elapsed_ms()
     if time_budget_ms is not None:
         elapsed_ms = min(elapsed_ms, time_budget_ms)
 

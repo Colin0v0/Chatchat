@@ -17,10 +17,6 @@ import {
 import { useEffect, useRef, useState, type ClipboardEvent, type ChangeEvent, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
 
 import { findModelOption } from "../../models/lib/modelOptions";
-import {
-  IMAGE_SIZE_OPTIONS,
-  imageSizeChoiceForValue,
-} from "../lib/imageSizeOptions";
 import type { ComposerAttachmentDraft } from "../model/useComposerAttachments";
 import type { ComposerMode, ModelOption, ReasoningProfileValue, ToolMode } from "../../../types";
 import { ComposerAttachmentStrip } from "./composer/ComposerAttachmentStrip";
@@ -76,8 +72,6 @@ interface ChatComposerProps {
   models: ModelOption[];
   onModelChange: (value: string) => void;
   composerMode: ComposerMode;
-  imageSize: string;
-  onImageSizeChange: (value: string) => void;
   onComposerModeChange: (value: ComposerMode) => void;
   reasoningProfile: ReasoningProfileValue;
   onReasoningProfileChange: (value: ReasoningProfileValue) => void;
@@ -349,7 +343,7 @@ function ComposerToolsMenu({
       </button>
 
       {open ? (
-        <div className="absolute bottom-[calc(100%+10px)] left-0 z-20 w-52 overflow-hidden rounded-lg border border-app-border bg-app-panel-strong shadow-[0_18px_40px_rgba(39,28,18,0.14)]">
+        <div className="absolute bottom-[calc(100%+10px)] left-0 z-20 w-52 overflow-hidden rounded-lg border border-app-border bg-app-panel-strong">
           {options.map((option) => {
             return (
               <button
@@ -383,7 +377,15 @@ function ComposerToolsMenu({
   );
 }
 
-function ImageModePill({ disabled, onCancel }: { disabled: boolean; onCancel: () => void }) {
+function ImageModePill({
+  disabled,
+  mobile = false,
+  onCancel,
+}: {
+  disabled: boolean;
+  mobile?: boolean;
+  onCancel: () => void;
+}) {
   return (
     <button
       aria-label="取消图片模式"
@@ -395,117 +397,20 @@ function ImageModePill({ disabled, onCancel }: { disabled: boolean; onCancel: ()
       type="button"
     >
       <span className="flex size-4 items-center justify-center">
-        <Image className="size-4 group-hover:hidden" />
-        <X className="hidden size-4 group-hover:block" />
+        {mobile ? (
+          <X className="size-4" />
+        ) : (
+          <>
+            <Image className="size-4 group-hover:hidden" />
+            <X className="hidden size-4 group-hover:block" />
+          </>
+        )}
       </span>
       <span>创建图片</span>
     </button>
   );
 }
 
-function ImageSizeControl({
-  compact = false,
-  disabled,
-  labelOnly = false,
-  value,
-  onChange,
-}: {
-  compact?: boolean;
-  disabled: boolean;
-  labelOnly?: boolean;
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement | null>(null);
-  const selectedChoice = imageSizeChoiceForValue(value);
-
-  useEffect(() => {
-    function handlePointerDown(event: MouseEvent) {
-      if (!menuRef.current?.contains(event.target as Node)) {
-        setOpen(false);
-      }
-    }
-
-    function handleKeyDown(event: globalThis.KeyboardEvent) {
-      if (event.key === "Escape") {
-        setOpen(false);
-      }
-    }
-
-    window.addEventListener("mousedown", handlePointerDown);
-    window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.removeEventListener("mousedown", handlePointerDown);
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, []);
-
-  return (
-    <div className={cn("relative min-w-0", compact && !labelOnly ? "w-full" : "shrink-0")} ref={menuRef}>
-      <button
-        aria-expanded={open}
-        aria-haspopup="listbox"
-        aria-label="图片尺寸"
-        className={cn(
-          INLINE_SELECT_BUTTON_CLASS,
-          "gap-2",
-          labelOnly ? "min-w-[78px] justify-between" : compact ? "w-full justify-between" : "min-w-[150px] justify-between",
-          disabled
-            ? "cursor-not-allowed opacity-55 hover:bg-app-panel-strong"
-            : open
-              ? "bg-app-panel-soft"
-              : "",
-        )}
-        disabled={disabled}
-        onClick={() => setOpen((current) => !current)}
-        type="button"
-      >
-        <span className="flex min-w-0 items-center gap-2">
-          <span className="shrink-0 whitespace-nowrap text-[#5f564a]">{labelOnly ? "尺寸" : "尺寸:"}</span>
-          {labelOnly ? null : <span className="min-w-0 truncate text-[#5f564a]">{selectedChoice.label}</span>}
-        </span>
-        <ChevronUp className={`size-4 shrink-0 text-[#5f564a] transition-transform ${open ? "" : "rotate-180"}`} />
-      </button>
-
-      {open ? (
-        <div
-          className={cn(
-            `absolute bottom-[calc(100%+8px)] left-0 z-20 min-w-full ${sidebarMenuPanelClass}`,
-            labelOnly ? "w-[min(170px,calc(100vw-2rem))]" : "sm:w-max sm:max-w-[190px]",
-          )}
-        >
-          <div className="max-h-[210px] overflow-y-auto" role="listbox">
-            {IMAGE_SIZE_OPTIONS.map((choice) => {
-              const selected = choice.value === selectedChoice.value;
-              return (
-                <button
-                  aria-selected={selected}
-                  className={cn(
-                    INLINE_SELECT_ITEM_CLASS,
-                    selected
-                      ? "bg-app-panel-soft text-[#5f564a]"
-                      : "bg-app-panel-strong text-[#5f564a] hover:bg-app-panel-soft",
-                  )}
-                  key={choice.value}
-                  onClick={() => {
-                    onChange(choice.value);
-                    setOpen(false);
-                  }}
-                  role="option"
-                  type="button"
-                >
-                  <span className="min-w-0 truncate">{choice.label}</span>
-                  {selected ? <Check className="size-4 shrink-0 text-[#5f564a]" /> : null}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      ) : null}
-    </div>
-  );
-}
 function ComposerVoiceButton({
   compact = false,
   disabled,
@@ -562,8 +467,6 @@ export function ChatComposer({
   models,
   onModelChange,
   composerMode,
-  imageSize,
-  onImageSizeChange,
   onComposerModeChange,
   reasoningProfile,
   onReasoningProfileChange,
@@ -716,9 +619,6 @@ export function ChatComposer({
             {imageMode ? (
               <ImageModePill disabled={isStreaming} onCancel={() => onComposerModeChange("chat")} />
             ) : null}
-            {imageMode ? (
-              <ImageSizeControl disabled={isStreaming} onChange={onImageSizeChange} value={imageSize} />
-            ) : null}
             {!imageMode ? <ModelSelect model={model} models={models} onChange={onModelChange} /> : null}
             {!imageMode ? (
               <ReasoningProfileSelect
@@ -773,22 +673,15 @@ export function ChatComposer({
                 onReasoningProfileChange={onReasoningProfileChange}
                 composerMode={composerMode}
                 onComposerModeChange={onComposerModeChange}
-                imageSizeControl={
-                  imageMode ? (
-                    <ImageSizeControl
-                      disabled={isStreaming}
-                      labelOnly
-                      onChange={onImageSizeChange}
-                      value={imageSize}
-                    />
-                  ) : null
-                }
                 onToggleRag={onToggleRag}
                 onToggleWeb={onToggleWeb}
                 reasoningProfile={reasoningProfile}
                 selectedModelOption={selectedModelOption}
                 toolMode={toolMode}
               />
+              {imageMode ? (
+                <ImageModePill mobile disabled={isStreaming} onCancel={() => onComposerModeChange("chat")} />
+              ) : null}
               {showKnowledgeScope ? (
                 <KnowledgeScopeMenu
                   compact

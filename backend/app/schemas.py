@@ -14,6 +14,7 @@ MemoryKind = Literal["profile", "preference", "goal", "project", "fact", "constr
 MemoryStatus = Literal["candidate", "active", "archived"]
 MemoryDocumentType = Literal["user_profile", "workspace_profile", "conversation_brief"]
 KnowledgeDocumentStatus = Literal["pending", "indexing", "ready", "failed"]
+ImageGenerationJobStatus = Literal["queued", "running", "succeeded", "failed"]
 DebateStatus = Literal["created", "running", "waiting_judge", "finished"]
 DebateStage = Literal["opening", "rebuttal", "free_debate", "closing", "judge_decision"]
 DebateSide = Literal["pro", "con"]
@@ -83,6 +84,20 @@ class ImageGenerateRequest(BaseModel):
     size: Optional[str] = None
     quality: Optional[str] = None
     output_format: Optional[str] = None
+
+
+class ImageGenerationJobOut(BaseModel):
+    job_id: int
+    status: ImageGenerationJobStatus
+    conversation_id: int
+    user_message_id: int
+    assistant_message_id: Optional[int] = None
+    conversation_title: str = ""
+    content: str = ""
+    error_message: Optional[str] = None
+    created_at: Optional[datetime] = None
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
 
 
 class MessageAttachmentOut(BaseModel):
@@ -225,6 +240,7 @@ class DebateTurnOut(BaseModel):
     content: str = ""
     reasoning: Optional[str] = None
     created_at: Optional[datetime] = None
+    answer_started_at: Optional[str] = None
     elapsed_ms: Optional[int] = None
     truncated: bool = False
 
@@ -341,6 +357,11 @@ class KnowledgeFolderCreate(BaseModel):
 
 class KnowledgeFolderDeleteIn(BaseModel):
     name: str = Field(min_length=1, max_length=255)
+
+
+class KnowledgeFolderRenameIn(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    new_name: str = Field(min_length=1, max_length=255)
 
 
 class KnowledgeFolderDeleteResult(BaseModel):

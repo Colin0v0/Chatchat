@@ -10,7 +10,7 @@ export const sidebarIconButtonClass = cn(
 );
 
 export const sidebarMenuPanelClass =
-  "overflow-hidden rounded-[8px] border border-app-border bg-app-panel-strong shadow-[0_16px_40px_rgba(34,24,16,0.12)]";
+  "overflow-hidden rounded-[8px] border border-app-border bg-app-panel-strong";
 
 export const sidebarMenuItemClass = cn(
   "flex items-center gap-2 whitespace-nowrap px-4 py-2 text-left text-[14px] transition-colors",

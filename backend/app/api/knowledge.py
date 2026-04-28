@@ -17,6 +17,7 @@ from ..schemas import (
     KnowledgeFolderCreate,
     KnowledgeFolderDeleteIn,
     KnowledgeFolderDeleteResult,
+    KnowledgeFolderRenameIn,
     KnowledgeReindexResult,
     KnowledgeStatusOut,
 )
@@ -83,6 +84,28 @@ def delete_knowledge_folder(
     if result is None:
         raise HTTPException(status_code=404, detail="Knowledge folder not found")
     return KnowledgeFolderDeleteResult(**result)
+
+
+@router.patch("/folders", response_model=str)
+def rename_knowledge_folder(
+    payload: KnowledgeFolderRenameIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
+    services = get_chat_services(request)
+    try:
+        renamed_folder = services.knowledge_service.rename_folder(
+            db=db,
+            user_id=current_user.id,
+            name=payload.name,
+            new_name=payload.new_name,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if renamed_folder is None:
+        raise HTTPException(status_code=404, detail="Knowledge folder not found")
+    return renamed_folder
 
 
 @router.get("/status", response_model=KnowledgeStatusOut)

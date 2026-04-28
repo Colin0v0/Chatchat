@@ -132,6 +132,7 @@ function WorkspaceApp({
       </main>
 
       <SettingsDialog
+        {...app.imageSettingsProps}
         onClose={() => setSettingsOpen(false)}
         open={settingsOpen}
         username={username}

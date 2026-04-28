@@ -264,6 +264,7 @@ def _turn_payload(turn: DebateTurn) -> DebateTurnOut:
         content=turn.content,
         reasoning=turn.reasoning_content,
         created_at=turn.created_at,
+        answer_started_at=str(meta.get("answer_started_at") or "").strip() or None,
         elapsed_ms=_to_int(meta.get("elapsed_ms"), 0) or None,
         truncated=_to_bool(meta.get("truncated"), False),
     )
