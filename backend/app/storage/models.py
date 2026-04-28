@@ -276,6 +276,31 @@ class ProviderFileRef(Base):
     attachment: Mapped[MessageAttachment] = relationship(back_populates="provider_file_refs")
 
 
+class ImageGenerationJob(Base):
+    __tablename__ = "image_generation_jobs"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    conversation_id: Mapped[int] = mapped_column(ForeignKey("conversations.id"), index=True)
+    user_message_id: Mapped[int] = mapped_column(ForeignKey("messages.id"), index=True)
+    assistant_message_id: Mapped[Optional[int]] = mapped_column(ForeignKey("messages.id"), nullable=True, index=True)
+    status: Mapped[str] = mapped_column(String(24), default="queued", index=True)
+    prompt: Mapped[str] = mapped_column(Text())
+    size: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    quality: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    output_format: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    model: Mapped[str] = mapped_column(String(128))
+    error_message: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
 class Run(Base):
     __tablename__ = "runs"
 

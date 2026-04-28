@@ -40,7 +40,7 @@ import {
   renameConversation,
   updateMessageFeedback,
 } from "../../chats/api/conversations";
-import { generateImage } from "../../chats/api/generateImage";
+import { pollImageGenerationJob } from "../../chats/api/generateImage";
 import { regenerateChat, streamActiveChat, streamChat } from "../../chats/api/streamChat";
 import {
   createDebateSession,
@@ -1696,14 +1696,14 @@ export function useChatApp({
         },
         tempUserMessageId,
         request: ({ onEvent, signal }) =>
-          generateImage(
+          pollImageGenerationJob(
             {
               conversation_id:
                 activeConversation && activeConversation.id > 0 ? activeConversation.id : null,
               prompt: message,
               size: imageGenerationSize,
             },
-            { onEvent, signal },
+            { model: conversationModel, onEvent, signal },
           ),
       });
 
