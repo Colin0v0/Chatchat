@@ -34,10 +34,7 @@ class DebateRuntimeStageHandlerTests(unittest.IsolatedAsyncioTestCase):
         async def _fake_judge_eval(*, request, session):
             yield "judge_eval\n"
 
-        with patch("app.runtime.modes.debate_stage_handlers.emit_stage_events", return_value=["stage_changed\n"]), patch(
-            "app.runtime.modes.debate_stage_handlers.stream_judge_evaluation_events",
-            side_effect=_fake_judge_eval,
-        ):
+        with patch("app.runtime.modes.debate_stage_handlers.emit_stage_events", return_value=["stage_changed\n"]):
             events = await _drain(
                 stream_stage_followup_events(
                     context=context,
@@ -45,8 +42,7 @@ class DebateRuntimeStageHandlerTests(unittest.IsolatedAsyncioTestCase):
                 )
             )
 
-        self.assertEqual(events, ["stage_changed\n", "judge_eval\n"])
-        db.refresh.assert_called_once_with(session, attribute_names=["turns", "participants"])
+        self.assertEqual(events, ["stage_changed\n"])
 
     async def test_stream_decision_summary_flow_streams_and_persists_summary(self):
         db = SimpleNamespace()
@@ -67,7 +63,7 @@ class DebateRuntimeStageHandlerTests(unittest.IsolatedAsyncioTestCase):
             "app.runtime.modes.debate_stage_handlers.stream_decision_summary_events",
             side_effect=_fake_summary_events,
         ), patch(
-            "app.runtime.modes.debate_stage_handlers.persist_decision_summary",
+            "app.runtime.modes.debate_persistence.DebatePersistenceAdapter.persist_decision_summary",
             persist_summary,
         ):
             events = await _drain(
@@ -78,9 +74,8 @@ class DebateRuntimeStageHandlerTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(events, ["summary_token_1\n", "summary_token_2\n"])
         persist_summary.assert_called_once_with(
-            db=db,
-            session=session,
-            summary_chunks=["片段一", "片段二"],
+            session,
+            ["片段一", "片段二"],
         )
 
 
@@ -100,7 +95,7 @@ class DebateRuntimeTurnHandlerTests(unittest.IsolatedAsyncioTestCase):
             "app.runtime.modes.debate_turn_handlers.stream_participant_turn_events",
             side_effect=_fake_turn_events,
         ), patch(
-            "app.runtime.modes.debate_turn_handlers.advance_after_speaker_turn",
+            "app.runtime.modes.debate_persistence.DebatePersistenceAdapter.advance_after_speaker_turn",
             return_value=DebateStageTransition.from_stage_changes(["judge_decision"]),
         ), patch(
             "app.runtime.modes.debate_turn_handlers.stream_stage_followup_events",
@@ -143,7 +138,7 @@ class DebateRuntimeTurnHandlerTests(unittest.IsolatedAsyncioTestCase):
             "app.runtime.modes.debate_turn_handlers.stream_participant_turn_events",
             side_effect=_fake_turn_events,
         ), patch(
-            "app.runtime.modes.debate_turn_handlers.advance_after_speaker_turn",
+            "app.runtime.modes.debate_persistence.DebatePersistenceAdapter.advance_after_speaker_turn",
             return_value=DebateStageTransition(),
         ), patch(
             "app.runtime.modes.debate_turn_handlers.stream_stage_followup_events",

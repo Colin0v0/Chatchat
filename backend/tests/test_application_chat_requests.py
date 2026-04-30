@@ -93,6 +93,7 @@ def test_build_chat_run_request_encodes_history_and_tool_policy():
         query="q2",
         tool_mode="search",
         reasoning_profile="high",
+        knowledge_folders=[],
     )
 
     assert run_request.conversation_id == 12

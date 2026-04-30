@@ -115,6 +115,7 @@ def test_prepare_regeneration_run_request_coordinates_dependencies(monkeypatch):
         "query": "revised prompt",
         "tool_mode": "knowledge",
         "reasoning_profile": "high",
+        "knowledge_folders": [],
     }
 
 
@@ -173,6 +174,7 @@ async def test_prepare_chat_stream_run_request_coordinates_submission_dependenci
         model="chat-model",
         tool_mode="search",
         reasoning_profile="medium",
+        knowledge_folders=[],
         files=[upload_file],
     )
 
@@ -203,6 +205,7 @@ async def test_prepare_chat_stream_run_request_coordinates_submission_dependenci
         "query": "Hello",
         "tool_mode": "search",
         "reasoning_profile": "medium",
+        "knowledge_folders": [],
     }
 
 
@@ -219,6 +222,7 @@ async def test_prepare_chat_stream_run_request_rejects_empty_message_without_upl
             model=None,
             tool_mode="none",
             reasoning_profile=None,
+            knowledge_folders=[],
             files=None,
         )
 

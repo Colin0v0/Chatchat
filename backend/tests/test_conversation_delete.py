@@ -66,11 +66,12 @@ class ConversationDeleteTests(unittest.TestCase):
         )
         self.db.commit()
 
+        run_id = run.id
         with mock.patch("app.api.conversations.remove_media_files"):
             delete_conversation(conversation_id=conversation.id, db=self.db, current_user=user)
 
         assert self.db.get(Conversation, conversation.id) is None
-        assert self.db.scalar(select(Run).where(Run.id == run.id)) is None
+        assert self.db.scalar(select(Run).where(Run.id == run_id)) is None
         assert self.db.scalar(select(RunEvent).where(RunEvent.run_id == run.id)) is None
         assert self.db.scalar(select(Message).where(Message.id == user_message.id)) is None
         assert self.db.scalar(select(Message).where(Message.id == assistant_message.id)) is None

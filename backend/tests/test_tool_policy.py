@@ -30,4 +30,5 @@ def test_tool_policy_serializes_external_and_internal_selection():
         "tool_mode": "knowledge",
         "tool_policy": "knowledge",
         "tool_plan": ["knowledge"],
+        "knowledge_folders": [],
     }

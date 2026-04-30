@@ -77,6 +77,7 @@ class GeminiClientTests(unittest.TestCase):
                     {"role": "model", "parts": [{"text": "Hi"}]},
                 ],
                 "systemInstruction": {"parts": [{"text": "You are helpful."}]},
+                "generationConfig": {"thinkingConfig": {"includeThoughts": True, "thinkingBudget": 1024}},
             },
         )
 
@@ -102,7 +103,8 @@ class GeminiClientTests(unittest.TestCase):
                             {"inlineData": {"mimeType": "image/png", "data": "ZmFrZQ=="}},
                         ],
                     }
-                ]
+                ],
+                "generationConfig": {"thinkingConfig": {"includeThoughts": True, "thinkingBudget": 1024}},
             },
         )
 
@@ -134,7 +136,8 @@ class GeminiClientTests(unittest.TestCase):
                             {"inlineData": {"mimeType": "application/pdf", "data": "JVBERi0xLjc="}},
                         ],
                     }
-                ]
+                ],
+                "generationConfig": {"thinkingConfig": {"includeThoughts": True, "thinkingBudget": 1024}},
             },
         )
 
@@ -218,7 +221,8 @@ class GeminiStreamingTests(unittest.IsolatedAsyncioTestCase):
                                     {"inlineData": {"mimeType": "image/png", "data": "ZmFrZQ=="}},
                                 ],
                             }
-                        ]
+                        ],
+                        "generationConfig": {"thinkingConfig": {"includeThoughts": True, "thinkingBudget": 1024}},
                     },
                 )
             ],
@@ -275,7 +279,8 @@ class GeminiStreamingTests(unittest.IsolatedAsyncioTestCase):
                                     {"inlineData": {"mimeType": "application/pdf", "data": "JVBERi0xLjc="}},
                                 ],
                             }
-                        ]
+                        ],
+                        "generationConfig": {"thinkingConfig": {"includeThoughts": True, "thinkingBudget": 1024}},
                     },
                 )
             ],
