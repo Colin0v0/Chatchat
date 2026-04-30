@@ -23,11 +23,13 @@ export function Sidebar(props: SidebarRootProps) {
         activity={props.activity}
         debateActivity={props.debateActivity}
         debateItems={props.debateItems}
+        battleItems={props.battleItems}
         items={props.items}
         onClose={handleCloseSearch}
         onQueryChange={props.onQueryChange}
         onSelect={props.onSelect}
         onSelectDebate={props.onSelectDebate}
+        onSelectBattle={props.onSelectBattle}
         open={searchOpen}
         query={props.query}
       />

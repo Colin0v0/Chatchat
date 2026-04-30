@@ -3,6 +3,7 @@ import { LoaderCircle } from "lucide-react";
 
 import { ConversationView } from "../../chats/ui/ConversationView";
 import { LandingView } from "../../chats/ui/LandingView";
+import { BattlePage } from "../../battles/ui/BattlePage";
 import { DebateCreateView } from "../../debates/ui/DebateCreateView";
 import { DebateRoomView } from "../../debates/ui/DebateRoomView";
 import { KnowledgePage } from "../../knowledge/ui/KnowledgePage";
@@ -12,6 +13,7 @@ import type { WorkspaceSection } from "../model/workspaceSections";
 
 type WorkspaceMainViewProps = {
   activeSection: WorkspaceSection;
+  battlePageProps: ComponentProps<typeof BattlePage>;
   conversationProps: ComponentProps<typeof ConversationView> | null;
   debateCreateProps: ComponentProps<typeof DebateCreateView> | null;
   debateRoomProps: ComponentProps<typeof DebateRoomView> | null;
@@ -36,6 +38,7 @@ function LoadingView() {
 
 export function WorkspaceMainView({
   activeSection,
+  battlePageProps,
   conversationProps,
   debateCreateProps,
   debateRoomProps,
@@ -57,6 +60,10 @@ export function WorkspaceMainView({
 
   if (activeSection === "knowledge") {
     return <KnowledgePage {...knowledgePageProps} />;
+  }
+
+  if (activeSection === "battle") {
+    return <BattlePage {...battlePageProps} />;
   }
 
   if (activeSection === "debates") {

@@ -1,7 +1,7 @@
-import { MessageSquare, Scale, Search } from "lucide-react";
+import { MessageSquare, Scale, Search, Swords } from "lucide-react";
 import { useEffect, useRef } from "react";
 
-import type { ConversationSummary, DebateSessionSummary } from "../../../../types";
+import type { BattleSessionSummary, ConversationSummary, DebateSessionSummary } from "../../../../types";
 import { cn } from "./styles";
 
 interface SidebarSearchDialogProps {
@@ -9,12 +9,14 @@ interface SidebarSearchDialogProps {
   debateActivity?: Record<number, { running: boolean; unread: boolean }>;
   items: ConversationSummary[];
   debateItems: DebateSessionSummary[];
+  battleItems: BattleSessionSummary[];
   open: boolean;
   query: string;
   onClose: () => void;
   onQueryChange: (value: string) => void;
   onSelect: (conversationId: number) => void;
   onSelectDebate: (sessionId: number) => void;
+  onSelectBattle: (sessionId: number) => void;
 }
 
 export function SidebarSearchDialog({
@@ -22,12 +24,14 @@ export function SidebarSearchDialog({
   debateActivity = {},
   items,
   debateItems,
+  battleItems,
   open,
   query,
   onClose,
   onQueryChange,
   onSelect,
   onSelectDebate,
+  onSelectBattle,
 }: SidebarSearchDialogProps) {
   const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -74,6 +78,12 @@ export function SidebarSearchDialog({
       title: item.topic,
       updatedAt: item.updated_at,
     })),
+    ...battleItems.map((item) => ({
+      id: item.id,
+      kind: "battle" as const,
+      title: item.title,
+      updatedAt: item.updated_at,
+    })),
   ].sort((left, right) => {
     const leftTime = left.updatedAt ? Date.parse(left.updatedAt) : 0;
     const rightTime = right.updatedAt ? Date.parse(right.updatedAt) : 0;
@@ -111,7 +121,12 @@ export function SidebarSearchDialog({
             ) : (
               <div className="flex flex-col gap-1">
                 {combinedItems.map((item) => {
-                  const itemActivity = item.kind === "chat" ? activity[item.id] : debateActivity[item.id];
+                  const itemActivity =
+                    item.kind === "chat"
+                      ? activity[item.id]
+                      : item.kind === "debate"
+                        ? debateActivity[item.id]
+                        : undefined;
 
                   return (
                     <button
@@ -123,18 +138,22 @@ export function SidebarSearchDialog({
                       onClick={() => {
                         if (item.kind === "chat") {
                           onSelect(item.id);
-                        } else {
+                        } else if (item.kind === "debate") {
                           onSelectDebate(item.id);
+                        } else {
+                          onSelectBattle(item.id);
                         }
                         onClose();
                       }}
                       type="button"
                     >
                       <span className="flex min-w-0 items-center gap-2.5">
-                        {item.kind === "chat" ? (
-                          <MessageSquare className="size-4 shrink-0 text-app-muted" />
-                        ) : (
+                        {item.kind === "battle" ? (
+                          <Swords className="size-4 shrink-0 text-app-muted" />
+                        ) : item.kind === "debate" ? (
                           <Scale className="size-4 shrink-0 text-app-muted" />
+                        ) : (
+                          <MessageSquare className="size-4 shrink-0 text-app-muted" />
                         )}
                         <span className="truncate text-[15px] font-medium tracking-[-0.02em] text-app-text">
                           {item.title}

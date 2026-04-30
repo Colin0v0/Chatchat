@@ -16,6 +16,7 @@ import { LoaderCircle } from "lucide-react";
 type RoutableWorkspaceSection = Exclude<WorkspaceSection, "debates">;
 
 const WORKSPACE_SECTION_PATHS: Record<RoutableWorkspaceSection, string> = {
+  battle: "/battle",
   chats: "/",
   knowledge: "/knowledge",
   memories: "/memories",
@@ -61,9 +62,11 @@ function Disclaimer() {
 function WorkspaceApp({
   onLogout,
   username,
+  userId,
 }: {
   onLogout: () => void;
   username: string;
+  userId: number | null;
 }) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -90,6 +93,7 @@ function WorkspaceApp({
     routeSection,
     sidebarOpen: sidebar.sidebarOpen,
     toggleSidebar: sidebar.toggleSidebar,
+    userId,
   });
 
   useEffect(() => {
@@ -115,6 +119,7 @@ function WorkspaceApp({
         <MainHeader {...app.headerProps} />
         <WorkspaceMainView
           activeSection={app.activeSection}
+          battlePageProps={app.battlePageProps}
           conversationProps={app.conversationProps}
           debateCreateProps={app.debateCreateProps}
           debateRoomProps={app.debateRoomProps}
@@ -128,7 +133,7 @@ function WorkspaceApp({
         />
 
         <ErrorToast message={app.error} />
-        {app.activeSection !== "debates" || !app.debateRoomProps ? <Disclaimer /> : null}
+        {(app.activeSection !== "debates" || !app.debateRoomProps) ? <Disclaimer /> : null}
       </main>
 
       <SettingsDialog
@@ -211,7 +216,7 @@ export default function App() {
   return (
     <Routes>
       <Route element={<Navigate replace to="/" />} path="/login" />
-      <Route element={<WorkspaceApp onLogout={handleLogout} username={user.username} />} path="/*" />
+      <Route element={<WorkspaceApp onLogout={handleLogout} username={user.username} userId={user.id} />} path="/*" />
     </Routes>
   );
 }

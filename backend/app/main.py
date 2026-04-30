@@ -7,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from .api import (
     audio_router,
     auth_router,
+    battle_router,
     chat_router,
     conversations_router,
     debate_router,
@@ -61,6 +62,7 @@ def create_app() -> FastAPI:
 
     app.include_router(auth_router)
     app.include_router(models_router)
+    app.include_router(battle_router)
     app.include_router(knowledge_router)
     app.include_router(images_router)
     app.include_router(memories_router)

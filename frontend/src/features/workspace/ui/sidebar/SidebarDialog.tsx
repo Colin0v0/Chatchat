@@ -21,7 +21,7 @@ export function SidebarDialog({
   }
 
   const isRename = state.type === "rename";
-  const label = state.kind === "debate" ? "debate" : "chat";
+  const label = state.kind === "battle" ? "battle" : state.kind === "debate" ? "debate" : "chat";
 
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-[rgba(22,19,16,0.18)] px-4" onClick={onCancel}>

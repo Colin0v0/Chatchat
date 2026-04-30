@@ -1,4 +1,4 @@
-import { BookOpen, Check, Globe, Image, Paperclip, Plus, Scale } from "lucide-react";
+import { BookOpen, Check, Globe, Image, Paperclip, Plus, Scale, Swords } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { ReasoningProfileSelect } from "../../../models/ui/ReasoningProfileSelect";
@@ -12,9 +12,14 @@ interface ComposerMobileToolbarProps {
   onComposerModeChange: (value: ComposerMode) => void;
   onAddAttachment: () => void;
   onNewDebate: () => void;
+  onNewBattle: () => void;
   onReasoningProfileChange: (value: ReasoningProfileValue) => void;
   reasoningProfile: ReasoningProfileValue;
   selectedModelOption: ModelOption;
+  showImageModeOption: boolean;
+  showNewDebateOption: boolean;
+  showNewBattleOption: boolean;
+  showReasoningProfile: boolean;
   toolMode: ToolMode;
   onToggleRag: () => void;
   onToggleWeb: () => void;
@@ -68,9 +73,14 @@ export function ComposerMobileToolbar({
   onComposerModeChange,
   onAddAttachment,
   onNewDebate,
+  onNewBattle,
   onReasoningProfileChange,
   reasoningProfile,
   selectedModelOption,
+  showImageModeOption,
+  showNewDebateOption,
+  showNewBattleOption,
+  showReasoningProfile,
   toolMode,
   onToggleRag,
   onToggleWeb,
@@ -123,25 +133,40 @@ export function ComposerMobileToolbar({
                   // 移动端会先切到系统文件选择器；返回页面时保留上拉菜单，避免用户感知成菜单闪退。
                 }}
               />
-              <MobileMenuAction
-                active={imageMode}
-                disabled={isStreaming}
-                icon={<Image className="size-4" />}
-                label="创建图片"
-                onClick={() => {
-                  handleToggleImageMode();
-                  setMenuOpen(false);
-                }}
-              />
-              <MobileMenuAction
-                disabled={isStreaming}
-                icon={<Scale className="size-4" />}
-                label="新建辩论"
-                onClick={() => {
-                  onNewDebate();
-                  setMenuOpen(false);
-                }}
-              />
+              {showImageModeOption ? (
+                <MobileMenuAction
+                  active={imageMode}
+                  disabled={isStreaming}
+                  icon={<Image className="size-4" />}
+                  label="创建图片"
+                  onClick={() => {
+                    handleToggleImageMode();
+                    setMenuOpen(false);
+                  }}
+                />
+              ) : null}
+              {showNewDebateOption ? (
+                <MobileMenuAction
+                  disabled={isStreaming}
+                  icon={<Scale className="size-4" />}
+                  label="新建辩论"
+                  onClick={() => {
+                    onNewDebate();
+                    setMenuOpen(false);
+                  }}
+                />
+              ) : null}
+              {showNewBattleOption ? (
+                <MobileMenuAction
+                  disabled={isStreaming}
+                  icon={<Swords className="size-4" />}
+                  label="模型对战"
+                  onClick={() => {
+                    onNewBattle();
+                    setMenuOpen(false);
+                  }}
+                />
+              ) : null}
               <MobileMenuAction
                 active={ragEnabled}
                 disabled={isStreaming || imageMode}
@@ -165,7 +190,7 @@ export function ComposerMobileToolbar({
             </div>
           ) : null}
         </div>
-        {!imageMode ? (
+        {!imageMode && showReasoningProfile ? (
           <div className="min-w-0">
             <ReasoningProfileSelect
               compact

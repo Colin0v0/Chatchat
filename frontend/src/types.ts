@@ -155,6 +155,13 @@ export interface DebateSessionSummary {
   last_turn_preview: string;
 }
 
+export interface BattleSessionSummary {
+  id: number;
+  title: string;
+  updated_at: string | null;
+  last_message_preview: string;
+}
+
 export interface DebateActiveRun {
   action: "next" | "ask" | "decision";
   started_at: string | null;
@@ -283,6 +290,16 @@ export interface ChatStreamRequest {
   tool_mode: ToolMode;
   knowledge_folders?: string[];
   reasoning_profile?: ReasoningProfileValue | null;
+}
+
+export interface BattleStreamRequest {
+  message: string;
+  model: string;
+  files?: File[];
+  knowledge_folders?: string[];
+  reasoning_profile?: ReasoningProfileValue | null;
+  tool_mode: ToolMode;
+  history?: Array<{ role: string; content: string }>;
 }
 
 export interface ImageGenerationRequest {
@@ -516,6 +533,10 @@ type ChatStreamEventPayload =
   | {
       type: "sources";
       sources: MessageSource[];
+    }
+  | {
+      type: "attachments";
+      attachments: MessageAttachment[];
     }
   | {
       type: "search_trace";

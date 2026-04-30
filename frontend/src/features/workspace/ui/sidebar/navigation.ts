@@ -1,4 +1,4 @@
-import { BookOpen, Boxes, Brain, MessageSquare, Search, type LucideIcon } from "lucide-react";
+import { BookOpen, Boxes, Brain, MessageSquare, Search, Swords, type LucideIcon } from "lucide-react";
 
 import { WORKSPACE_SECTION_LABELS } from "../../model/workspaceSections";
 import type { WorkspaceSection } from "./types";

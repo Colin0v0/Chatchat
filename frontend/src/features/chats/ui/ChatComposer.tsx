@@ -11,6 +11,7 @@ import {
   Paperclip,
   Plus,
   Scale,
+  Swords,
   Square,
   X,
 } from "lucide-react";
@@ -65,6 +66,7 @@ interface ChatComposerProps {
   onSubmit: () => void;
   onStop: () => void;
   onNewDebate: () => void;
+  onNewBattle: () => void;
   isRecording: boolean;
   isStreaming: boolean;
   isTranscribing: boolean;
@@ -86,6 +88,14 @@ interface ChatComposerProps {
   onToggleWeb: () => void;
   onToggleRecording: () => void;
   centered?: boolean;
+  attachmentAcceptOverride?: string;
+  placeholder?: string;
+  showImageModeOption?: boolean;
+  showModelControls?: boolean;
+  showNewDebateOption?: boolean;
+  showNewBattleOption?: boolean;
+  showVoiceInput?: boolean;
+  minHeight?: number;
 }
 
 const ROOT_KNOWLEDGE_FOLDER_VALUE = "__root__";
@@ -240,20 +250,28 @@ function ComposerToolsMenu({
   attachmentUploadAvailable,
   disabled,
   mode,
+  showImageModeOption,
+  showNewDebateOption,
+  showNewBattleOption,
   toolMode,
   onAddAttachment,
   onComposerModeChange,
   onNewDebate,
+  onNewBattle,
   onToggleRag,
   onToggleWeb,
 }: {
   attachmentUploadAvailable: boolean;
   disabled: boolean;
   mode: ComposerMode;
+  showImageModeOption: boolean;
+  showNewDebateOption: boolean;
+  showNewBattleOption: boolean;
   toolMode: ToolMode;
   onAddAttachment: () => void;
   onComposerModeChange: (value: ComposerMode) => void;
   onNewDebate: () => void;
+  onNewBattle: () => void;
   onToggleRag: () => void;
   onToggleWeb: () => void;
 }) {
@@ -293,19 +311,31 @@ function ComposerToolsMenu({
       label: "上传照片和文件",
       onClick: onAddAttachment,
     },
-    {
-      active: isImageMode,
-      disabled,
-      icon: <Image className="size-4" />,
-      label: "创建图片",
-      onClick: handleToggleImageMode,
-    },
-    {
-      disabled,
-      icon: <Scale className="size-4" />,
-      label: "新建辩论",
-      onClick: onNewDebate,
-    },
+    ...(showImageModeOption
+      ? [{
+          active: isImageMode,
+          disabled,
+          icon: <Image className="size-4" />,
+          label: "创建图片",
+          onClick: handleToggleImageMode,
+        }]
+      : []),
+    ...(showNewDebateOption
+      ? [{
+          disabled,
+          icon: <Scale className="size-4" />,
+          label: "新建辩论",
+          onClick: onNewDebate,
+        }]
+      : []),
+    ...(showNewBattleOption
+      ? [{
+          disabled,
+          icon: <Swords className="size-4" />,
+          label: "模型对战",
+          onClick: onNewBattle,
+        }]
+      : []),
     {
       active: ragActive,
       disabled: disabled || isImageMode,
@@ -460,6 +490,7 @@ export function ChatComposer({
   onSubmit,
   onStop,
   onNewDebate,
+  onNewBattle,
   isRecording,
   isStreaming,
   isTranscribing,
@@ -481,6 +512,14 @@ export function ChatComposer({
   onToggleWeb,
   onToggleRecording,
   centered = false,
+  attachmentAcceptOverride,
+  placeholder,
+  showImageModeOption = true,
+  showModelControls = true,
+  showNewDebateOption = true,
+  showNewBattleOption = true,
+  showVoiceInput = true,
+  minHeight,
 }: ChatComposerProps) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [dragActive, setDragActive] = useState(false);
@@ -490,9 +529,9 @@ export function ChatComposer({
   const showKnowledgeScope = !imageMode && toolMode === "knowledge";
   const voiceDisabled = isStreaming || isTranscribing;
   const selectedModelOption = findModelOption(models, model);
-  const attachmentAccept = selectedModelOption.capabilities?.input.image === false
+  const attachmentAccept = attachmentAcceptOverride ?? (selectedModelOption.capabilities?.input.image === false
     ? FILE_ONLY_ATTACHMENT_ACCEPT
-    : ATTACHMENT_ACCEPT;
+    : ATTACHMENT_ACCEPT);
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
@@ -593,8 +632,9 @@ export function ChatComposer({
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          placeholder={imageMode ? "描述你想生成的图片" : "Ask anything"}
+          placeholder={placeholder ?? (imageMode ? "描述你想生成的图片" : "Ask anything")}
           rows={centered ? 3 : 2}
+          style={minHeight ? { minHeight: `${minHeight}px` } : undefined}
           title={submitBlockedReason ?? undefined}
           value={value}
         />
@@ -609,9 +649,13 @@ export function ChatComposer({
               attachmentUploadAvailable={attachmentUploadAvailable}
               disabled={isStreaming}
               mode={composerMode}
+              showImageModeOption={showImageModeOption}
+              showNewDebateOption={showNewDebateOption}
+              showNewBattleOption={showNewBattleOption}
               onAddAttachment={() => inputRef.current?.click()}
               onComposerModeChange={onComposerModeChange}
               onNewDebate={onNewDebate}
+              onNewBattle={onNewBattle}
               onToggleRag={onToggleRag}
               onToggleWeb={onToggleWeb}
               toolMode={toolMode}
@@ -619,8 +663,8 @@ export function ChatComposer({
             {imageMode ? (
               <ImageModePill disabled={isStreaming} onCancel={() => onComposerModeChange("chat")} />
             ) : null}
-            {!imageMode ? <ModelSelect model={model} models={models} onChange={onModelChange} /> : null}
-            {!imageMode ? (
+            {!imageMode && showModelControls ? <ModelSelect model={model} models={models} onChange={onModelChange} /> : null}
+            {!imageMode && showModelControls ? (
               <ReasoningProfileSelect
                 modelOption={selectedModelOption}
                 onChange={onReasoningProfileChange}
@@ -637,12 +681,14 @@ export function ChatComposer({
             ) : null}
           </div>
 
-          <ComposerVoiceButton
-            disabled={voiceDisabled}
-            isRecording={isRecording}
-            isTranscribing={isTranscribing}
-            onClick={onToggleRecording}
-          />
+          {showVoiceInput ? (
+            <ComposerVoiceButton
+              disabled={voiceDisabled}
+              isRecording={isRecording}
+              isTranscribing={isTranscribing}
+              onClick={onToggleRecording}
+            />
+          ) : null}
 
           <button
             className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-[8px] transition-colors ${
@@ -670,9 +716,14 @@ export function ChatComposer({
                 isStreaming={isStreaming}
                 onAddAttachment={() => inputRef.current?.click()}
                 onNewDebate={onNewDebate}
+                onNewBattle={onNewBattle}
                 onReasoningProfileChange={onReasoningProfileChange}
                 composerMode={composerMode}
                 onComposerModeChange={onComposerModeChange}
+                showImageModeOption={showImageModeOption}
+                showNewDebateOption={showNewDebateOption}
+                showNewBattleOption={showNewBattleOption}
+                showReasoningProfile={showModelControls}
                 onToggleRag={onToggleRag}
                 onToggleWeb={onToggleWeb}
                 reasoningProfile={reasoningProfile}
@@ -694,13 +745,15 @@ export function ChatComposer({
             </div>
 
             <div className="ml-auto flex shrink-0 items-center gap-2">
-              <ComposerVoiceButton
-                compact
-                disabled={voiceDisabled}
-                isRecording={isRecording}
-                isTranscribing={isTranscribing}
-                onClick={onToggleRecording}
-              />
+              {showVoiceInput ? (
+                <ComposerVoiceButton
+                  compact
+                  disabled={voiceDisabled}
+                  isRecording={isRecording}
+                  isTranscribing={isTranscribing}
+                  onClick={onToggleRecording}
+                />
+              ) : null}
 
               <button
                 className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-[8px] transition-colors ${

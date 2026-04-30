@@ -42,7 +42,12 @@ class WebSearchService:
             raise RuntimeError("Web search is not configured. Set DASHSCOPE_API_KEY or WEB_SEARCH_API_KEY first.")
 
     async def retrieve_context(self, query: str) -> ContextPayload:
-        plan = await build_search_plan(query, self._settings)
+        try:
+            plan = await build_search_plan(query, self._settings)
+        except Exception as exc:
+            # 搜索计划构建失败（如翻译/网络错误）时不拒绝用户，静默降级为空上下文，让模型直接回答。
+            return ContextPayload(debug={"error": str(exc)})
+
         if not plan.queries:
             return ContextPayload()
         if _query_is_too_short(plan):
@@ -53,23 +58,18 @@ class WebSearchService:
                 debug=_plan_debug(plan),
             )
 
-        raw_results = await self._execute_plan(plan)
+        try:
+            raw_results = await self._execute_plan(plan)
+        except Exception as exc:
+            # 搜索执行失败（如网络错误）时不拒绝用户，静默降级为空上下文。
+            return ContextPayload(debug={"error": str(exc)})
+
         if not raw_results:
-            return ContextPayload(
-                should_refuse=True,
-                refusal_message=_refusal_message(query),
-                strategy_hint=_strategy_hint(plan),
-                debug=_plan_debug(plan),
-            )
+            return ContextPayload(debug={"rag_ready": True, "rag_reason": "no_raw_results", **_plan_debug(plan)})
 
         filtered_results = filter_results(plan, raw_results)
         if not filtered_results:
-            return ContextPayload(
-                should_refuse=True,
-                refusal_message=_refusal_message(query),
-                strategy_hint=_strategy_hint(plan),
-                debug=_plan_debug(plan),
-            )
+            return ContextPayload(debug={"rag_ready": True, "rag_reason": "no_filtered_results", **_plan_debug(plan)})
 
         ranked_results = self._reranker.rerank(plan, filtered_results)
         # 多实体新鲜度问题需要更多网页片段，否则模型会用旧知识补齐未覆盖公司。
@@ -77,19 +77,9 @@ class WebSearchService:
         primary_results = ranked_results[:primary_limit]
         score_floor = max(self._min_score, plan.score_floor)
         if not primary_results or primary_results[0].final_score < score_floor:
-            return ContextPayload(
-                should_refuse=True,
-                refusal_message=_refusal_message(query),
-                strategy_hint=_strategy_hint(plan),
-                debug=_plan_debug(plan),
-            )
+            return ContextPayload(debug={"rag_ready": True, "rag_reason": "low_score", **_plan_debug(plan)})
         if plan.strict_refusal and len(primary_results) < plan.minimum_results:
-            return ContextPayload(
-                should_refuse=True,
-                refusal_message=_refusal_message(query),
-                strategy_hint=_strategy_hint(plan),
-                debug=_plan_debug(plan),
-            )
+            return ContextPayload(debug={"rag_ready": True, "rag_reason": "insufficient_results", **_plan_debug(plan)})
 
         sources: list[SourceItem] = []
         entries: list[ContextEntry] = []
