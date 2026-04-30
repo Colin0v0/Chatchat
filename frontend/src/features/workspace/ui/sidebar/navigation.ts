@@ -1,4 +1,4 @@
-import { BookOpen, Boxes, Brain, MessageSquare, Search, Swords, type LucideIcon } from "lucide-react";
+import { BookOpen, Boxes, Brain, MessageSquare, Search, type LucideIcon } from "lucide-react";
 
 import { WORKSPACE_SECTION_LABELS } from "../../model/workspaceSections";
 import type { WorkspaceSection } from "./types";
@@ -22,7 +22,6 @@ export type SidebarPrimaryItem =
 export const SIDEBAR_PRIMARY_ITEMS: SidebarPrimaryItem[] = [
   { icon: MessageSquare, id: "chats", kind: "section", label: WORKSPACE_SECTION_LABELS.chats, section: "chats" },
   { action: "search", icon: Search, id: "search", kind: "action", label: "Search" },
-  { icon: Swords, id: "battle", kind: "section", label: WORKSPACE_SECTION_LABELS.battle, section: "battle" },
   { icon: Boxes, id: "models", kind: "section", label: WORKSPACE_SECTION_LABELS.models, section: "models" },
   { icon: Brain, id: "memories", kind: "section", label: WORKSPACE_SECTION_LABELS.memories, section: "memories" },
   { icon: BookOpen, id: "knowledge", kind: "section", label: WORKSPACE_SECTION_LABELS.knowledge, section: "knowledge" },
