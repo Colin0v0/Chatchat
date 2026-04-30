@@ -1,25 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { readBrowserCache, writeBrowserCache, isRecord } from "../../../shared/lib/browserCache";
+import { useLatestRequestGuard } from "../../../shared/hooks/useLatestRequestGuard";
+import type { BattleSessionSummary, MessageAttachment, ModelOption, ToolMode } from "../../../types";
 import { deriveConversationTitle } from "../../chats/lib/constants";
-import { isModelOption } from "../../models/lib/modelOptionGuards";
 import {
   reasoningRequestValueForModel,
   resolveModelDefaultReasoningProfile,
 } from "../../models/lib/reasoningProfiles";
-import { streamBattleResponse } from "../api/battle";
+import {
+  createBattleSession,
+  deleteBattleSession,
+  fetchBattleSession,
+  fetchBattleSessions,
+  renameBattleSession,
+  streamBattleResponse,
+  updateBattleSession,
+} from "../api/battle";
 import type { BattleRound, BattleSessionDetail, BattleVote } from "./types";
-import type { BattleSessionSummary, MessageAttachment, ModelOption, ToolMode } from "../../../types";
-
-const BATTLE_SESSIONS_STORAGE_KEY_PREFIX = "chatchat.battle-sessions.v1";
-const BATTLE_SESSION_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-
-function getBattleSessionsStorageKey(userId: number | null): string {
-  if (userId === null) {
-    return `${BATTLE_SESSIONS_STORAGE_KEY_PREFIX}.anonymous`;
-  }
-  return `${BATTLE_SESSIONS_STORAGE_KEY_PREFIX}.${userId}`;
-}
 
 interface UseBattleModeOptions {
   availableModels: ModelOption[];
@@ -30,53 +27,6 @@ interface UseBattleModeOptions {
   setError: (message: string | null) => void;
   toolMode: ToolMode;
   userId: number | null;
-}
-
-function isBattleSideState(value: unknown): value is BattleRound["sides"]["a"] {
-  return (
-    isRecord(value)
-    && (value.id === "a" || value.id === "b")
-    && isModelOption(value.model)
-    && typeof value.content === "string"
-    && typeof value.reasoning === "string"
-    && (value.status === "streaming" || value.status === "done" || value.status === "error")
-    && (typeof value.error === "string" || value.error === null)
-    && typeof value.startedAt === "number"
-    && (typeof value.finishedAt === "number" || value.finishedAt === null)
-  );
-}
-
-function isBattleRound(value: unknown): value is BattleRound {
-  return (
-    isRecord(value)
-    && typeof value.id === "string"
-    && typeof value.prompt === "string"
-    && typeof value.createdAt === "string"
-    && typeof value.revealed === "boolean"
-    && (value.vote === "a" || value.vote === "b" || value.vote === "both_good" || value.vote === "both_bad" || value.vote === null)
-    && isRecord(value.sides)
-    && isBattleSideState(value.sides.a)
-    && isBattleSideState(value.sides.b)
-  );
-}
-
-function isBattleSessionDetail(value: unknown): value is BattleSessionDetail {
-  return (
-    isRecord(value)
-    && typeof value.id === "number"
-    && typeof value.title === "string"
-    && typeof value.created_at === "string"
-    && (typeof value.updated_at === "string" || value.updated_at === null)
-    && Array.isArray(value.rounds)
-    && value.rounds.every(isBattleRound)
-  );
-}
-
-function loadStoredBattleSessions(userId: number | null): BattleSessionDetail[] {
-  return readBrowserCache(
-    getBattleSessionsStorageKey(userId),
-    (value): value is BattleSessionDetail[] => Array.isArray(value) && value.every(isBattleSessionDetail),
-  ) ?? [];
 }
 
 function battleSessionSummary(session: BattleSessionDetail): BattleSessionSummary {
@@ -170,6 +120,87 @@ function attachmentPromptLabel(files: File[]) {
   return names.length > 0 ? `附件：${names.join("、")}` : "";
 }
 
+function sortBattleSummaries(items: BattleSessionSummary[]) {
+  return [...items].sort((left, right) => {
+    const leftTime = left.updated_at ? Date.parse(left.updated_at) : 0;
+    const rightTime = right.updated_at ? Date.parse(right.updated_at) : 0;
+    if (rightTime !== leftTime) {
+      return rightTime - leftTime;
+    }
+    return right.id - left.id;
+  });
+}
+
+function mergeBattleSideState(
+  serverSide: BattleRound["sides"]["a"],
+  cachedSide: BattleRound["sides"]["a"],
+): BattleRound["sides"]["a"] {
+  return {
+    ...serverSide,
+    content:
+      cachedSide.content.length > serverSide.content.length
+        ? cachedSide.content
+        : serverSide.content,
+    reasoning:
+      cachedSide.reasoning.length > serverSide.reasoning.length
+        ? cachedSide.reasoning
+        : serverSide.reasoning,
+    status:
+      serverSide.status === "streaming" && cachedSide.status !== "streaming"
+        ? cachedSide.status
+        : serverSide.status,
+    error: cachedSide.error ?? serverSide.error,
+    startedAt: cachedSide.startedAt || serverSide.startedAt,
+    finishedAt: serverSide.finishedAt ?? cachedSide.finishedAt,
+  };
+}
+
+function mergeBattleRound(serverRound: BattleRound, cachedRound: BattleRound): BattleRound {
+  return {
+    ...serverRound,
+    revealed: serverRound.revealed || cachedRound.revealed,
+    vote: cachedRound.vote ?? serverRound.vote,
+    attachments:
+      cachedRound.attachments.length > serverRound.attachments.length
+        ? cachedRound.attachments
+        : serverRound.attachments,
+    sides: {
+      a: mergeBattleSideState(serverRound.sides.a, cachedRound.sides.a),
+      b: mergeBattleSideState(serverRound.sides.b, cachedRound.sides.b),
+    },
+  };
+}
+
+function mergeBattleSessionWithCache(
+  serverSession: BattleSessionDetail,
+  cachedSession: BattleSessionDetail | null,
+): BattleSessionDetail {
+  if (!cachedSession || cachedSession.id !== serverSession.id) {
+    return serverSession;
+  }
+
+  const cachedRoundsById = new Map(cachedSession.rounds.map((round) => [round.id, round]));
+  const mergedRounds = serverSession.rounds.map((round) => {
+    const cachedRound = cachedRoundsById.get(round.id);
+    return cachedRound ? mergeBattleRound(round, cachedRound) : round;
+  });
+  const knownRoundIds = new Set(mergedRounds.map((round) => round.id));
+  const cachedOnlyRounds = cachedSession.rounds.filter((round) => !knownRoundIds.has(round.id));
+
+  return {
+    ...serverSession,
+    updated_at:
+      cachedSession.updated_at && serverSession.updated_at
+        ? (
+            Date.parse(cachedSession.updated_at) > Date.parse(serverSession.updated_at)
+              ? cachedSession.updated_at
+              : serverSession.updated_at
+          )
+        : cachedSession.updated_at ?? serverSession.updated_at,
+    rounds: [...mergedRounds, ...cachedOnlyRounds],
+  };
+}
+
 export function useBattleMode({
   availableModels,
   draftFiles,
@@ -180,89 +211,141 @@ export function useBattleMode({
   toolMode,
   userId,
 }: UseBattleModeOptions) {
-  const [sessions, setSessions] = useState<BattleSessionDetail[]>(() => loadStoredBattleSessions(userId));
+  const [sessions, setSessions] = useState<BattleSessionSummary[]>([]);
+  const [sessionsLoaded, setSessionsLoaded] = useState(false);
   const [activeId, setActiveId] = useState<number | null>(null);
+  const [activeSession, setActiveSession] = useState<BattleSessionDetail | null>(null);
   const [draft, setDraft] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const abortControllersRef = useRef<AbortController[]>([]);
-  const previousUserIdRef = useRef<number | null>(userId);
-
-  const summaries = useMemo(
-    () => sessions.map(battleSessionSummary),
-    [sessions],
-  );
+  const loadAbortRef = useRef<AbortController | null>(null);
+  const sessionCacheRef = useRef<Map<number, BattleSessionDetail>>(new Map());
+  const sessionRevisionRef = useRef<Map<number, number>>(new Map());
+  const persistQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const activeIdRef = useRef<number | null>(null);
+  const activeSessionRef = useRef<BattleSessionDetail | null>(null);
+  const streamingSessionIdRef = useRef<number | null>(null);
+  const refreshGuard = useLatestRequestGuard();
+  const loadGuard = useLatestRequestGuard();
 
   const filteredSessions = useMemo(() => {
     if (!query.trim()) {
-      return summaries;
+      return sessions;
     }
 
     const keyword = query.toLowerCase();
-    return summaries.filter((item) => item.title.toLowerCase().includes(keyword));
-  }, [query, summaries]);
-
-  const activeSession = useMemo(
-    () => sessions.find((session) => session.id === activeId) ?? null,
-    [activeId, sessions],
-  );
+    return sessions.filter((item) => item.title.toLowerCase().includes(keyword));
+  }, [query, sessions]);
 
   useEffect(() => {
-    // Battle 评测记录先保存在浏览器缓存里，侧边栏 Recents 直接读取这份本地会话。
-    const timeoutId = window.setTimeout(() => {
-      writeBrowserCache(getBattleSessionsStorageKey(userId), sessions, BATTLE_SESSION_CACHE_TTL_MS);
-    }, 400);
-    return () => window.clearTimeout(timeoutId);
-  }, [sessions, userId]);
+    activeIdRef.current = activeId;
+  }, [activeId]);
 
   useEffect(() => {
-    if (previousUserIdRef.current !== userId) {
-      previousUserIdRef.current = userId;
-      abortStreams();
-      setIsStreaming(false);
-      setActiveId(null);
-      setDraft("");
-      setSessions(loadStoredBattleSessions(userId));
-    }
-  }, [userId]);
+    activeSessionRef.current = activeSession;
+  }, [activeSession]);
 
   const abortStreams = useCallback(() => {
     abortControllersRef.current.forEach((controller) => controller.abort());
     abortControllersRef.current = [];
   }, []);
 
-  const startNewSession = useCallback(() => {
-    setActiveId(null);
-    setDraft("");
+  const upsertSessionSummary = useCallback((summary: BattleSessionSummary) => {
+    setSessions((current) => {
+      const next = current.filter((item) => item.id !== summary.id);
+      next.push(summary);
+      return sortBattleSummaries(next);
+    });
   }, []);
 
-  const selectSession = useCallback((sessionId: number) => {
-    setActiveId(sessionId);
+  const removeSessionSummary = useCallback((sessionId: number) => {
+    setSessions((current) => current.filter((session) => session.id !== sessionId));
   }, []);
 
-  const clearActiveSession = useCallback(() => {
-    setActiveId(null);
+  const commitSession = useCallback((session: BattleSessionDetail) => {
+    const nextRevision = (sessionRevisionRef.current.get(session.id) ?? 0) + 1;
+    sessionRevisionRef.current.set(session.id, nextRevision);
+    sessionCacheRef.current.set(session.id, session);
+    upsertSessionSummary(battleSessionSummary(session));
+    setActiveSession((current) =>
+      (current && current.id === session.id) || activeIdRef.current === session.id ? session : current,
+    );
+    return nextRevision;
+  }, [upsertSessionSummary]);
+
+  const getKnownSession = useCallback((sessionId: number) => {
+    const cachedSession = sessionCacheRef.current.get(sessionId);
+    if (cachedSession) {
+      return cachedSession;
+    }
+    if (activeSessionRef.current?.id === sessionId) {
+      return activeSessionRef.current;
+    }
+    return null;
   }, []);
+
+  const updateKnownSession = useCallback(
+    (
+      sessionId: number,
+      update: (session: BattleSessionDetail) => BattleSessionDetail,
+    ) => {
+      const currentSession = getKnownSession(sessionId);
+      if (!currentSession) {
+        return null;
+      }
+
+      const nextSession = update(currentSession);
+      const revision = commitSession(nextSession);
+      return {
+        revision,
+        session: nextSession,
+      };
+    },
+    [commitSession, getKnownSession],
+  );
+
+  const enqueuePersist = useCallback((task: () => Promise<void>) => {
+    const nextTask = persistQueueRef.current.then(task, task);
+    persistQueueRef.current = nextTask.catch(() => undefined);
+    return nextTask;
+  }, []);
+
+  const persistSessionSnapshot = useCallback(
+    (session: BattleSessionDetail, revision: number) => {
+      void enqueuePersist(async () => {
+        try {
+          const savedSession = await updateBattleSession(session.id, {
+            title: session.title,
+            rounds: session.rounds,
+          });
+          if ((sessionRevisionRef.current.get(session.id) ?? 0) !== revision) {
+            return;
+          }
+          commitSession(savedSession);
+        } catch (persistError) {
+          setError(persistError instanceof Error ? persistError.message : "Battle 保存失败。");
+        }
+      });
+    },
+    [commitSession, enqueuePersist, setError],
+  );
 
   const updateRound = useCallback(
     (
       sessionId: number,
       roundId: string,
       update: (round: BattleRound) => BattleRound,
-    ) => {
-      const updatedAt = new Date().toISOString();
-      setSessions((current) =>
-        current.map((session) =>
-          session.id === sessionId
-            ? {
-                ...session,
-                updated_at: updatedAt,
-                rounds: session.rounds.map((round) => (round.id === roundId ? update(round) : round)),
-              }
-            : session,
-        ),
-      );
-    },
-    [],
+      options?: { touchUpdatedAt?: boolean },
+    ) =>
+      updateKnownSession(sessionId, (session) => ({
+        ...session,
+        updated_at:
+          options?.touchUpdatedAt === false
+            ? session.updated_at
+            : new Date().toISOString(),
+        rounds: session.rounds.map((round) => (round.id === roundId ? update(round) : round)),
+      })),
+    [updateKnownSession],
   );
 
   const chooseModels = useCallback((files: File[]): [ModelOption, ModelOption] | null => {
@@ -280,64 +363,182 @@ export function useBattleMode({
     return [candidates[firstIndex], candidates[secondIndex]];
   }, [availableModels, setError]);
 
+  const refreshSessions = useCallback(async () => {
+    if (userId === null) {
+      setSessions([]);
+      setSessionsLoaded(true);
+      return;
+    }
+
+    const requestId = refreshGuard.begin();
+    try {
+      const items = await fetchBattleSessions();
+      if (!refreshGuard.isCurrent(requestId)) {
+        return;
+      }
+      setSessions(sortBattleSummaries(items));
+    } catch (refreshError) {
+      if (refreshGuard.isCurrent(requestId)) {
+        setError(refreshError instanceof Error ? refreshError.message : "Battle 列表加载失败。");
+      }
+    } finally {
+      if (refreshGuard.isCurrent(requestId)) {
+        setSessionsLoaded(true);
+      }
+    }
+  }, [refreshGuard, setError, userId]);
+
+  const loadSession = useCallback(
+    async (sessionId: number) => {
+      const requestId = loadGuard.begin();
+      loadAbortRef.current?.abort();
+
+      const cachedSession = getKnownSession(sessionId);
+      if (cachedSession) {
+        setActiveSession(cachedSession);
+      }
+
+      const controller = new AbortController();
+      loadAbortRef.current = controller;
+
+      try {
+        const session = mergeBattleSessionWithCache(
+          await fetchBattleSession(sessionId, controller.signal),
+          getKnownSession(sessionId),
+        );
+        if (controller.signal.aborted || !loadGuard.isCurrent(requestId)) {
+          return;
+        }
+        commitSession(session);
+      } catch (loadError) {
+        if (controller.signal.aborted || !loadGuard.isCurrent(requestId)) {
+          return;
+        }
+        setError(loadError instanceof Error ? loadError.message : "Battle 会话加载失败。");
+      } finally {
+        if (loadAbortRef.current === controller) {
+          loadAbortRef.current = null;
+        }
+      }
+    },
+    [commitSession, getKnownSession, loadGuard, setError],
+  );
+
+  useEffect(() => {
+    abortStreams();
+    loadAbortRef.current?.abort();
+    activeIdRef.current = null;
+    streamingSessionIdRef.current = null;
+    setIsStreaming(false);
+    setActiveId(null);
+    setActiveSession(null);
+    setDraft("");
+    setSessionsLoaded(false);
+    sessionCacheRef.current.clear();
+    sessionRevisionRef.current.clear();
+    void refreshSessions();
+  }, [abortStreams, refreshSessions, userId]);
+
+  useEffect(() => {
+    if (activeId === null) {
+      return;
+    }
+
+    void loadSession(activeId);
+  }, [activeId, loadSession]);
+
+  useEffect(() => {
+    return () => {
+      abortStreams();
+      loadAbortRef.current?.abort();
+    };
+  }, [abortStreams]);
+
+  const markStoppedSession = useCallback((sessionId: number) => {
+    const stoppedAt = Date.now();
+    return updateKnownSession(sessionId, (session) => {
+      const latestRoundIndex = session.rounds.length - 1;
+      return {
+        ...session,
+        updated_at: new Date(stoppedAt).toISOString(),
+        rounds: session.rounds.map((round, index) => {
+          if (index !== latestRoundIndex) {
+            return round;
+          }
+
+          const markStopped = (side: BattleRound["sides"]["a"]) =>
+            side.status === "streaming"
+              ? {
+                  ...side,
+                  status: "error" as const,
+                  error: "已停止生成。",
+                  finishedAt: stoppedAt,
+                }
+              : side;
+
+          return {
+            ...round,
+            sides: {
+              a: markStopped(round.sides.a),
+              b: markStopped(round.sides.b),
+            },
+          };
+        }),
+      };
+    });
+  }, [updateKnownSession]);
+
+  const startNewSession = useCallback(() => {
+    activeIdRef.current = null;
+    setActiveId(null);
+    setActiveSession(null);
+    setDraft("");
+  }, []);
+
+  const selectSession = useCallback((sessionId: number) => {
+    activeIdRef.current = sessionId;
+    setActiveId(sessionId);
+    setActiveSession(getKnownSession(sessionId));
+  }, [getKnownSession]);
+
+  const clearActiveSession = useCallback(() => {
+    activeIdRef.current = null;
+    setActiveId(null);
+    setActiveSession(null);
+  }, []);
+
   const vote = useCallback(
     (roundId: string, nextVote: BattleVote) => {
       if (activeId === null) {
         return;
       }
-      updateRound(activeId, roundId, (round) => ({
+
+      const updated = updateRound(activeId, roundId, (round) => ({
         ...round,
         revealed: true,
         vote: nextVote,
       }));
+      if (!updated) {
+        return;
+      }
+
+      persistSessionSnapshot(updated.session, updated.revision);
     },
-    [activeId, updateRound],
+    [activeId, persistSessionSnapshot, updateRound],
   );
 
   const stop = useCallback(() => {
     abortStreams();
-    if (activeId !== null) {
-      const stoppedAt = Date.now();
-      const updatedAt = new Date(stoppedAt).toISOString();
-      setSessions((current) =>
-        current.map((session) => {
-          if (session.id !== activeId) {
-            return session;
-          }
-
-          const latestRoundIndex = session.rounds.length - 1;
-          return {
-            ...session,
-            updated_at: updatedAt,
-            rounds: session.rounds.map((round, index) => {
-              if (index !== latestRoundIndex) {
-                return round;
-              }
-
-              const markStopped = (side: BattleRound["sides"]["a"]) =>
-                side.status === "streaming"
-                  ? {
-                      ...side,
-                      status: "error" as const,
-                      error: "已停止生成。",
-                      finishedAt: stoppedAt,
-                    }
-                  : side;
-
-              return {
-                ...round,
-                sides: {
-                  a: markStopped(round.sides.a),
-                  b: markStopped(round.sides.b),
-                },
-              };
-            }),
-          };
-        }),
-      );
+    const streamingSessionId = streamingSessionIdRef.current;
+    if (streamingSessionId !== null) {
+      const updated = markStoppedSession(streamingSessionId);
+      if (updated) {
+        persistSessionSnapshot(updated.session, updated.revision);
+      }
     }
+    streamingSessionIdRef.current = null;
     setIsStreaming(false);
-  }, [abortStreams, activeId]);
+  }, [abortStreams, markStoppedSession, persistSessionSnapshot]);
 
   const send = useCallback(async () => {
     const prompt = draft.trim();
@@ -345,6 +546,12 @@ export function useBattleMode({
     if ((!prompt && files.length === 0) || isStreaming) {
       return;
     }
+    if (userId === null) {
+      setError("请先登录后再使用 Battle。");
+      return;
+    }
+
+    setError(null);
 
     const pair = chooseModels(files);
     if (!pair) {
@@ -352,247 +559,292 @@ export function useBattleMode({
     }
 
     const [firstModel, secondModel] = pair;
-    const now = new Date().toISOString();
+    let baseSession = activeId === null ? null : getKnownSession(activeId);
+    if (activeId !== null && !baseSession) {
+      try {
+        const loadedSession = await fetchBattleSession(activeId);
+        commitSession(loadedSession);
+        baseSession = loadedSession;
+      } catch (loadError) {
+        setError(loadError instanceof Error ? loadError.message : "Battle 会话加载失败。");
+        return;
+      }
+    }
+
     const promptLabel = prompt || attachmentPromptLabel(files);
-    const attachments: MessageAttachment[] = files.map((file) => ({
-      id: `battle-attach-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      kind: file.type.startsWith("image/") ? "image" : "file",
-      original_name: file.name,
-      mime_type: file.type,
-      size_bytes: file.size,
-      extension: file.name.includes(".") ? file.name.slice(file.name.lastIndexOf(".")) : undefined,
-      url: URL.createObjectURL(file),
-    }));
+    const nextTitle =
+      baseSession && baseSession.rounds.length > 0
+        ? baseSession.title
+        : deriveConversationTitle(promptLabel, 0);
+
+    // 这里先只把轮次骨架写进数据库，真正的附件 URL 要等流式接口返回服务端媒体地址。
     const round = createBattleRound({
-      attachments,
+      attachments: [],
       firstModel,
       prompt: promptLabel,
       secondModel,
     });
-    const sessionId = activeId ?? Date.now();
-    const nextTitle = deriveConversationTitle(promptLabel, 0);
-    const nextSession: BattleSessionDetail = {
-      id: sessionId,
-      title: nextTitle,
-      created_at: now,
-      updated_at: now,
-      rounds: [round],
-    };
 
-    // 构建每 side 的历史上下文：只包含当前 session 中已完成的轮次
-    const existingRounds = activeSession?.rounds ?? [];
-    const buildSideHistory = (sideId: "a" | "b"): Array<{ role: string; content: string }> => {
-      const history: Array<{ role: string; content: string }> = [];
-      for (const r of existingRounds) {
-        const side = r.sides[sideId];
-        if (side.status !== "done" && side.status !== "error") {
-          continue;
-        }
-        history.push({ role: "user", content: r.prompt });
-        history.push({
-          role: "assistant",
-          content: side.status === "error" ? side.error || "生成出错" : side.content,
+    setIsStreaming(true);
+
+    try {
+      let session: BattleSessionDetail;
+      if (baseSession === null) {
+        session = await createBattleSession({
+          title: nextTitle,
+          rounds: [round],
+        });
+        activeIdRef.current = session.id;
+        setActiveId(session.id);
+        setActiveSession(session);
+      } else {
+        session = await updateBattleSession(baseSession.id, {
+          title: nextTitle,
+          rounds: [...baseSession.rounds, round],
         });
       }
-      return history;
-    };
+      commitSession(session);
+      streamingSessionIdRef.current = session.id;
+      setDraft("");
+      onDraftAccepted?.();
 
-    setDraft("");
-    onDraftAccepted?.();
-    setIsStreaming(true);
-    setActiveId(sessionId);
-    setSessions((current) => {
-      const existing = current.find((session) => session.id === sessionId);
-      if (!existing) {
-        return [nextSession, ...current];
-      }
-      return current.map((session) =>
-        session.id === sessionId
-          ? {
-              ...session,
-              updated_at: now,
-              rounds: [...session.rounds, round],
-            }
-          : session,
-      );
-    });
+      // 每个 side 都只继承自己之前的结果，避免把对手答案泄露给另一条流。
+      const existingRounds = session.rounds.slice(0, -1);
+      const buildSideHistory = (sideId: "a" | "b"): Array<{ role: string; content: string }> => {
+        const history: Array<{ role: string; content: string }> = [];
+        for (const existingRound of existingRounds) {
+          const side = existingRound.sides[sideId];
+          if (side.status !== "done" && side.status !== "error") {
+            continue;
+          }
+          history.push({ role: "user", content: existingRound.prompt });
+          history.push({
+            role: "assistant",
+            content: side.status === "error" ? side.error || "生成出错" : side.content,
+          });
+        }
+        return history;
+      };
 
-    const controllers = [new AbortController(), new AbortController()];
-    abortControllersRef.current = controllers;
+      const controllers = [new AbortController(), new AbortController()];
+      abortControllersRef.current = controllers;
 
-    async function runSide(sideId: "a" | "b", modelOption: ModelOption, controller: AbortController) {
-      const startedAt = Date.now();
-      try {
-        await streamBattleResponse(
-          {
-            message: prompt,
-            files,
-            knowledge_folders: knowledgeFolders,
-            model: modelOption.id,
-            reasoning_profile: reasoningRequestValueForModel(
-              modelOption,
-              resolveModelDefaultReasoningProfile(modelOption),
-            ),
-            tool_mode: toolMode,
-            history: buildSideHistory(sideId),
-          },
-          {
-            signal: controller.signal,
-            onEvent: (event) => {
-              if (event.type === "attachments") {
-                updateRound(sessionId, round.id, (currentRound) => ({
-                  ...currentRound,
-                  attachments: event.attachments,
-                }));
-                return;
-              }
-              if (event.type === "token") {
-                updateRound(sessionId, round.id, (currentRound) => ({
-                  ...currentRound,
-                  sides: {
-                    ...currentRound.sides,
-                    [sideId]: {
-                      ...currentRound.sides[sideId],
-                      content: currentRound.sides[sideId].content + event.content,
+      async function runSide(sideId: "a" | "b", modelOption: ModelOption, controller: AbortController) {
+        const startedAt = Date.now();
+
+        try {
+          await streamBattleResponse(
+            {
+              message: prompt,
+              files,
+              knowledge_folders: knowledgeFolders,
+              model: modelOption.id,
+              reasoning_profile: reasoningRequestValueForModel(
+                modelOption,
+                resolveModelDefaultReasoningProfile(modelOption),
+              ),
+              tool_mode: toolMode,
+              history: buildSideHistory(sideId),
+            },
+            {
+              signal: controller.signal,
+              onEvent: (event) => {
+                if (event.type === "attachments") {
+                  const updated = updateRound(session.id, round.id, (currentRound) => ({
+                    ...currentRound,
+                    attachments: event.attachments,
+                  }));
+                  if (updated) {
+                    persistSessionSnapshot(updated.session, updated.revision);
+                  }
+                  return;
+                }
+
+                if (event.type === "token") {
+                  updateRound(
+                    session.id,
+                    round.id,
+                    (currentRound) => ({
+                      ...currentRound,
+                      sides: {
+                        ...currentRound.sides,
+                        [sideId]: {
+                          ...currentRound.sides[sideId],
+                          content: currentRound.sides[sideId].content + event.content,
+                        },
+                      },
+                    }),
+                    { touchUpdatedAt: false },
+                  );
+                  return;
+                }
+
+                if (event.type === "reasoning") {
+                  updateRound(
+                    session.id,
+                    round.id,
+                    (currentRound) => ({
+                      ...currentRound,
+                      sides: {
+                        ...currentRound.sides,
+                        [sideId]: {
+                          ...currentRound.sides[sideId],
+                          reasoning: currentRound.sides[sideId].reasoning + event.content,
+                        },
+                      },
+                    }),
+                    { touchUpdatedAt: false },
+                  );
+                  return;
+                }
+
+                if (event.type === "done") {
+                  const updated = updateRound(session.id, round.id, (currentRound) => ({
+                    ...currentRound,
+                    sides: {
+                      ...currentRound.sides,
+                      [sideId]: {
+                        ...currentRound.sides[sideId],
+                        content:
+                          typeof event.content === "string"
+                            ? event.content
+                            : currentRound.sides[sideId].content,
+                        status: typeof event.content === "string" ? "done" : "error",
+                        error:
+                          typeof event.content === "string"
+                            ? null
+                            : "Battle 响应缺少完成内容。",
+                        finishedAt: Date.now(),
+                        startedAt,
+                      },
                     },
-                  },
-                }));
-                return;
-              }
-              if (event.type === "reasoning") {
-                updateRound(sessionId, round.id, (currentRound) => ({
-                  ...currentRound,
-                  sides: {
-                    ...currentRound.sides,
-                    [sideId]: {
-                      ...currentRound.sides[sideId],
-                      reasoning: currentRound.sides[sideId].reasoning + event.content,
-                    },
-                  },
-                }));
-                return;
-              }
-              if (event.type === "done") {
-                if (typeof event.content !== "string") {
-                  updateRound(sessionId, round.id, (currentRound) => ({
+                  }));
+                  if (updated) {
+                    persistSessionSnapshot(updated.session, updated.revision);
+                  }
+                  return;
+                }
+
+                if (event.type === "error") {
+                  const updated = updateRound(session.id, round.id, (currentRound) => ({
                     ...currentRound,
                     sides: {
                       ...currentRound.sides,
                       [sideId]: {
                         ...currentRound.sides[sideId],
                         status: "error",
-                        error: "Battle 响应缺少完成内容。",
+                        error: event.message,
                         finishedAt: Date.now(),
                         startedAt,
                       },
                     },
                   }));
-                  return;
+                  if (updated) {
+                    persistSessionSnapshot(updated.session, updated.revision);
+                  }
                 }
-                updateRound(sessionId, round.id, (currentRound) => ({
-                  ...currentRound,
-                  sides: {
-                    ...currentRound.sides,
-                    [sideId]: {
-                      ...currentRound.sides[sideId],
-                      content: event.content,
-                      status: "done",
-                      finishedAt: Date.now(),
-                      startedAt,
-                    },
-                  },
-                }));
-                return;
-              }
-              if (event.type === "error") {
-                updateRound(sessionId, round.id, (currentRound) => ({
-                  ...currentRound,
-                  sides: {
-                    ...currentRound.sides,
-                    [sideId]: {
-                      ...currentRound.sides[sideId],
-                      status: "error",
-                      error: event.message,
-                      finishedAt: Date.now(),
-                      startedAt,
-                    },
-                  },
-                }));
-              }
+              },
             },
-          },
-        );
-      } catch (streamError) {
-        if (controller.signal.aborted) {
-          return;
-        }
-        updateRound(sessionId, round.id, (currentRound) => ({
-          ...currentRound,
-          sides: {
-            ...currentRound.sides,
-            [sideId]: {
-              ...currentRound.sides[sideId],
-              status: "error",
-              error: streamError instanceof Error ? streamError.message : String(streamError),
-              finishedAt: Date.now(),
-              startedAt,
-            },
-          },
-        }));
-      }
-    }
+          );
+        } catch (streamError) {
+          if (controller.signal.aborted) {
+            return;
+          }
 
-    await Promise.all([
-      runSide("a", firstModel, controllers[0]),
-      runSide("b", secondModel, controllers[1]),
-    ]);
-    abortControllersRef.current = [];
-    setIsStreaming(false);
+          const updated = updateRound(session.id, round.id, (currentRound) => ({
+            ...currentRound,
+            sides: {
+              ...currentRound.sides,
+              [sideId]: {
+                ...currentRound.sides[sideId],
+                status: "error",
+                error: streamError instanceof Error ? streamError.message : String(streamError),
+                finishedAt: Date.now(),
+                startedAt,
+              },
+            },
+          }));
+          if (updated) {
+            persistSessionSnapshot(updated.session, updated.revision);
+          }
+        }
+      }
+
+      await Promise.all([
+        runSide("a", firstModel, controllers[0]),
+        runSide("b", secondModel, controllers[1]),
+      ]);
+    } catch (sendError) {
+      setError(sendError instanceof Error ? sendError.message : "Battle 创建失败。");
+    } finally {
+      abortControllersRef.current = [];
+      streamingSessionIdRef.current = null;
+      setIsStreaming(false);
+    }
   }, [
     activeId,
-    activeSession,
     chooseModels,
+    commitSession,
     draft,
     draftFiles,
+    getKnownSession,
     isStreaming,
     knowledgeFolders,
     onDraftAccepted,
+    setError,
     toolMode,
     updateRound,
+    userId,
   ]);
 
-  const rename = useCallback((sessionId: number, title: string) => {
+  const rename = useCallback(async (sessionId: number, title: string) => {
     const nextTitle = title.trim();
     if (!nextTitle) {
       return;
     }
 
-    const updatedAt = new Date().toISOString();
-    setSessions((current) =>
-      current.map((session) =>
-        session.id === sessionId
-          ? {
-              ...session,
-              title: nextTitle,
-              updated_at: updatedAt,
-            }
-          : session,
-      ),
-    );
-  }, []);
+    try {
+      const summary = await renameBattleSession(sessionId, nextTitle);
+      upsertSessionSummary(summary);
+      updateKnownSession(sessionId, (session) => ({
+        ...session,
+        title: summary.title,
+        updated_at: summary.updated_at,
+      }));
+    } catch (renameError) {
+      setError(renameError instanceof Error ? renameError.message : "Battle 重命名失败。");
+    }
+  }, [setError, updateKnownSession, upsertSessionSummary]);
 
   const remove = useCallback(
-    (sessionId: number) => {
-      if (activeId === sessionId) {
-        abortStreams();
-        setIsStreaming(false);
-        setActiveId(null);
-        setDraft("");
-      }
+    async (sessionId: number) => {
+      try {
+        if (streamingSessionIdRef.current === sessionId) {
+          abortStreams();
+          streamingSessionIdRef.current = null;
+          setIsStreaming(false);
+        }
 
-      setSessions((current) => current.filter((session) => session.id !== sessionId));
+        if (activeIdRef.current === sessionId) {
+          loadAbortRef.current?.abort();
+        }
+
+        await deleteBattleSession(sessionId);
+        sessionCacheRef.current.delete(sessionId);
+        sessionRevisionRef.current.delete(sessionId);
+        removeSessionSummary(sessionId);
+
+        if (activeIdRef.current === sessionId) {
+          activeIdRef.current = null;
+          setActiveId(null);
+          setActiveSession(null);
+          setDraft("");
+        }
+      } catch (deleteError) {
+        setError(deleteError instanceof Error ? deleteError.message : "Battle 删除失败。");
+      }
     },
-    [abortStreams, activeId],
+    [abortStreams, removeSessionSummary, setError],
   );
 
   return {
@@ -600,7 +852,9 @@ export function useBattleMode({
     activeSession,
     draft,
     filteredSessions,
+    isLoading: activeId !== null && activeSession === null,
     isStreaming,
+    loaded: sessionsLoaded,
     abortStreams,
     clearActiveSession,
     remove,

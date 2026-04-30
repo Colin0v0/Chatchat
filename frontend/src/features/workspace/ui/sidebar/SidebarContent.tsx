@@ -48,6 +48,7 @@ export function SidebarContent({
   activeConversationId,
   activeDebateId,
   activeBattleId,
+  battlesLoaded,
   conversationsLoaded,
   debatesLoaded,
   query,
@@ -92,7 +93,7 @@ export function SidebarContent({
       title: item.topic,
       updatedAt: item.updated_at,
     }));
-      const mergedBattles: CombinedSidebarItem[] = battleItems.map((item) => ({
+    const mergedBattles: CombinedSidebarItem[] = battleItems.map((item) => ({
       kind: "battle",
       id: item.id,
       title: item.title,
@@ -207,13 +208,13 @@ export function SidebarContent({
             </div>
 
             <div className="sidebar-scrollbar-hidden min-h-0 flex-1 overflow-x-hidden overflow-y-auto pt-2">
-              {!conversationsLoaded || !debatesLoaded ? (
+              {!conversationsLoaded || !debatesLoaded || !battlesLoaded ? (
                 <div className={sectionPadding}>
                   <SidebarLoadingState />
                 </div>
               ) : null}
 
-              {conversationsLoaded && debatesLoaded ? (
+              {conversationsLoaded && debatesLoaded && battlesLoaded ? (
                 <div className={`flex flex-col gap-1 ${sectionPadding}`}>
                   {combinedItems.length === 0 ? (
                     <div className="overflow-hidden px-3 py-2 text-[14px] text-app-muted">{emptyText}</div>

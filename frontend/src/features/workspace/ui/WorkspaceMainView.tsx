@@ -17,6 +17,7 @@ type WorkspaceMainViewProps = {
   conversationProps: ComponentProps<typeof ConversationView> | null;
   debateCreateProps: ComponentProps<typeof DebateCreateView> | null;
   debateRoomProps: ComponentProps<typeof DebateRoomView> | null;
+  isBattleLoading: boolean;
   isConversationLoading: boolean;
   isDebateLoading: boolean;
   knowledgePageProps: ComponentProps<typeof KnowledgePage>;
@@ -42,6 +43,7 @@ export function WorkspaceMainView({
   conversationProps,
   debateCreateProps,
   debateRoomProps,
+  isBattleLoading,
   isConversationLoading,
   isDebateLoading,
   knowledgePageProps,
@@ -63,6 +65,9 @@ export function WorkspaceMainView({
   }
 
   if (activeSection === "battle") {
+    if (isBattleLoading) {
+      return <LoadingView />;
+    }
     return <BattlePage {...battlePageProps} />;
   }
 

@@ -2,10 +2,32 @@ import json
 import unittest
 from unittest.mock import patch
 
-from app.api.battle import BattlePreparedPrompt, _battle_event_stream
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
+
+from app.api.battle import (
+    BattlePreparedPrompt,
+    _battle_event_stream,
+    create_battle_session,
+    delete_battle_session,
+    get_battle_session,
+    list_battle_sessions,
+    rename_battle_session,
+    update_battle_session,
+)
 from app.chat.types import ChatMessagePayload
 from app.runtime.model_runner import ModelStreamChunk
-from app.schemas import BattleStreamRequest
+from app.schemas import (
+    BattleRoundPayload,
+    BattleRoundSidesPayload,
+    BattleSessionCreateIn,
+    BattleSessionRenameIn,
+    BattleSessionUpdateIn,
+    BattleSideStatePayload,
+    BattleStreamRequest,
+)
+from app.storage.database import Base
+from app.storage.models import User
 
 
 async def _collect_payloads(stream):
@@ -75,3 +97,126 @@ class BattleApiStreamTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(payloads[0], {"type": "meta", "model": "seed-1.8"})
         self.assertEqual(payloads[1], {"type": "error", "message": "上游失败"})
+
+
+class BattleSessionCrudTests(unittest.TestCase):
+    def setUp(self):
+        self.engine = create_engine(
+            "sqlite:///:memory:",
+            connect_args={"check_same_thread": False},
+        )
+        Base.metadata.create_all(bind=self.engine)
+        self.session_factory = sessionmaker(bind=self.engine, autoflush=False, autocommit=False)
+        self.db: Session = self.session_factory()
+        self.user = User(username="battle-user", password_hash="hash", is_active=True)
+        self.db.add(self.user)
+        self.db.commit()
+        self.db.refresh(self.user)
+
+    def tearDown(self):
+        self.db.close()
+        self.engine.dispose()
+
+    def _round_payload(self, *, prompt: str, attachment_url: str = "/media/files/demo.txt") -> BattleRoundPayload:
+        side_a = BattleSideStatePayload(
+            id="a",
+            model={"id": "openai:gpt-5.4", "label": "GPT"},
+            content="回答 A",
+            reasoning="推理 A",
+            status="done",
+            error=None,
+            startedAt=1000,
+            finishedAt=1200,
+        )
+        side_b = BattleSideStatePayload(
+            id="b",
+            model={"id": "claude:sonnet", "label": "Claude"},
+            content="回答 B",
+            reasoning="推理 B",
+            status="done",
+            error=None,
+            startedAt=1000,
+            finishedAt=1250,
+        )
+        return BattleRoundPayload(
+            id="battle-round-1",
+            prompt=prompt,
+            createdAt="2026-04-30T10:00:00Z",
+            revealed=True,
+            vote="a",
+            sides=BattleRoundSidesPayload(a=side_a, b=side_b),
+            attachments=[
+                {
+                    "id": "battle-attachment-1",
+                    "kind": "file",
+                    "original_name": "demo.txt",
+                    "mime_type": "text/plain",
+                    "size_bytes": 12,
+                    "extension": ".txt",
+                    "url": attachment_url,
+                }
+            ],
+        )
+
+    def test_battle_session_crud_persists_in_database(self):
+        created = create_battle_session(
+            payload=BattleSessionCreateIn(
+                title="首轮 Battle",
+                rounds=[self._round_payload(prompt="先比较这两个模型")],
+            ),
+            db=self.db,
+            current_user=self.user,
+        )
+
+        self.assertEqual(created.title, "首轮 Battle")
+        self.assertEqual(len(created.rounds), 1)
+        self.assertEqual(created.rounds[0].prompt, "先比较这两个模型")
+
+        summaries = list_battle_sessions(db=self.db, current_user=self.user)
+        self.assertEqual(len(summaries), 1)
+        self.assertEqual(summaries[0].last_message_preview, "先比较这两个模型")
+
+        loaded = get_battle_session(session_id=created.id, db=self.db, current_user=self.user)
+        self.assertEqual(loaded.id, created.id)
+        self.assertEqual(loaded.rounds[0].sides.a.content, "回答 A")
+
+        updated = update_battle_session(
+            session_id=created.id,
+            payload=BattleSessionUpdateIn(
+                title="第二轮 Battle",
+                rounds=[self._round_payload(prompt="继续比较第二题")],
+            ),
+            db=self.db,
+            current_user=self.user,
+        )
+        self.assertEqual(updated.title, "第二轮 Battle")
+        self.assertEqual(updated.rounds[0].prompt, "继续比较第二题")
+
+        renamed = rename_battle_session(
+            session_id=created.id,
+            payload=BattleSessionRenameIn(title="Battle 已重命名"),
+            db=self.db,
+            current_user=self.user,
+        )
+        self.assertEqual(renamed.title, "Battle 已重命名")
+        self.assertEqual(renamed.last_message_preview, "继续比较第二题")
+
+    def test_delete_battle_session_removes_media_files(self):
+        created = create_battle_session(
+            payload=BattleSessionCreateIn(
+                title="带附件 Battle",
+                rounds=[self._round_payload(prompt="删除时清理附件", attachment_url="/media/files/2026/demo.txt")],
+            ),
+            db=self.db,
+            current_user=self.user,
+        )
+
+        with patch("app.api.battle.remove_media_files") as remove_media_files:
+            delete_battle_session(
+                session_id=created.id,
+                db=self.db,
+                current_user=self.user,
+            )
+
+        remove_media_files.assert_called_once_with(["files/2026/demo.txt"])
+        self.assertEqual(list_battle_sessions(db=self.db, current_user=self.user), [])

@@ -7,6 +7,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
+from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from ..auth import require_current_user
@@ -16,11 +17,20 @@ from ..chat.types import ChatMessagePayload
 from ..chat.state import get_chat_services
 from ..multimodal.file_types import resolve_attachment_type
 from ..runtime.model_runner import stream_model_response
-from ..schemas import BattleStreamRequest, ReasoningProfileValue, ToolMode
+from ..schemas import (
+    BattleSessionCreateIn,
+    BattleSessionDetailOut,
+    BattleSessionRenameIn,
+    BattleSessionSummaryOut,
+    BattleSessionUpdateIn,
+    BattleStreamRequest,
+    ReasoningProfileValue,
+    ToolMode,
+)
 from ..providers import resolve_model_profile
 from ..storage.database import get_db
-from ..storage.media import media_url, persist_uploaded_attachments
-from ..storage.models import Conversation, Message, User
+from ..storage.media import media_url, persist_uploaded_attachments, remove_media_files
+from ..storage.models import BattleSession, Conversation, Message, User
 from ..tools import ToolContextBuildRequest, ToolPlanRequest, build_tool_policy
 
 router = APIRouter(prefix="/api/battle", tags=["battle"])
@@ -43,6 +53,13 @@ def _ensure_battle_input_present(*, content: str, upload_count: int) -> None:
         raise HTTPException(status_code=400, detail="Message cannot be empty")
 
 
+def _ensure_battle_title_present(title: str) -> str:
+    normalized = title.strip()
+    if not normalized:
+        raise HTTPException(status_code=400, detail="Battle title cannot be empty")
+    return normalized
+
+
 def _ensure_uploads_supported_by_model(*, model: str, uploads: list[UploadFile]) -> None:
     profile = resolve_model_profile(model)
     if profile is None:
@@ -63,6 +80,146 @@ def _ensure_uploads_supported_by_model(*, model: str, uploads: list[UploadFile])
             raise HTTPException(status_code=400, detail="The selected model does not support PDF uploads.")
         if attachment_type.kind == "file" and attachment_type.extension != ".pdf" and not profile.capabilities.input_other_file:
             raise HTTPException(status_code=400, detail="The selected model does not support file uploads.")
+
+
+def _load_battle_session_for_user(*, db: Session, session_id: int, user_id: int) -> BattleSession:
+    session = db.scalar(
+        select(BattleSession).where(
+            BattleSession.id == session_id,
+            BattleSession.user_id == user_id,
+        )
+    )
+    if session is None:
+        raise HTTPException(status_code=404, detail="Battle session not found")
+    return session
+
+
+def _battle_preview(rounds: list[dict[str, object]]) -> str:
+    if not rounds:
+        return ""
+    latest = rounds[-1]
+    prompt = str(latest.get("prompt", "")).strip().replace("\n", " ")
+    return prompt[:140]
+
+
+def _battle_session_summary_payload(session: BattleSession) -> BattleSessionSummaryOut:
+    rounds = session.rounds
+    return BattleSessionSummaryOut(
+        id=session.id,
+        title=session.title,
+        updated_at=session.updated_at,
+        last_message_preview=_battle_preview(rounds),
+    )
+
+
+def _battle_session_detail_payload(session: BattleSession) -> BattleSessionDetailOut:
+    return BattleSessionDetailOut(
+        id=session.id,
+        title=session.title,
+        created_at=session.created_at,
+        updated_at=session.updated_at,
+        rounds=session.rounds,
+    )
+
+
+def _extract_battle_media_paths(rounds: list[dict[str, object]]) -> list[str]:
+    paths: list[str] = []
+    for round_item in rounds:
+        attachments = round_item.get("attachments", [])
+        if not isinstance(attachments, list):
+            continue
+        for attachment in attachments:
+            if not isinstance(attachment, dict):
+                continue
+            url = str(attachment.get("url", "")).strip()
+            if not url.startswith("/media/"):
+                continue
+            paths.append(url.removeprefix("/media/"))
+    return paths
+
+
+@router.get("/sessions", response_model=list[BattleSessionSummaryOut])
+def list_battle_sessions(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
+    sessions = db.scalars(
+        select(BattleSession)
+        .where(BattleSession.user_id == current_user.id)
+        .order_by(desc(BattleSession.updated_at), desc(BattleSession.id))
+    ).all()
+    return [_battle_session_summary_payload(session) for session in sessions]
+
+
+@router.post("/sessions", response_model=BattleSessionDetailOut)
+def create_battle_session(
+    payload: BattleSessionCreateIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
+    title = _ensure_battle_title_present(payload.title)
+    session = BattleSession(
+        user_id=current_user.id,
+        title=title,
+        rounds_json=json.dumps([item.model_dump(mode="json") for item in payload.rounds], ensure_ascii=False),
+    )
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+    return _battle_session_detail_payload(session)
+
+
+@router.get("/sessions/{session_id}", response_model=BattleSessionDetailOut)
+def get_battle_session(
+    session_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
+    session = _load_battle_session_for_user(db=db, session_id=session_id, user_id=current_user.id)
+    return _battle_session_detail_payload(session)
+
+
+@router.put("/sessions/{session_id}", response_model=BattleSessionDetailOut)
+def update_battle_session(
+    session_id: int,
+    payload: BattleSessionUpdateIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
+    session = _load_battle_session_for_user(db=db, session_id=session_id, user_id=current_user.id)
+    session.title = _ensure_battle_title_present(payload.title)
+    session.rounds_json = json.dumps([item.model_dump(mode="json") for item in payload.rounds], ensure_ascii=False)
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+    return _battle_session_detail_payload(session)
+
+
+@router.patch("/sessions/{session_id}", response_model=BattleSessionSummaryOut)
+def rename_battle_session(
+    session_id: int,
+    payload: BattleSessionRenameIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
+    session = _load_battle_session_for_user(db=db, session_id=session_id, user_id=current_user.id)
+    session.title = _ensure_battle_title_present(payload.title)
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+    return _battle_session_summary_payload(session)
+
+
+@router.delete("/sessions/{session_id}", status_code=204)
+def delete_battle_session(
+    session_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
+    session = _load_battle_session_for_user(db=db, session_id=session_id, user_id=current_user.id)
+    remove_media_files(_extract_battle_media_paths(session.rounds))
+    db.delete(session)
+    db.commit()
 
 
 async def _prepare_battle_prompt(

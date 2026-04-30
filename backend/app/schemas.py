@@ -9,6 +9,9 @@ from pydantic import BaseModel, ConfigDict, Field
 ToolMode = Literal["none", "knowledge", "search"]
 ReasoningProfileValue = Literal["off", "auto", "low", "medium", "high", "max", "provider_default"]
 FeedbackValue = Literal["up", "down"]
+BattleVote = Literal["a", "b", "both_good", "both_bad"]
+BattleSideId = Literal["a", "b"]
+BattleSideStatus = Literal["streaming", "done", "error"]
 MemoryScope = Literal["working", "global", "conversation"]
 MemoryKind = Literal["profile", "preference", "goal", "project", "fact", "constraint"]
 MemoryStatus = Literal["candidate", "active", "archived"]
@@ -85,6 +88,75 @@ class BattleStreamRequest(BaseModel):
     reasoning_profile: Optional[ReasoningProfileValue] = None
     tool_mode: ToolMode = "none"
     history: list[dict[str, str]] = Field(default_factory=list)
+
+
+class BattleAttachmentPayload(BaseModel):
+    id: str | int
+    kind: str
+    original_name: str
+    mime_type: str
+    size_bytes: int
+    extension: str | None = None
+    url: str
+
+
+class BattleSideStatePayload(BaseModel):
+    id: BattleSideId
+    model: dict[str, object]
+    content: str = ""
+    reasoning: str = ""
+    status: BattleSideStatus = "streaming"
+    error: Optional[str] = None
+    startedAt: int
+    finishedAt: Optional[int] = None
+
+
+class BattleRoundSidesPayload(BaseModel):
+    a: BattleSideStatePayload
+    b: BattleSideStatePayload
+
+
+class BattleRoundPayload(BaseModel):
+    id: str = Field(min_length=1, max_length=128)
+    prompt: str = ""
+    createdAt: str = ""
+    revealed: bool = False
+    vote: Optional[BattleVote] = None
+    sides: BattleRoundSidesPayload
+    attachments: list[BattleAttachmentPayload] = Field(default_factory=list)
+
+
+class BattleSessionSummaryOut(BaseModel):
+    id: int
+    title: str
+    updated_at: Optional[datetime] = None
+    last_message_preview: str = ""
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class BattleSessionDetailOut(BaseModel):
+    id: int
+    title: str
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    rounds: list[BattleRoundPayload] = Field(default_factory=list)
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class BattleSessionCreateIn(BaseModel):
+    title: str = Field(min_length=1, max_length=255)
+    rounds: list[BattleRoundPayload] = Field(default_factory=list)
+
+
+class BattleSessionUpdateIn(BaseModel):
+    title: str = Field(min_length=1, max_length=255)
+    rounds: list[BattleRoundPayload] = Field(default_factory=list)
+
+
+class BattleSessionRenameIn(BaseModel):
+    title: str = Field(min_length=1, max_length=255)
 
 
 class ImageGenerateRequest(BaseModel):

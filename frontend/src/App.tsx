@@ -123,6 +123,7 @@ function WorkspaceApp({
           conversationProps={app.conversationProps}
           debateCreateProps={app.debateCreateProps}
           debateRoomProps={app.debateRoomProps}
+          isBattleLoading={app.isBattleLoading}
           isConversationLoading={app.isConversationLoading}
           isDebateLoading={app.isDebateLoading}
           knowledgePageProps={app.knowledgePageProps}

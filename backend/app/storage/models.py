@@ -28,6 +28,11 @@ class User(Base):
     )
 
     conversations: Mapped[list["Conversation"]] = relationship(back_populates="user")
+    battle_sessions: Mapped[list["BattleSession"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+        order_by="desc(BattleSession.updated_at)",
+    )
     memories: Mapped[list["MemoryItem"]] = relationship(back_populates="user")
     memory_documents: Mapped[list["MemoryDocument"]] = relationship(
         back_populates="user",
@@ -572,6 +577,33 @@ class KnowledgeChunk(Base):
             if value and value not in normalized:
                 normalized.append(value)
         return normalized
+
+
+class BattleSession(Base):
+    __tablename__ = "battle_sessions"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    title: Mapped[str] = mapped_column(String(255))
+    rounds_json: Mapped[str] = mapped_column(Text(), default="[]")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    user: Mapped[User] = relationship(back_populates="battle_sessions")
+
+    @property
+    def rounds(self) -> list[dict[str, object]]:
+        payload = json.loads(self.rounds_json or "[]")
+        if not isinstance(payload, list):
+            raise ValueError("battle session rounds must be a list")
+        return payload
 
 
 class DebateSession(Base):

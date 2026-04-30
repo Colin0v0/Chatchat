@@ -13,6 +13,7 @@ export interface SidebarProps {
   activeConversationId: number | null;
   activeDebateId: number | null;
   activeBattleId: number | null;
+  battlesLoaded: boolean;
   conversationsLoaded: boolean;
   debatesLoaded: boolean;
   open: boolean;

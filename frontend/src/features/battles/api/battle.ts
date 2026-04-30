@@ -1,6 +1,11 @@
-import type { BattleStreamRequest, ChatStreamEvent } from "../../../types";
-import { assertApiResponse, toApiUrl } from "../../../shared/api/http";
+import type {
+  BattleSessionSummary,
+  BattleStreamRequest,
+  ChatStreamEvent,
+} from "../../../types";
+import { apiFetch, assertApiResponse, toApiUrl } from "../../../shared/api/http";
 import { consumeNdjsonStream } from "../../../shared/api/ndjson";
+import type { BattleSessionDetail } from "../model/types";
 
 export interface BattleStreamOptions {
   onEvent: (event: ChatStreamEvent) => void;
@@ -30,4 +35,41 @@ export async function streamBattleResponse(payload: BattleStreamRequest, options
   await assertApiResponse(response);
 
   await consumeNdjsonStream<ChatStreamEvent>(response, options.onEvent);
+}
+
+export function fetchBattleSessions(signal?: AbortSignal) {
+  return apiFetch<BattleSessionSummary[]>("/api/battle/sessions", { signal });
+}
+
+export function fetchBattleSession(sessionId: number, signal?: AbortSignal) {
+  return apiFetch<BattleSessionDetail>(`/api/battle/sessions/${sessionId}`, { signal });
+}
+
+export function createBattleSession(payload: Pick<BattleSessionDetail, "title" | "rounds">) {
+  return apiFetch<BattleSessionDetail>("/api/battle/sessions", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateBattleSession(sessionId: number, payload: Pick<BattleSessionDetail, "title" | "rounds">) {
+  return apiFetch<BattleSessionDetail>(`/api/battle/sessions/${sessionId}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function renameBattleSession(sessionId: number, title: string) {
+  return apiFetch<BattleSessionSummary>(`/api/battle/sessions/${sessionId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ title }),
+  });
+}
+
+export async function deleteBattleSession(sessionId: number) {
+  const response = await fetch(toApiUrl(`/api/battle/sessions/${sessionId}`), {
+    credentials: "include",
+    method: "DELETE",
+  });
+  await assertApiResponse(response);
 }
