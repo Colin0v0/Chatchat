@@ -2,7 +2,7 @@ name: CI/CD
 
 on:
   push:
-    branches: [main]
+    branches: [master]
 
 env:
   REGISTRY: crpi-0uat9gy4ebon4q45.cn-shanghai.personal.cr.aliyuncs.com
