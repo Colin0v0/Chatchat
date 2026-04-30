@@ -52,6 +52,11 @@ export interface MessageContext {
   sections: MessageContextSection[];
 }
 
+export interface SearchTrace {
+  queries: string[];
+  sources: MessageSource[];
+}
+
 export interface ConversationSummary {
   id: number;
   title: string;
@@ -85,6 +90,7 @@ export interface ChatMessage {
   model?: string | null;
   attachments?: MessageAttachment[];
   sources?: MessageSource[];
+  search_trace?: SearchTrace | null;
   context?: MessageContext | null;
   feedback?: FeedbackValue | null;
   created_at?: string | null;
@@ -147,6 +153,13 @@ export interface DebateSessionSummary {
   stage: DebateStage;
   updated_at: string | null;
   last_turn_preview: string;
+}
+
+export interface BattleSessionSummary {
+  id: number;
+  title: string;
+  updated_at: string | null;
+  last_message_preview: string;
 }
 
 export interface DebateActiveRun {
@@ -277,6 +290,16 @@ export interface ChatStreamRequest {
   tool_mode: ToolMode;
   knowledge_folders?: string[];
   reasoning_profile?: ReasoningProfileValue | null;
+}
+
+export interface BattleStreamRequest {
+  message: string;
+  model: string;
+  files?: File[];
+  knowledge_folders?: string[];
+  reasoning_profile?: ReasoningProfileValue | null;
+  tool_mode: ToolMode;
+  history?: Array<{ role: string; content: string }>;
 }
 
 export interface ImageGenerationRequest {
@@ -509,6 +532,15 @@ type ChatStreamEventPayload =
     }
   | {
       type: "sources";
+      sources: MessageSource[];
+    }
+  | {
+      type: "attachments";
+      attachments: MessageAttachment[];
+    }
+  | {
+      type: "search_trace";
+      queries: string[];
       sources: MessageSource[];
     }
   | {

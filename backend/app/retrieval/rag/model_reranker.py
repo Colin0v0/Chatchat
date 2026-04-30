@@ -4,6 +4,7 @@ import logging
 
 import httpx
 
+from ...cache import build_cache_key, get_json, set_json
 from ...core.config import Settings
 from ...core.http import limited_request
 from ...llm.capabilities import normalize_base_url
@@ -24,6 +25,7 @@ class ModelReranker:
         self._rerank_window = max(1, rerank_window)
         self._max_chars = max(240, settings.knowledge_rerank_max_chars)
         self._max_concurrency = max(1, settings.knowledge_rerank_max_concurrency)
+        self._cache_ttl_seconds = max(1, int(getattr(settings, "cache_rerank_ttl_seconds", 21600)))
         self._disabled_reason = self._detect_disabled_reason()
 
         if self._model_id and self._disabled_reason:
@@ -115,6 +117,11 @@ class ModelReranker:
             float(getattr(self._settings, "knowledge_rerank_timeout_seconds", 30.0)),
         )
         payload = self._build_dashscope_rerank_payload(query=query, candidates=candidates)
+        cache_key = self._cache_key(payload)
+        cached = await get_json(self._settings, cache_key)
+        if cached is not None:
+            return self._parse_cached_scores(cached, expected_count=len(candidates))
+
         async with httpx.AsyncClient(
             timeout=httpx.Timeout(timeout_seconds, connect=min(10.0, timeout_seconds)),
         ) as client:
@@ -126,7 +133,15 @@ class ModelReranker:
                 )
                 response.raise_for_status()
 
-        return self._parse_dashscope_rerank_scores(response.json(), expected_count=len(candidates))
+        scores = self._parse_dashscope_rerank_scores(response.json(), expected_count=len(candidates))
+        # rerank 输入是 query + 截断后的候选文本，缓存可以避开重复排序请求。
+        await set_json(
+            self._settings,
+            cache_key,
+            scores,
+            ttl_seconds=self._cache_ttl_seconds,
+        )
+        return scores
 
     def _build_dashscope_rerank_payload(
         self,
@@ -184,6 +199,29 @@ class ModelReranker:
             scores[index] = max(0.0, min(1.0, score))
 
         return scores
+
+    def _parse_cached_scores(self, payload: object, *, expected_count: int) -> list[float]:
+        if not isinstance(payload, list):
+            raise RuntimeError("Rerank cache entry must be a list.")
+        scores = [float(value) for value in payload]
+        if len(scores) != expected_count:
+            raise RuntimeError(
+                "Rerank cache returned an unexpected score count. "
+                f"Expected {expected_count}, got {len(scores)}."
+            )
+        return [max(0.0, min(1.0, score)) for score in scores]
+
+    def _cache_key(self, payload: dict[str, object]) -> str:
+        return build_cache_key(
+            self._settings,
+            namespace="rerank",
+            version=1,
+            payload={
+                "provider": self._provider,
+                "model": self._upstream_model,
+                "payload": payload,
+            },
+        )
 
     def _candidate_document_text(self, candidate: RetrievalCandidate) -> str:
         title = " | ".join(

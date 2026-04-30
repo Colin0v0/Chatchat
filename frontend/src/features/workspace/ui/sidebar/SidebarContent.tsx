@@ -1,4 +1,4 @@
-import { LoaderCircle, MessageSquare, MoreHorizontal, Pencil, Scale, Trash2 } from "lucide-react";
+import { LoaderCircle, MessageSquare, MoreHorizontal, Pencil, Scale, Swords, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -30,16 +30,24 @@ type CombinedSidebarItem =
       id: number;
       title: string;
       updatedAt: string | null;
+    }
+  | {
+      kind: "battle";
+      id: number;
+      title: string;
+      updatedAt: string | null;
     };
 
 export function SidebarContent({
   items,
   debateItems,
+  battleItems,
   activity = {},
   debateActivity = {},
   activeSection,
   activeConversationId,
   activeDebateId,
+  activeBattleId,
   conversationsLoaded,
   debatesLoaded,
   query,
@@ -47,9 +55,12 @@ export function SidebarContent({
   onDelete,
   onRenameDebate,
   onDeleteDebate,
+  onRenameBattle,
+  onDeleteBattle,
   onOpenSearch,
   onSelect,
   onSelectDebate,
+  onSelectBattle,
   onSelectSection,
   mode,
   open = true,
@@ -81,13 +92,19 @@ export function SidebarContent({
       title: item.topic,
       updatedAt: item.updated_at,
     }));
+      const mergedBattles: CombinedSidebarItem[] = battleItems.map((item) => ({
+      kind: "battle",
+      id: item.id,
+      title: item.title,
+      updatedAt: item.updated_at,
+    }));
 
-    return [...chatItems, ...mergedDebates].sort((left, right) => {
+    return [...chatItems, ...mergedDebates, ...mergedBattles].sort((left, right) => {
       const leftTime = left.updatedAt ? Date.parse(left.updatedAt) : 0;
       const rightTime = right.updatedAt ? Date.parse(right.updatedAt) : 0;
       return rightTime - leftTime;
     });
-  }, [debateItems, items]);
+  }, [battleItems, debateItems, items]);
 
   useEffect(() => {
     function handlePointerDown(event: MouseEvent) {
@@ -206,8 +223,15 @@ export function SidebarContent({
                     const active =
                       item.kind === "chat"
                         ? activeSection === "chats" && item.id === activeConversationId
-                        : activeSection === "debates" && item.id === activeDebateId;
-                    const itemActivity = item.kind === "chat" ? activity[item.id] : debateActivity[item.id];
+                        : item.kind === "debate"
+                          ? activeSection === "debates" && item.id === activeDebateId
+                          : activeSection === "battle" && item.id === activeBattleId;
+                    const itemActivity =
+                      item.kind === "chat"
+                        ? activity[item.id]
+                        : item.kind === "debate"
+                          ? debateActivity[item.id]
+                          : undefined;
                     const showActivityIndicator = !active && !!itemActivity && (itemActivity.running || itemActivity.unread);
                     const itemKey = `${item.kind}:${item.id}`;
 
@@ -226,11 +250,23 @@ export function SidebarContent({
                             "flex w-full min-w-0 items-center rounded-[8px] py-2 pr-12 text-left focus:outline-none focus-visible:outline-none",
                             isDesktop ? "px-3" : "px-0",
                           )}
-                          onClick={() => (item.kind === "chat" ? onSelect(item.id) : onSelectDebate(item.id))}
+                          onClick={() => {
+                            if (item.kind === "chat") {
+                              onSelect(item.id);
+                              return;
+                            }
+                            if (item.kind === "debate") {
+                              onSelectDebate(item.id);
+                              return;
+                            }
+                            onSelectBattle(item.id);
+                          }}
                           type="button"
                         >
                           <span className="flex min-w-0 items-center gap-2.5">
-                            {item.kind === "debate" ? (
+                            {item.kind === "battle" ? (
+                              <Swords className="size-4 shrink-0 text-app-muted" />
+                            ) : item.kind === "debate" ? (
                               <Scale className="size-4 shrink-0 text-app-muted" />
                             ) : (
                               <MessageSquare className="size-4 shrink-0 text-app-muted" />
@@ -240,14 +276,14 @@ export function SidebarContent({
                             </span>
                             {showActivityIndicator && itemActivity?.running ? (
                               <span
-                                aria-label={`${item.kind === "chat" ? "Conversation" : "Debate"} is running`}
+                                aria-label={`${item.kind === "chat" ? "Conversation" : item.kind === "debate" ? "Debate" : "Battle"} is running`}
                                 className="flex h-5 w-5 shrink-0 items-center justify-center text-app-muted"
                               >
                                 <LoaderCircle className="size-3.5 animate-spin" />
                               </span>
                             ) : showActivityIndicator && itemActivity?.unread ? (
                               <span
-                                aria-label={`${item.kind === "chat" ? "Conversation" : "Debate"} needs attention`}
+                                aria-label={`${item.kind === "chat" ? "Conversation" : item.kind === "debate" ? "Debate" : "Battle"} needs attention`}
                                 className="inline-flex h-2.5 w-2.5 shrink-0 rounded-full bg-app-accent-strong"
                               />
                             ) : null}
@@ -337,7 +373,9 @@ export function SidebarContent({
             return;
           }
 
-          if (dialogState.kind === "debate") {
+          if (dialogState.kind === "battle") {
+            await onDeleteBattle(dialogState.id);
+          } else if (dialogState.kind === "debate") {
             await onDeleteDebate(dialogState.id);
           } else {
             await onDelete(dialogState.id);
@@ -354,7 +392,9 @@ export function SidebarContent({
             return;
           }
 
-          if (dialogState.kind === "debate") {
+          if (dialogState.kind === "battle") {
+            await onRenameBattle(dialogState.id, nextTitle);
+          } else if (dialogState.kind === "debate") {
             await onRenameDebate(dialogState.id, nextTitle);
           } else {
             await onRename(dialogState.id, nextTitle);

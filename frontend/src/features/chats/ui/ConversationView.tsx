@@ -55,6 +55,7 @@ interface ConversationViewProps {
   onSend: () => void;
   onStop: () => void;
   onNewDebate: () => void;
+  onNewBattle: () => void;
   onToggleRecording: () => void;
   onToggleRag: () => void;
   onToggleWeb: () => void;
@@ -103,6 +104,7 @@ export function ConversationView({
   onSend,
   onStop,
   onNewDebate,
+  onNewBattle,
   onToggleRecording,
   onToggleRag,
   onToggleWeb,
@@ -110,6 +112,7 @@ export function ConversationView({
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const stickToBottomRef = useRef(true);
   const lastConversationIdRef = useRef<number | null>(null);
+  const pendingScrollToBottomRef = useRef(false);
   const loadEarlierInFlightRef = useRef(false);
   const prependSnapshotRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null);
 
@@ -190,16 +193,19 @@ export function ConversationView({
     const conversationChanged = lastConversationIdRef.current !== conversation.id;
     lastConversationIdRef.current = conversation.id;
 
-    if (!conversationChanged && !stickToBottomRef.current) {
+    if (conversationChanged) {
+      pendingScrollToBottomRef.current = true;
+      stickToBottomRef.current = true;
+    }
+
+    if (!pendingScrollToBottomRef.current && !stickToBottomRef.current) {
       return;
     }
 
     const activeContainer = scrollContainer;
     const frame = window.requestAnimationFrame(() => {
       activeContainer.scrollTop = activeContainer.scrollHeight;
-      if (conversationChanged) {
-        stickToBottomRef.current = true;
-      }
+      pendingScrollToBottomRef.current = false;
     });
 
     return () => window.cancelAnimationFrame(frame);
@@ -298,6 +304,7 @@ export function ConversationView({
           onRemoveAttachment={onRemoveDraftAttachment}
           onSelectAttachments={onSelectAttachments}
           onNewDebate={onNewDebate}
+          onNewBattle={onNewBattle}
           onStop={onStop}
           onSubmit={onSend}
           onToggleRecording={onToggleRecording}

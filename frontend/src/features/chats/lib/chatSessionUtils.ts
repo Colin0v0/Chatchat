@@ -6,6 +6,7 @@ import type {
   ConversationSummary,
   MessageContext,
   MessageAttachment,
+  SearchTrace,
   ToolMode,
 } from "../../../types";
 import { ASSISTANT_DRAFT_ID } from "./constants";
@@ -184,6 +185,7 @@ function mergeMessageWithCache(serverMessage: ChatMessage, cachedMessage: ChatMe
       serverMessage.sources && serverMessage.sources.length > 0
         ? serverMessage.sources
         : cachedMessage.sources,
+    search_trace: serverMessage.search_trace ?? cachedMessage.search_trace,
     context: serverMessage.context ?? cachedMessage.context,
     feedback: serverMessage.feedback ?? cachedMessage.feedback,
     created_at: serverMessage.created_at ?? cachedMessage.created_at,
@@ -359,6 +361,16 @@ export function setAssistantDraftSources(
   return updateAssistantDraft(conversation, (message) => ({
     ...message,
     sources,
+  }));
+}
+
+export function setAssistantDraftSearchTrace(
+  conversation: ConversationDetail,
+  searchTrace: SearchTrace,
+): ConversationDetail {
+  return updateAssistantDraft(conversation, (message) => ({
+    ...message,
+    search_trace: searchTrace,
   }));
 }
 

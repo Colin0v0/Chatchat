@@ -27,5 +27,9 @@ WEB_FIRST = RetrievalStrategy(
     rag_weight_bonus=-0.02,
     web_weight_bonus=0.10,
     file_weight_bonus=0.04,
-    instruction="Prefer web references for public, freshness-sensitive, or lookup-style questions. Use notes only as supporting context.",
+    instruction=(
+        "Use web references as the authority for public, freshness-sensitive, or lookup-style questions. "
+        "Do not fill missing current facts from model memory. Cite a URL or site name for current claims, "
+        "and say plainly when the provided web references do not verify a claim."
+    ),
 )

@@ -147,4 +147,11 @@ def _looks_like_entity_list(query: str) -> bool:
 
 
 def _contains_hint(query: str, hints: tuple[str, ...]) -> bool:
-    return any(hint in query for hint in hints)
+    return any(_contains_hint_token(query, hint) for hint in hints)
+
+
+def _contains_hint_token(query: str, hint: str) -> bool:
+    if not hint.isascii():
+        return hint in query
+    # 英文 hint 必须按词匹配，避免 pe 命中 deepseek 这类公司名。
+    return re.search(rf"(?<![a-z0-9]){re.escape(hint)}(?![a-z0-9])", query) is not None

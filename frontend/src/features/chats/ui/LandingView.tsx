@@ -38,6 +38,7 @@ interface LandingViewProps {
   onSend: () => void;
   onStop: () => void;
   onNewDebate: () => void;
+  onNewBattle: () => void;
   onToggleRecording: () => void;
   onToggleRag: () => void;
   onToggleWeb: () => void;
@@ -79,6 +80,7 @@ export function LandingView({
   onSend,
   onStop,
   onNewDebate,
+  onNewBattle,
   onToggleRecording,
   onToggleRag,
   onToggleWeb,
@@ -148,6 +150,7 @@ export function LandingView({
           onRemoveAttachment={onRemoveDraftAttachment}
           onSelectAttachments={onSelectAttachments}
           onNewDebate={onNewDebate}
+          onNewBattle={onNewBattle}
           onStop={onStop}
           onSubmit={onSend}
           onToggleRecording={onToggleRecording}

@@ -78,6 +78,15 @@ class MessageFeedbackUpdate(BaseModel):
     value: Optional[FeedbackValue] = None
 
 
+class BattleStreamRequest(BaseModel):
+    message: str = Field(default="", max_length=8000)
+    model: str = Field(min_length=1, max_length=128)
+    knowledge_folders: list[str] = Field(default_factory=list)
+    reasoning_profile: Optional[ReasoningProfileValue] = None
+    tool_mode: ToolMode = "none"
+    history: list[dict[str, str]] = Field(default_factory=list)
+
+
 class ImageGenerateRequest(BaseModel):
     conversation_id: Optional[int] = Field(default=None, ge=1)
     prompt: str = Field(min_length=1, max_length=8000)

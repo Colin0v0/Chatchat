@@ -3,6 +3,7 @@
 import re
 
 from .classifier import extract_latin_subject
+from ...cache import build_cache_key, get_json, set_json
 from ...chat.types import ChatMessagePayload
 from ...core.config import Settings
 from ...runtime.model_runner import complete_model_response
@@ -39,6 +40,22 @@ class WebSearchTranslationError(RuntimeError):
 
 
 async def translate_query_for_search(query: str, settings: Settings) -> str:
+    cache_key = build_cache_key(
+        settings,
+        namespace="web_translate",
+        version=1,
+        payload={
+            "model": settings.web_search_translation_model,
+            "query": query.strip(),
+            "prompt_version": "2026-04-29",
+        },
+    )
+    cached = await get_json(settings, cache_key)
+    if cached is not None:
+        if not isinstance(cached, str):
+            raise RuntimeError("Web translation cache entry must be a string.")
+        return cached
+
     translated = _normalize_translation(
         await complete_model_response(
             model=settings.web_search_translation_model,
@@ -53,10 +70,24 @@ async def translate_query_for_search(query: str, settings: Settings) -> str:
     except WebSearchTranslationError as exc:
         if exc.reason == 'underspecified':
             if extract_latin_subject(query):
+                await _cache_translation(settings=settings, key=cache_key, translated=translated)
                 return translated
-            return query.strip()
+            original = query.strip()
+            await _cache_translation(settings=settings, key=cache_key, translated=original)
+            return original
         raise
+    await _cache_translation(settings=settings, key=cache_key, translated=translated)
     return translated
+
+
+async def _cache_translation(*, settings: Settings, key: str, translated: str) -> None:
+    # 翻译结果只依赖模型、提示词版本和原始查询，适合长 TTL 复用。
+    await set_json(
+        settings,
+        key,
+        translated,
+        ttl_seconds=max(1, int(getattr(settings, "cache_web_translate_ttl_seconds", 604800))),
+    )
 
 
 def _normalize_translation(text: str) -> str:
