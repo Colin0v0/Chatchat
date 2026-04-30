@@ -1,5 +1,6 @@
 import asyncio
 import unittest
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from app.memory.service import MemoryService
@@ -85,12 +86,9 @@ class MemoryServiceAutoResolutionTests(unittest.TestCase):
         self.policy = MemoryTurnPolicy(
             explicit_request=False,
             target_scope=None,
-            allow_global=False,
-            allow_auto_candidates=True,
-            store_working_memory=True,
+            allow_automatic_storage=True,
             skip_due_to_attachments=False,
             modality="text",
-            write_policy="auto_candidate",
         )
 
     def test_auto_profile_memory_becomes_active_global(self):
@@ -114,7 +112,7 @@ class MemoryServiceAutoResolutionTests(unittest.TestCase):
         self.assertIsNone(expires_at)
         self.assertEqual(write_policy, "explicit")
 
-    def test_auto_general_fact_stays_candidate(self):
+    def test_auto_general_fact_becomes_active_global(self):
         resolved = self.service._resolve_auto_memory(
             candidate=MemoryCandidate(
                 scope="conversation",
@@ -130,10 +128,29 @@ class MemoryServiceAutoResolutionTests(unittest.TestCase):
         self.assertIsNotNone(resolved)
         assert resolved is not None
         candidate, status, expires_at, write_policy = resolved
-        self.assertEqual(candidate.scope, "conversation")
-        self.assertEqual(status, "candidate")
+        self.assertEqual(candidate.scope, "global")
+        self.assertEqual(status, "active")
         self.assertIsNone(expires_at)
-        self.assertEqual(write_policy, "auto_candidate")
+        self.assertEqual(write_policy, "explicit")
+
+    def test_low_confidence_general_fact_is_skipped(self):
+        resolved = self.service._resolve_auto_memory(
+            candidate=MemoryCandidate(
+                scope="conversation",
+                kind="fact",
+                title="偶发偏好",
+                detail="用户刚刚随口提了一次",
+                tags=("记忆",),
+                confidence=0.3,
+            ),
+            policy=self.policy,
+        )
+
+        self.assertIsNone(resolved)
+
+    def test_relative_time_hint_accepts_timezone_aware_datetime(self):
+        hint = self.service._relative_time_hint(datetime.now(timezone.utc))
+        self.assertEqual(hint, "今天")
 
 
 if __name__ == "__main__":

@@ -14,7 +14,7 @@ BattleSideId = Literal["a", "b"]
 BattleSideStatus = Literal["streaming", "done", "error"]
 MemoryScope = Literal["working", "global", "conversation"]
 MemoryKind = Literal["profile", "preference", "goal", "project", "fact", "constraint"]
-MemoryStatus = Literal["candidate", "active", "archived"]
+MemoryStatus = Literal["active", "archived"]
 MemoryDocumentType = Literal["user_profile", "workspace_profile", "conversation_brief"]
 KnowledgeDocumentStatus = Literal["pending", "indexing", "ready", "failed"]
 ImageGenerationJobStatus = Literal["queued", "running", "succeeded", "failed"]
@@ -546,7 +546,6 @@ class MemoryLayerCollectionOut(BaseModel):
 class MemoryCollectionOut(BaseModel):
     documents: list[MemoryDocumentOut] = Field(default_factory=list)
     active_items: MemoryLayerCollectionOut = Field(default_factory=MemoryLayerCollectionOut)
-    candidate_items: MemoryLayerCollectionOut = Field(default_factory=MemoryLayerCollectionOut)
 
 
 class MemoryCreate(BaseModel):
@@ -571,7 +570,3 @@ class MemoryUpdate(BaseModel):
     pinned: bool = False
     active: bool = True
     conversation_id: Optional[int] = None
-
-
-class MemoryPromote(BaseModel):
-    scope: Literal["global", "conversation"] = "conversation"

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import HTTPException
@@ -54,7 +54,7 @@ def persist_chat_turn(
             role="user",
             content=content,
         )
-        conversation.updated_at = datetime.utcnow()
+        conversation.updated_at = datetime.now(timezone.utc)
         db.add(user_message)
         db.flush()
         append_message_attachments(db=db, message=user_message, attachments=uploaded_attachments)
@@ -83,7 +83,7 @@ def persist_regenerated_turn(
         image_context=source_user.image_context,
         attachment_context=source_user.attachment_context,
     )
-    conversation.updated_at = datetime.utcnow()
+    conversation.updated_at = datetime.now(timezone.utc)
     db.add(regenerated_user_message)
     db.flush()
     clone_message_attachments(db=db, source=source_user, target=regenerated_user_message)

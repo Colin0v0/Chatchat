@@ -3,7 +3,7 @@ from __future__ import annotations
 import base64
 import binascii
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
@@ -86,7 +86,7 @@ def persist_generated_image_bytes(
         target_size=target_size,
     )
 
-    today = datetime.utcnow()
+    today = datetime.now(timezone.utc)
     relative_path = (
         Path("generated")
         / today.strftime("%Y")
@@ -134,7 +134,7 @@ async def persist_uploaded_attachments(files: list[UploadFile]) -> list[StoredAt
             max_megabytes = settings.attachment_max_upload_size_bytes // (1024 * 1024)
             raise ValueError(f"Each file must be {max_megabytes} MB or smaller.")
 
-        today = datetime.utcnow()
+        today = datetime.now(timezone.utc)
         relative_path = (
             Path("images" if attachment_type.kind == "image" else "files")
             / today.strftime("%Y")

@@ -133,14 +133,17 @@ function renderMessageContent(content: string) {
   ));
 }
 
-function hasLaterRenderableAssistantInSameTurn(items: ChatMessage[], startIndex: number) {
+function hasLaterAssistantInSameTurn(items: ChatMessage[], startIndex: number) {
   for (let index = startIndex + 1; index < items.length; index += 1) {
     const candidate = items[index];
     if (candidate.role === "user") {
       return false;
     }
 
-    if (candidate.role === "assistant" && candidate.content.trim()) {
+    // 中文注释：同一轮里理论上只应该保留最后一条 assistant。
+    // 一旦后面又出现新的 assistant（无论是 reasoning-only 草稿还是正式回答），
+    // 前面那条空白 reasoning 占位都应隐藏，避免界面出现两个“思考中”。
+    if (candidate.role === "assistant") {
       return true;
     }
   }
@@ -497,7 +500,7 @@ export function MessageList({
           && showThinkingPanel
           && !isActiveStreamingAssistant
           && !hasStoppedNote
-          && hasLaterRenderableAssistantInSameTurn(items, index);
+          && hasLaterAssistantInSameTurn(items, index);
 
         if (!isAssistant) {
           return (

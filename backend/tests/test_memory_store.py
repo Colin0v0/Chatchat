@@ -77,7 +77,7 @@ class MemoryStoreTests(unittest.TestCase):
         self.assertEqual(items[0].detail, "用户叫杜宇")
         self.assertIn("personal", items[0].tags)
 
-    def test_merge_candidates_demotes_transient_global_memory_to_conversation(self):
+    def test_merge_candidates_demotes_transient_global_memory_to_working(self):
         merged = self.store.merge_candidates(
             candidates=[
                 MemoryCandidate(
@@ -97,8 +97,10 @@ class MemoryStoreTests(unittest.TestCase):
         self.db.commit()
 
         self.assertEqual(len(merged), 1)
-        self.assertEqual(merged[0].scope, "conversation")
+        self.assertEqual(merged[0].scope, "working")
         self.assertEqual(merged[0].conversation_id, 7)
+        self.assertEqual(merged[0].write_policy, "session")
+        self.assertIsNotNone(merged[0].expires_at)
 
     def test_recall_uses_database_ranked_search_when_not_using_sqlite_fts(self):
         item = self.store.create_manual_memory(

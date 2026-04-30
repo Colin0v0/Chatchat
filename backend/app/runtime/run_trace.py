@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -89,7 +89,7 @@ class RunTraceRecorder:
     ) -> list[str]:
         self.run.response_message_id = response_message_id
         self.run.status = "completed"
-        self.run.completed_at = datetime.utcnow()
+        self.run.completed_at = datetime.now(timezone.utc)
         self._db.add(self.run)
 
         encoded_lines: list[str] = []
@@ -110,7 +110,7 @@ class RunTraceRecorder:
     ) -> None:
         self.run.response_message_id = response_message_id
         self.run.status = "completed"
-        self.run.completed_at = datetime.utcnow()
+        self.run.completed_at = datetime.now(timezone.utc)
         self._db.add(self.run)
 
         for event in terminal_events:
@@ -126,7 +126,7 @@ class RunTraceRecorder:
     ) -> list[str]:
         self.run.response_message_id = response_message_id
         self.run.status = "completed"
-        self.run.completed_at = datetime.utcnow()
+        self.run.completed_at = datetime.now(timezone.utc)
         self._db.add(self.run)
 
         encoded_lines: list[str] = []
@@ -148,7 +148,7 @@ class RunTraceRecorder:
         self.run.status = "failed"
         self.run.error_code = error_code
         self.run.error_message = error_message
-        self.run.completed_at = datetime.utcnow()
+        self.run.completed_at = datetime.now(timezone.utc)
         self._db.add(self.run)
 
         encoded_line: str | None = None
@@ -169,7 +169,7 @@ class RunTraceRecorder:
         self.run.status = "failed"
         self.run.error_code = error_code
         self.run.error_message = error_message
-        self.run.completed_at = datetime.utcnow()
+        self.run.completed_at = datetime.now(timezone.utc)
         self._db.add(self.run)
 
         encoded_line: str | None = None

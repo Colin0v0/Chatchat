@@ -8,9 +8,9 @@ from ..chat.types import ChatMessagePayload
 
 MemoryScope = Literal["working", "conversation", "global"]
 MemoryKind = Literal["profile", "preference", "goal", "project", "fact", "constraint"]
-MemoryStatus = Literal["candidate", "active", "archived"]
+MemoryStatus = Literal["active", "archived"]
 MemorySourceType = Literal["manual", "auto", "promoted"]
-MemoryWritePolicy = Literal["manual", "explicit", "auto_candidate", "session"]
+MemoryWritePolicy = Literal["manual", "explicit", "session"]
 MemoryDocumentType = Literal["user_profile", "workspace_profile", "conversation_brief"]
 MemoryAction = Literal["add", "update", "replace", "remove"]
 
@@ -23,9 +23,9 @@ MEMORY_KINDS: tuple[MemoryKind, ...] = (
     "fact",
     "constraint",
 )
-MEMORY_STATUSES: tuple[MemoryStatus, ...] = ("candidate", "active", "archived")
+MEMORY_STATUSES: tuple[MemoryStatus, ...] = ("active", "archived")
 MEMORY_SOURCE_TYPES: tuple[MemorySourceType, ...] = ("manual", "auto", "promoted")
-MEMORY_WRITE_POLICIES: tuple[MemoryWritePolicy, ...] = ("manual", "explicit", "auto_candidate", "session")
+MEMORY_WRITE_POLICIES: tuple[MemoryWritePolicy, ...] = ("manual", "explicit", "session")
 MEMORY_DOCUMENT_TYPES: tuple[MemoryDocumentType, ...] = (
     "user_profile",
     "workspace_profile",
@@ -69,12 +69,9 @@ class MemoryMatch:
 class MemoryTurnPolicy:
     explicit_request: bool
     target_scope: MemoryScope | None
-    allow_global: bool
-    allow_auto_candidates: bool
-    store_working_memory: bool
+    allow_automatic_storage: bool
     skip_due_to_attachments: bool
     modality: str
-    write_policy: MemoryWritePolicy
 
 
 @dataclass(frozen=True)
@@ -83,5 +80,3 @@ class MemoryWorkspaceCollection:
     active_global_items: tuple[object, ...]
     active_conversation_items: tuple[object, ...]
     active_working_items: tuple[object, ...]
-    candidate_global_items: tuple[object, ...]
-    candidate_conversation_items: tuple[object, ...]

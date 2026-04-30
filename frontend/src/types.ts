@@ -408,7 +408,7 @@ export interface KnowledgeFolderDeleteResult {
 
 export type MemoryScope = "working" | "global" | "conversation";
 export type MemoryKind = "profile" | "preference" | "goal" | "project" | "fact" | "constraint";
-export type MemoryStatus = "candidate" | "active" | "archived";
+export type MemoryStatus = "active" | "archived";
 export type MemoryDocumentType = "user_profile" | "workspace_profile" | "conversation_brief";
 
 export interface MemoryItem {
@@ -457,7 +457,6 @@ export interface MemoryLayerCollection {
 export interface MemoryCollection {
   documents: MemoryDocument[];
   active_items: MemoryLayerCollection;
-  candidate_items: MemoryLayerCollection;
 }
 
 export interface MemoryUpsertPayload {
@@ -470,10 +469,6 @@ export interface MemoryUpsertPayload {
   pinned: boolean;
   active: boolean;
   conversation_id: number | null;
-}
-
-export interface MemoryPromotePayload {
-  scope: Exclude<MemoryScope, "working">;
 }
 
 export interface AudioTranscriptionResult {

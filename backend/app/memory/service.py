@@ -15,7 +15,7 @@ from .embedder import MemoryEmbedder
 from .extractor import MemoryExtractor
 from .normalizer import normalize_candidate, normalize_memory_fields
 from .store import MemoryCollection, MemoryStore, utcnow
-from .types import MemoryCandidate, MemoryPromptPayload, MemoryTurnPolicy, MemoryWorkspaceCollection
+from .types import MemoryCandidate, MemoryPromptPayload, MemoryStatus, MemoryTurnPolicy, MemoryWorkspaceCollection, MemoryWritePolicy
 
 logger = logging.getLogger("chatchat.memory")
 
@@ -73,56 +73,7 @@ GROOMING_MARKERS = (
     "行",
     "可以",
 )
-AUTO_GLOBAL_PROFILE_TITLES = {
-    "姓名",
-    "昵称",
-    "生日",
-    "出生日期",
-    "称呼",
-    "称呼偏好",
-    "性别",
-    "职业",
-    "所在地",
-    "城市",
-    "邮箱",
-    "电话",
-}
-AUTO_GLOBAL_PREFERENCE_TITLES = {
-    "回复语言",
-    "语言偏好",
-    "默认语言",
-    "称呼偏好",
-    "回复风格",
-    "语气",
-    "称呼方式",
-    "工作习惯",
-}
-AUTO_GLOBAL_PROFILE_DETAIL_MARKERS = (
-    "用户叫",
-    "用户生日是",
-    "用户出生日期",
-    "称呼用户",
-    "用户是",
-    "我是一名",
-    "我在",
-)
-AUTO_GLOBAL_PREFERENCE_DETAIL_MARKERS = (
-    "默认使用中文",
-    "默认使用英文",
-    "称呼我",
-    "叫我",
-    "请用",
-    "喜欢用",
-    "不喜欢",
-    "习惯",
-)
-AUTO_GLOBAL_MIN_CONFIDENCE = 0.60
-AUTO_GLOBAL_PREFERENCE_LOOSE_CONFIDENCE = 0.55
 TOKEN_PATTERN = re.compile(r"[0-9A-Za-z_\u4e00-\u9fff]{2,}")
-
-
-def memory_kind_label(kind: str) -> str:
-    return kind.replace("_", " ").title()
 
 
 class MemoryService:
@@ -135,6 +86,7 @@ class MemoryService:
         self._embedding_enabled = bool(settings.memory_embedding_enabled)
         self._vector_weight = max(0.0, min(1.0, float(settings.memory_vector_weight)))
         self._keyword_weight = max(0.0, min(1.0, float(settings.memory_keyword_weight)))
+        self._auto_memory_min_confidence = max(0.0, min(1.0, float(settings.memory_auto_promote_min_confidence)))
         self._embedder: MemoryEmbedder | None = None
         if self._embedding_enabled:
             try:
@@ -467,24 +419,6 @@ class MemoryService:
         MemoryStore(db).delete_memory(memory)
         db.commit()
 
-    def promote_memory(
-        self,
-        *,
-        db: Session,
-        memory: MemoryItem,
-        target_scope: str | None,
-    ) -> MemoryItem:
-        promoted = MemoryStore(db).promote_candidate(memory, target_scope=target_scope)
-        db.commit()
-        db.refresh(promoted)
-        return promoted
-
-    def dismiss_memory(self, *, db: Session, memory: MemoryItem) -> MemoryItem:
-        dismissed = MemoryStore(db).dismiss_candidate(memory)
-        db.commit()
-        db.refresh(dismissed)
-        return dismissed
-
     def normalize_existing_memories(self, *, db: Session) -> tuple[int, int]:
         items = db.query(MemoryItem).all()
         updated = 0
@@ -598,12 +532,9 @@ class MemoryService:
         return MemoryTurnPolicy(
             explicit_request=explicit_request,
             target_scope=target_scope,
-            allow_global=target_scope == "global",
-            allow_auto_candidates=not explicit_request and not has_attachments,
-            store_working_memory=not explicit_request and not has_attachments,
+            allow_automatic_storage=not explicit_request and not has_attachments,
             skip_due_to_attachments=has_attachments and not explicit_request,
             modality="attachment" if has_attachments else "text",
-            write_policy="explicit" if explicit_request else "auto_candidate",
         )
 
     def _should_attempt_auto_memory(self, *, user_message: Message) -> bool:
@@ -626,7 +557,7 @@ class MemoryService:
         *,
         candidate,
         policy: MemoryTurnPolicy,
-    ) -> tuple[MemoryCandidate, str, datetime | None, str] | None:
+    ) -> tuple[MemoryCandidate, MemoryStatus, datetime | None, MemoryWritePolicy] | None:
         if policy.explicit_request:
             return (
                 MemoryCandidate(
@@ -642,7 +573,7 @@ class MemoryService:
                 "explicit",
             )
 
-        if not policy.allow_auto_candidates:
+        if not policy.allow_automatic_storage:
             return None
 
         if self._looks_transient(candidate):
@@ -660,34 +591,22 @@ class MemoryService:
                 "session",
             )
 
-        # 用户画像类信息价值高、体量小，自动确认后才能形成跨会话可感知的长期记忆。
-        if self._should_auto_promote_global(candidate):
-            return (
-                MemoryCandidate(
-                    scope="global",
-                    kind=candidate.kind,
-                    title=candidate.title,
-                    detail=candidate.detail,
-                    tags=candidate.tags,
-                    confidence=candidate.confidence,
-                ),
-                "active",
-                None,
-                "explicit",
-            )
+        if candidate.confidence < self._auto_memory_min_confidence:
+            return None
 
+        # 中文注释：长期信息达到阈值后直接写入全局长期记忆，不再经过额外确认层。
         return (
             MemoryCandidate(
-                scope="conversation",
+                scope="global",
                 kind=candidate.kind,
                 title=candidate.title,
                 detail=candidate.detail,
                 tags=candidate.tags,
                 confidence=candidate.confidence,
             ),
-            "candidate",
+            "active",
             None,
-            "auto_candidate",
+            "explicit",
         )
 
     def _looks_transient(self, candidate) -> bool:
@@ -695,35 +614,3 @@ class MemoryService:
         if any(marker in combined for marker in TRANSIENT_MARKERS):
             return True
         return candidate.kind in {"goal", "project", "constraint"}
-
-    def _should_auto_promote_global(self, candidate: MemoryCandidate) -> bool:
-        title = candidate.title.strip()
-        detail = candidate.detail.strip()
-        combined = f"{title} {detail}"
-        tags = set(candidate.tags)
-
-        if candidate.kind == "profile":
-            if candidate.confidence < AUTO_GLOBAL_MIN_CONFIDENCE:
-                return False
-            return (
-                title in AUTO_GLOBAL_PROFILE_TITLES
-                or any(marker in combined for marker in AUTO_GLOBAL_PROFILE_DETAIL_MARKERS)
-                or bool(tags & {"个人", "姓名", "生日", "性别", "职业"})
-            )
-
-        if candidate.kind == "preference":
-            # Standard strict rules
-            if candidate.confidence >= AUTO_GLOBAL_MIN_CONFIDENCE:
-                if (
-                    title in AUTO_GLOBAL_PREFERENCE_TITLES
-                    or any(marker in combined for marker in AUTO_GLOBAL_PREFERENCE_DETAIL_MARKERS)
-                    or bool(tags & {"语言", "称呼", "风格", "习惯"})
-                ):
-                    return True
-            # Loose rules for explicit preference expressions
-            if candidate.confidence >= AUTO_GLOBAL_PREFERENCE_LOOSE_CONFIDENCE:
-                loose_markers = ("请用", "喜欢用", "不喜欢", "习惯", "偏好", "倾向", "总是", "通常")
-                if any(marker in combined for marker in loose_markers):
-                    return True
-
-        return False

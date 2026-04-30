@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
@@ -23,7 +23,7 @@ class DebatePersistenceAdapter:
         self.db = db
 
     def commit_session(self, session: DebateSession, *, refresh_turns: bool = False) -> DebateSession:
-        session.updated_at = datetime.utcnow()
+        session.updated_at = datetime.now(timezone.utc)
         self.db.add(session)
         self.db.commit()
         self.db.refresh(session)
@@ -69,7 +69,7 @@ class DebatePersistenceAdapter:
             prompt_snapshot="",
             content=question.strip(),
         )
-        session.updated_at = datetime.utcnow()
+        session.updated_at = datetime.now(timezone.utc)
         self.db.add(question_turn)
         self.db.add(session)
         self.db.commit()
@@ -95,8 +95,8 @@ class DebatePersistenceAdapter:
 
         session.status = "finished"
         session.stage = "judge_decision"
-        session.finished_at = datetime.utcnow()
-        session.updated_at = datetime.utcnow()
+        session.finished_at = datetime.now(timezone.utc)
+        session.updated_at = datetime.now(timezone.utc)
         self.db.add(session)
         self.db.commit()
         self.db.refresh(session)
@@ -112,6 +112,6 @@ class DebatePersistenceAdapter:
         summary_chunks: list[str],
     ) -> None:
         session.summary_json = json.dumps({"content": "".join(summary_chunks).strip()}, ensure_ascii=False)
-        session.updated_at = datetime.utcnow()
+        session.updated_at = datetime.now(timezone.utc)
         self.db.add(session)
         self.db.commit()

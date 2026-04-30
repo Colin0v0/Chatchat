@@ -5,7 +5,7 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
@@ -145,7 +145,7 @@ def _persist_image_generation_turn(
         content=prompt,
         response_mode="image",
     )
-    conversation.updated_at = datetime.utcnow()
+    conversation.updated_at = datetime.now(timezone.utc)
     db.add(user_message)
     db.add(conversation)
     db.commit()
@@ -203,7 +203,7 @@ def _persist_generated_image_message(
             image_context=prompt,
             response_mode="image",
         )
-        conversation.updated_at = datetime.utcnow()
+        conversation.updated_at = datetime.now(timezone.utc)
         db.add(assistant_message)
         db.flush()
         append_message_attachments(
@@ -258,7 +258,7 @@ async def _persist_generated_image_response(
             image_context=prompt,
             response_mode="image",
         )
-        conversation.updated_at = datetime.utcnow()
+        conversation.updated_at = datetime.now(timezone.utc)
         db.add(assistant_message)
         db.flush()
         append_message_attachments(
@@ -330,8 +330,8 @@ async def _execute_image_generation_job(job_id: int) -> None:
             return
 
         job.status = "running"
-        job.started_at = datetime.utcnow()
-        job.updated_at = datetime.utcnow()
+        job.started_at = datetime.now(timezone.utc)
+        job.updated_at = datetime.now(timezone.utc)
         db.add(job)
         db.commit()
 
@@ -360,8 +360,8 @@ async def _execute_image_generation_job(job_id: int) -> None:
             job.status = "succeeded"
             job.assistant_message_id = assistant_message.id
             job.error_message = None
-            job.finished_at = datetime.utcnow()
-            job.updated_at = datetime.utcnow()
+            job.finished_at = datetime.now(timezone.utc)
+            job.updated_at = datetime.now(timezone.utc)
             db.add(job)
             db.commit()
         except Exception as exc:
@@ -372,8 +372,8 @@ async def _execute_image_generation_job(job_id: int) -> None:
                 return
             job.status = "failed"
             job.error_message = _image_error_message(exc)
-            job.finished_at = datetime.utcnow()
-            job.updated_at = datetime.utcnow()
+            job.finished_at = datetime.now(timezone.utc)
+            job.updated_at = datetime.now(timezone.utc)
             db.add(job)
             db.commit()
     finally:

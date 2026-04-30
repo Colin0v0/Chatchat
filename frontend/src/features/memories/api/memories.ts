@@ -3,7 +3,6 @@ import type {
   MemoryDocument,
   MemoryItem,
   MemoryLayerCollection,
-  MemoryPromotePayload,
   MemoryUpsertPayload,
 } from "../../../types";
 import { apiFetch, assertApiResponse, toApiUrl } from "../../../shared/api/http";
@@ -38,7 +37,7 @@ function normalizeMemoryItem(value: unknown): MemoryItem | null {
       ? payload.kind
       : "fact";
   const status =
-    payload.status === "active" || payload.status === "candidate" || payload.status === "archived"
+    payload.status === "active" || payload.status === "archived"
       ? payload.status
       : "active";
   const tags = ensureArray<unknown>(payload.tags)
@@ -92,20 +91,9 @@ function normalizeMemoryDocuments(value: unknown): MemoryDocument[] {
 
 function normalizeMemoryCollection(value: unknown): MemoryCollection {
   const payload = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
-  const legacyActiveItems = {
-    global_items: payload.global_items,
-    conversation_items: payload.conversation_items,
-    working_items: payload.working_items,
-  };
-
   return {
     documents: normalizeMemoryDocuments(payload.documents),
-    active_items: normalizeMemoryLayerCollection(
-      payload.active_items && typeof payload.active_items === "object"
-        ? payload.active_items
-        : legacyActiveItems,
-    ),
-    candidate_items: normalizeMemoryLayerCollection(payload.candidate_items),
+    active_items: normalizeMemoryLayerCollection(payload.active_items),
   };
 }
 
@@ -127,19 +115,6 @@ export function updateMemory(memoryId: number, payload: MemoryUpsertPayload) {
   return apiFetch<MemoryItem>(`/api/memories/items/${memoryId}`, {
     method: "PATCH",
     body: JSON.stringify(payload),
-  });
-}
-
-export function promoteMemory(memoryId: number, payload: MemoryPromotePayload) {
-  return apiFetch<MemoryItem>(`/api/memories/${memoryId}/promote`, {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-}
-
-export function dismissMemory(memoryId: number) {
-  return apiFetch<MemoryItem>(`/api/memories/${memoryId}/dismiss`, {
-    method: "POST",
   });
 }
 

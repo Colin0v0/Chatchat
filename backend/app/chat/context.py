@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import select
@@ -46,7 +46,7 @@ def save_assistant_message(
         sources_json=json.dumps(sources, ensure_ascii=False),
         context_json=json.dumps(context_payload, ensure_ascii=False) if context_payload else None,
     )
-    conversation.updated_at = datetime.utcnow()
+    conversation.updated_at = datetime.now(timezone.utc)
     db.add(assistant_message)
     db.add(conversation)
     db.commit()

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 
 from fastapi import Depends, HTTPException, Request, Response, status
@@ -91,7 +91,7 @@ def authenticate_user(*, db: Session, username: str, password: str) -> User:
 
 def create_user_session(*, db: Session, user: User) -> str:
     token = generate_session_token()
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     session = UserSession(
         user_id=user.id,
         token_hash=session_token_hash(token),
@@ -141,7 +141,7 @@ def resolve_request_user(*, db: Session, request: Request) -> User | None:
     if not token:
         return None
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     session = db.scalar(
         select(UserSession)
         .join(User)

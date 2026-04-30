@@ -11,9 +11,7 @@ import { useLatestRequestGuard } from "../../../shared/hooks/useLatestRequestGua
 import {
   createMemory,
   deleteMemory,
-  dismissMemory,
   fetchMemories,
-  promoteMemory,
   updateMemory,
 } from "../api/memories";
 
@@ -36,11 +34,6 @@ function createEmptyCollection(): MemoryCollection {
   return {
     documents: [],
     active_items: {
-      global_items: [],
-      conversation_items: [],
-      working_items: [],
-    },
-    candidate_items: {
       global_items: [],
       conversation_items: [],
       working_items: [],
@@ -232,43 +225,11 @@ export function useMemoryManager({
     [editor?.id, loadMemories],
   );
 
-  const promoteCandidate = useCallback(
-    async (memoryId: number, scope: EditableScope) => {
-      setIsSaving(true);
-      setError(null);
-      try {
-        await promoteMemory(memoryId, { scope });
-        await loadMemories();
-      } catch (promoteError) {
-        setError(promoteError instanceof Error ? promoteError.message : "Failed to promote candidate.");
-      } finally {
-        setIsSaving(false);
-      }
-    },
-    [loadMemories],
-  );
-
-  const dismissCandidate = useCallback(
-    async (memoryId: number) => {
-      setIsSaving(true);
-      setError(null);
-      try {
-        await dismissMemory(memoryId);
-        await loadMemories();
-      } catch (dismissError) {
-        setError(dismissError instanceof Error ? dismissError.message : "Failed to dismiss candidate.");
-      } finally {
-        setIsSaving(false);
-      }
-    },
-    [loadMemories],
-  );
-
   const hasMemories =
     collection.documents.length > 0 ||
     collection.active_items.global_items.length > 0 ||
-    collection.candidate_items.global_items.length > 0 ||
-    collection.candidate_items.conversation_items.length > 0;
+    collection.active_items.conversation_items.length > 0 ||
+    collection.active_items.working_items.length > 0;
 
   return useMemo(
     () => ({
@@ -283,23 +244,19 @@ export function useMemoryManager({
         setEditor((current) => (current ? { ...current, ...patch } : current)),
       onCreateGlobalMemory: () => startCreate("global"),
       onDeleteMemory: (memoryId: number) => void removeMemory(memoryId),
-      onDismissCandidate: (memoryId: number) => void dismissCandidate(memoryId),
       onEditMemory: (memory: MemoryItem) => startEdit(memory),
-      onPromoteCandidate: (memoryId: number, scope: EditableScope) => void promoteCandidate(memoryId, scope),
       onRefresh: () => void loadMemories(),
       onSaveEditing: () => void saveEditing(),
     }),
     [
       cancelEditing,
       collection,
-      dismissCandidate,
       editor,
       error,
       hasMemories,
       isLoading,
       isSaving,
       loadMemories,
-      promoteCandidate,
       removeMemory,
       saveEditing,
       startCreate,

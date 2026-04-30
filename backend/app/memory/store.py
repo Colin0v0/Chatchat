@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import and_, case, desc, func, literal, or_, select, text
 from sqlalchemy.exc import DatabaseError
@@ -57,7 +57,8 @@ class MemoryCollection:
 
 
 def utcnow() -> datetime:
-    return datetime.utcnow()
+    # 中文注释：统一返回带 UTC 时区的时间，避免和数据库里的 aware datetime 混用时报错。
+    return datetime.now(timezone.utc)
 
 
 def normalize_tags(tags: list[str] | tuple[str, ...]) -> list[str]:
@@ -164,15 +165,6 @@ class MemoryStore:
                     conversation_id=conversation_id,
                 )
             ),
-            candidate_global_items=tuple(self._list_items(user_id=user_id, scope="global", status="candidate")),
-            candidate_conversation_items=tuple(
-                self._list_items(
-                    user_id=user_id,
-                    scope="conversation",
-                    status="candidate",
-                    conversation_id=conversation_id,
-                )
-            ),
         )
 
     def create_manual_memory(
@@ -229,6 +221,8 @@ class MemoryStore:
             if normalized_candidate is None:
                 continue
             scope = self._resolved_auto_scope(normalized_candidate)
+            expires_at = utcnow() + timedelta(days=2) if scope == "working" else None
+            write_policy = "session" if scope == "working" else "explicit"
             normalized_candidate = MemoryCandidate(
                 scope=scope,
                 kind=normalized_candidate.kind,
@@ -241,12 +235,12 @@ class MemoryStore:
                 candidate=normalized_candidate,
                 user_id=user_id,
                 conversation_id=conversation_id,
-                status="active" if scope == "global" else "candidate",
+                status="active",
                 source_type="auto",
                 modality="text",
-                write_policy="explicit" if scope == "global" else "auto_candidate",
+                write_policy=write_policy,
                 pinned=False,
-                expires_at=None,
+                expires_at=expires_at,
                 user_message_id=user_message_id,
                 assistant_message_id=assistant_message_id,
             )
@@ -302,37 +296,6 @@ class MemoryStore:
         self._db.flush()
         if user_id is not None:
             self.rebuild_documents(user_id=user_id, conversation_id=conversation_id)
-
-    def dismiss_candidate(self, memory: MemoryItem) -> MemoryItem:
-        memory.status = "archived"
-        memory.active = False
-        memory.updated_at = utcnow()
-        self._db.add(memory)
-        self._db.flush()
-        self.reindex_memory(memory)
-        if memory.user_id is not None:
-            self.rebuild_documents(user_id=memory.user_id, conversation_id=memory.conversation_id)
-        return memory
-
-    def promote_candidate(self, memory: MemoryItem, *, target_scope: MemoryScope | None = None) -> MemoryItem:
-        next_scope = target_scope or memory.scope
-        if next_scope == "working":
-            next_scope = "conversation"
-        memory.scope = next_scope
-        memory.status = "active"
-        memory.active = True
-        memory.source_type = "promoted"
-        memory.write_policy = "explicit"
-        memory.last_confirmed_at = utcnow()
-        memory.promoted_at = utcnow()
-        memory.expires_at = None if next_scope != "working" else memory.expires_at
-        memory.updated_at = utcnow()
-        self._db.add(memory)
-        self._db.flush()
-        self.reindex_memory(memory)
-        if memory.user_id is not None:
-            self.rebuild_documents(user_id=memory.user_id, conversation_id=memory.conversation_id)
-        return memory
 
     def upsert_auto_memory(
         self,
@@ -1041,10 +1004,11 @@ class MemoryStore:
 
     def _resolved_auto_scope(self, candidate: MemoryCandidate) -> MemoryScope:
         combined = " ".join([candidate.title, candidate.detail]).casefold()
-        if candidate.scope == "global" and (
-            candidate.kind in {"goal", "project"} or any(marker in combined for marker in ("当前", "这次", "本次", "先", "暂时"))
+        # 中文注释：自动提取出的短期目标、项目和临时约束统一落到 working，避免混入长期记忆。
+        if candidate.kind in {"goal", "project", "constraint"} or any(
+            marker in combined for marker in ("当前", "这次", "本次", "先", "暂时")
         ):
-            return "conversation"
+            return "working"
         return candidate.scope
 
     def _preferred_detail(self, *, current: str, incoming: str) -> str:

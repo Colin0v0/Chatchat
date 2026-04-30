@@ -264,69 +264,6 @@ function DocumentCard({ document }: { document: MemoryDocument }) {
   );
 }
 
-function CandidateMemoryCard({
-  isSaving,
-  memory,
-  onDismiss,
-  onPromoteGlobal,
-}: {
-  isSaving?: boolean;
-  memory: MemoryItem;
-  onDismiss: (memoryId: number) => void;
-  onPromoteGlobal: (memoryId: number) => void;
-}) {
-  return (
-    <div className="rounded-xl border border-app-border bg-app-panel-strong p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full bg-app-accent-soft px-2.5 py-1 text-[11px] font-semibold tracking-[0.12em] text-app-accent-strong">
-              系统候选
-            </span>
-            <span className="rounded-full border border-app-border px-2.5 py-1 text-[11px] font-semibold tracking-[0.12em] text-app-muted">
-              {MEMORY_KIND_LABELS[memory.kind]}
-            </span>
-          </div>
-          <div className="mt-3 text-[16px] font-semibold tracking-[-0.02em] text-app-text">{memory.title}</div>
-          {memory.detail ? <div className="mt-2 text-[14px] leading-6 text-app-muted">{memory.detail}</div> : null}
-          {memory.tags.length > 0 ? (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {memory.tags.map((tag) => (
-                <span className="rounded-full border border-app-border bg-app-panel px-2.5 py-1 text-[12px] text-app-muted" key={tag}>
-                  #{tag}
-                </span>
-              ))}
-            </div>
-          ) : null}
-        </div>
-      </div>
-
-      <div className="mt-4 flex flex-wrap gap-2">
-        <button
-          className="rounded-lg bg-app-accent-soft px-3 py-2 text-[13px] font-medium text-app-accent-strong transition hover:bg-app-panel-soft disabled:cursor-not-allowed disabled:opacity-45"
-          disabled={isSaving}
-          onClick={() => onPromoteGlobal(memory.id)}
-          type="button"
-        >
-          加入全局记忆
-        </button>
-        <button
-          className="rounded-lg border border-app-border px-3 py-2 text-[13px] font-medium text-app-muted transition hover:bg-app-panel hover:text-app-text disabled:cursor-not-allowed disabled:opacity-45"
-          disabled={isSaving}
-          onClick={() => onDismiss(memory.id)}
-          type="button"
-        >
-          忽略
-        </button>
-      </div>
-
-      <div className="mt-3 text-[12px] leading-5 text-app-muted">
-        系统会先把它当作候选，只有你确认之后，才会进入长期的全局记忆。
-      </div>
-    </div>
-  );
-}
-
 export function MemoriesPage({
   activeConversationId: _activeConversationId,
   activeConversationTitle: _activeConversationTitle,
@@ -342,11 +279,6 @@ export function MemoriesPage({
         conversation_items: MemoryItem[];
         working_items: MemoryItem[];
       };
-      candidate_items: {
-        global_items: MemoryItem[];
-        conversation_items: MemoryItem[];
-        working_items: MemoryItem[];
-      };
     };
     editor: MemoryEditorState;
     error: string | null;
@@ -357,19 +289,15 @@ export function MemoriesPage({
     onChangeEditor: (patch: Record<string, unknown>) => void;
     onCreateGlobalMemory: () => void;
     onDeleteMemory: (memoryId: number) => void;
-    onDismissCandidate: (memoryId: number) => void;
     onEditMemory: (memory: MemoryItem) => void;
-    onPromoteCandidate: (memoryId: number, scope: "global") => void;
     onRefresh: () => void;
     onSaveEditing: () => void;
   };
 }) {
   const activeGlobal = memories.collection.active_items.global_items;
-  const globalCandidates = memories.collection.candidate_items.global_items;
-  const conversationCandidates = memories.collection.candidate_items.conversation_items;
-  const candidateItems = [...globalCandidates, ...conversationCandidates];
-  const visibleHasMemories =
-    memories.collection.documents.length > 0 || activeGlobal.length > 0 || candidateItems.length > 0 || memories.editor != null;
+  const activeConversation = memories.collection.active_items.conversation_items;
+  const activeWorking = memories.collection.active_items.working_items;
+  const visibleHasMemories = memories.hasMemories || memories.editor != null;
   const kindOptions: SelectOption<NonNullable<MemoryEditorState>["kind"]>[] = [
     { value: "profile", label: "身份" },
     { value: "preference", label: "偏好" },
@@ -407,7 +335,8 @@ export function MemoriesPage({
     >
       <div className="flex flex-wrap gap-2">
         <StatChip>{`全局记忆 ${activeGlobal.length}`}</StatChip>
-        <StatChip>{`全局候选 ${candidateItems.length}`}</StatChip>
+        <StatChip>{`会话记忆 ${activeConversation.length}`}</StatChip>
+        <StatChip>{`临时记忆 ${activeWorking.length}`}</StatChip>
         <StatChip>{`记忆文档 ${memories.collection.documents.length}`}</StatChip>
       </div>
 
@@ -417,7 +346,7 @@ export function MemoriesPage({
         <div className="rounded-[20px] border border-dashed border-app-border bg-app-panel-strong px-5 py-6">
           <div className="text-[16px] font-semibold tracking-[-0.02em] text-app-text">记忆空间还是空的</div>
           <div className="mt-2 text-[14px] leading-7 text-app-muted">
-            可以先新建全局记忆。系统后续自动识别出来的长期信息，也会先以候选的形式出现在这里等你确认。
+            可以先新建全局记忆。系统后续自动识别出来的稳定长期信息会直接写入全局，短期目标或临时约束会进入 working。
           </div>
         </div>
       ) : null}
@@ -521,42 +450,50 @@ export function MemoriesPage({
       ) : null}
 
       <div>
-        <div className="mb-3 text-[14px] font-semibold uppercase tracking-[0.14em] text-app-muted">记忆文档</div>
-        <div className="grid grid-cols-[repeat(auto-fit,minmax(280px,1fr))] gap-4">
-          {memories.collection.documents.map((document) => (
-            <DocumentCard document={document} key={document.id} />
-          ))}
-          {memories.collection.documents.length === 0 ? <EmptyState>还没有文档，系统会在全局记忆稳定后自动整理。</EmptyState> : null}
-        </div>
-      </div>
-
-      <div>
         <div>
           <div className="mb-3 text-[14px] font-semibold uppercase tracking-[0.14em] text-app-muted">全局记忆</div>
           <div className="flex flex-col gap-4">
             {activeGlobal.map((memory) => (
               <MemoryCard key={memory.id} memory={memory} onDelete={memories.onDeleteMemory} onEdit={memories.onEditMemory} />
             ))}
-            {activeGlobal.length === 0 ? <EmptyState>还没有全局记忆。</EmptyState> : null}
+            {activeGlobal.length === 0 ? <EmptyState>还没有全局记忆。稳定长期信息会自动沉淀到这里。</EmptyState> : null}
           </div>
         </div>
       </div>
 
       <div>
         <div>
-          <div className="mb-3 text-[14px] font-semibold uppercase tracking-[0.14em] text-app-muted">全局候选</div>
+          <div className="mb-3 text-[14px] font-semibold uppercase tracking-[0.14em] text-app-muted">临时记忆</div>
           <div className="flex flex-col gap-4">
-            {candidateItems.map((memory) => (
-              <CandidateMemoryCard
-                isSaving={memories.isSaving}
-                key={memory.id}
-                memory={memory}
-                onDismiss={memories.onDismissCandidate}
-                onPromoteGlobal={(memoryId) => memories.onPromoteCandidate(memoryId, "global")}
-              />
+            {activeWorking.map((memory) => (
+              <MemoryCard key={memory.id} memory={memory} onDelete={memories.onDeleteMemory} />
             ))}
-            {candidateItems.length === 0 ? <EmptyState>还没有系统自动识别出的候选。</EmptyState> : null}
+            {activeWorking.length === 0 ? (
+              <EmptyState>还没有临时记忆。系统识别到的短期任务、当前约束会先放在 working，并在近期自动过期。</EmptyState>
+            ) : null}
           </div>
+        </div>
+      </div>
+
+      <div>
+        <div>
+          <div className="mb-3 text-[14px] font-semibold uppercase tracking-[0.14em] text-app-muted">当前会话记忆</div>
+          <div className="flex flex-col gap-4">
+            {activeConversation.map((memory) => (
+              <MemoryCard key={memory.id} memory={memory} onDelete={memories.onDeleteMemory} onEdit={memories.onEditMemory} />
+            ))}
+            {activeConversation.length === 0 ? <EmptyState>还没有当前会话记忆。</EmptyState> : null}
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div className="mb-3 text-[14px] font-semibold uppercase tracking-[0.14em] text-app-muted">记忆文档</div>
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(280px,1fr))] gap-4">
+          {memories.collection.documents.map((document) => (
+            <DocumentCard document={document} key={document.id} />
+          ))}
+          {memories.collection.documents.length === 0 ? <EmptyState>还没有文档，系统会根据已生效记忆自动整理。</EmptyState> : null}
         </div>
       </div>
     </WorkspacePage>

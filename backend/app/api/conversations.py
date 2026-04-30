@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import delete, or_, select
@@ -166,7 +166,7 @@ def update_conversation(
         raise HTTPException(status_code=404, detail="Conversation not found")
 
     conversation.title = payload.title.strip()
-    conversation.updated_at = datetime.utcnow()
+    conversation.updated_at = datetime.now(timezone.utc)
     db.add(conversation)
     db.commit()
     db.refresh(conversation)

@@ -95,7 +95,7 @@ async def stream_speaker_turn(
     if free_debate_state is not None:
         free_debate_state["active_side"] = participant.side
         free_debate_state["active_turn_started_at"] = None
-    session.updated_at = datetime.utcnow()
+    session.updated_at = datetime.now(timezone.utc)
     db.add(turn)
     db.add(session)
     db.commit()
@@ -103,7 +103,7 @@ async def stream_speaker_turn(
     if free_debate_state is not None:
         free_debate_state["active_turn_id"] = turn.id
         _save_free_debate_state(session, free_debate_state)
-        session.updated_at = datetime.utcnow()
+        session.updated_at = datetime.now(timezone.utc)
         db.add(session)
         db.commit()
         db.refresh(session)
@@ -160,7 +160,7 @@ async def stream_speaker_turn(
         if free_debate_state is not None:
             free_debate_state["active_turn_started_at"] = started_at
             _save_free_debate_state(session, free_debate_state)
-            session.updated_at = datetime.utcnow()
+            session.updated_at = datetime.now(timezone.utc)
             db.add(session)
         db.commit()
         db.refresh(turn)
@@ -253,7 +253,7 @@ async def stream_speaker_turn(
         free_debate_state["active_turn_started_at"] = None
         free_debate_state["turn_count"] = int(free_debate_state.get("turn_count", 0)) + 1
         _save_free_debate_state(session, _mark_free_debate_ended(session, free_debate_state))
-    session.updated_at = datetime.utcnow()
+    session.updated_at = datetime.now(timezone.utc)
     db.add(turn)
     db.add(session)
     db.commit()
