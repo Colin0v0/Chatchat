@@ -1,4 +1,4 @@
-import { ChevronRight, ScrollText } from "lucide-react";
+import { Brain, ChevronRight, ScrollText } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import type { MessageContext, MessageContextSection } from "../../../../types";
@@ -18,6 +18,8 @@ export function ContextPanel({ context }: ContextPanelProps) {
     return null;
   }
 
+  const hasMemory = (context.memory_count || 0) > 0;
+
   return (
     <div className="mt-4">
       <button
@@ -30,6 +32,7 @@ export function ContextPanel({ context }: ContextPanelProps) {
         <span className="text-app-muted/70">
           {`本次回答参考了最近 ${Math.max(1, context.recent_message_count)} 轮聊天`}
           {context.older_message_count > 0 ? `，更早 ${context.older_message_count} 轮已自动压缩` : ""}
+          {hasMemory ? `，使用了 ${context.memory_count} 条记忆` : ""}
         </span>
         <ChevronRight className={`size-4 transition-transform duration-200 ${expanded ? "rotate-90" : ""}`} />
       </button>
@@ -50,6 +53,17 @@ export function ContextPanel({ context }: ContextPanelProps) {
                 {summarySection.body}
               </div>
             </section>
+            {hasMemory ? (
+              <section className="mt-3">
+                <div className="flex items-center gap-2 text-[13px] font-medium text-app-muted">
+                  <Brain className="size-4" />
+                  <span>记忆</span>
+                </div>
+                <div className="mt-2 whitespace-pre-wrap break-words border-l border-app-border pl-3 text-[13px] leading-6 text-app-text/88">
+                  本次回答参考了 {context.memory_count} 条关于用户的记忆信息。
+                </div>
+              </section>
+            ) : null}
           </div>
         </div>
       </div>

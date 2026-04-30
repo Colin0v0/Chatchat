@@ -1,551 +1,121 @@
 # Chatchat
 
-Chatchat 是一个面向个人/小团队的聊天工作台，当前提供：
+Chatchat 是一个自托管的 AI 聊天工作台，提供多模型聊天、知识库检索、多模态附件、语音能力、记忆管理和多用户隔离。
 
-- 多模型聊天：DeepSeek 官网、OpenAI-compatible API、OpenAI Codex、Claude、Gemini、Trio
-- 登录与多用户隔离：基于账号密码和 Cookie Session
-- 推理展示：支持 reasoning/thinking 流式展示与持久化
-- 检索增强：用户知识库 `RAG`、`Web Search`，知识库 embedding / rerank 走百炼
-- 多模态输入：图片、PDF、DOCX、XLSX、CSV、文本类文件
-- 语音转写：百炼 `qwen3-asr-flash`
-- 语音播放：百炼 `cosyvoice-v3-flash`，浏览器本机语音兜底
-- 记忆系统：全局记忆、会话记忆、工作记忆、候选记忆、记忆文档
+项目目标是把常见的个人/团队 AI 工作流收敛到一个清晰的 Web 应用里：前端负责工作台体验，后端负责模型编排、上下文构建、检索、记忆和数据持久化。
 
-当前部署口径是纯 CPU + 云端 API：
+## 功能特性
 
-- 不再依赖 Ollama、本地 OCR、本地视觉模型、本地 ASR、本地 embedding 或本地 reranker
-- DeepSeek 聊天走 DeepSeek 官方 API，也就是 `DEEPSEEK_*`
-- embedding、rerank、语音输入和云端音色走百炼/DashScope，也就是 `DASHSCOPE_*`
-- PostgreSQL、Redis、媒体文件和知识库原文仍可放在本机或 Docker 里，它们是基础设施，不属于本地模型推理
+- 多模型会话：通过模型目录接入不同的聊天模型提供方。
+- 流式响应：统一输出状态、文本、推理内容、来源、上下文和完成事件。
+- 知识库检索：支持用户私有知识库、向量检索、重排和查询改写。
+- 网页搜索：可选外部搜索提供方，并把来源纳入回答上下文。
+- 多模态附件：支持图片和常见文档类型，按模型能力选择原生输入或文本解析。
+- 记忆系统：支持全局、会话、工作、候选记忆和记忆文档。
+- 语音能力：支持语音转写和文本朗读，可接入浏览器或外部语音提供方。
+- 多用户隔离：账号、会话、知识库、记忆和设置都按用户隔离。
+- 可观测运行链路：保存消息、推理内容、来源和上下文组成信息。
 
-当前代码默认遵循这几个原则：
-
-- 优先做清晰重构，不堆补丁
-- 不主动引入隐式 fallback
-- 能力按领域收口，避免逻辑散落
-
-详细开发说明见 [docs/开发文档.md](docs/开发文档.md)，纯 CPU/API 部署说明见 [docs/部署与模型接入.md](docs/部署与模型接入.md)。
-
-## 文档地图
-
-- [docs/部署与模型接入.md](docs/部署与模型接入.md)：服务器规格、Docker 部署、DeepSeek/百炼环境变量、API-only 链路
-- [docs/技术功能总览.md](docs/技术功能总览.md)：当前功能模块文档索引
-- [docs/功能模块/](docs/功能模块/)：按功能拆分的技术说明，一个模块一份文档
-- [docs/开发文档.md](docs/开发文档.md)：当前代码结构、后端/前端目录职责、主要运行链路和开发约定
-- [docs/后端重构.md](docs/后端重构.md)：后端 runtime、provider、tool、storage 的迁移状态和后续方向
-- [docs/前端重构.md](docs/前端重构.md)：前端 feature-first 拆分计划和当前迁移状态
-- [docs/语音对话与实时打断架构.md](docs/语音对话与实时打断架构.md)：ASR/TTS、浏览器本机音色、阿里云音色和播放打断设计
-
-## 开发环境
-
-当前推荐的本地开发形态是：
-
-- `backend`：在 VSCode / 宿主机 Python 里直接运行
-- `postgres-dev`：通过 Docker 单独启动开发数据库
-- `redis-dev`：通过 Docker 单独启动开发缓存
-
-启动开发基建：
-
-```powershell
-docker-compose -f docker-compose.dev-infra.yml up -d
-```
-
-如果本机拉不到 `docker.io`，先覆盖镜像地址再启动：
-
-```powershell
-$env:DEV_POSTGRES_IMAGE = "你的可用镜像仓库/pgvector/pgvector:pg16"
-$env:DEV_REDIS_IMAGE = "你的可用镜像仓库/redis:7-alpine"
-docker-compose -f docker-compose.dev-infra.yml up -d
-```
-
-如果你已经在 Docker Desktop 配好了镜像代理或镜像加速器，这两项不用设置。
-
-启动后端开发服务：
-
-```powershell
-cd backend
-.\scripts\run_dev_backend.ps1
-```
-
-首次启动空的开发库时，脚本会自动：
-
-- 创建 `vector` / `pg_trgm` 扩展
-- 运行 Alembic baseline / head migration
-- 对旧的未版本化 PostgreSQL schema 补齐迁移
-
-这套开发环境默认使用：
-
-- PostgreSQL：`127.0.0.1:5433` / `chatchat_dev`
-- Redis：`127.0.0.1:6380`
-
-生产环境仍然保持单独的 Docker 栈，不和开发库共用容器、端口或数据卷。
-
-## 当前架构
+## 架构概览
 
 ```text
 Chatchat/
-  backend/      FastAPI + SQLAlchemy + LLM / Retrieval / Memory
-  frontend/     React 19 + Vite + TypeScript
-  docs/         架构、部署、重构说明
-  storage/      媒体附件、用户知识库原文等持久化文件
-  docker-compose.yml
-  README.md
+  backend/      FastAPI + SQLAlchemy 后端与运行时编排
+  dev/          本地开发与部署示例
+  frontend/     React + Vite + TypeScript 前端
+  docs/         架构、功能模块与部署文档
+  storage/      上传文件、生成媒体与知识库源文件
 ```
 
-## 当前核心功能
+核心后端链路：
 
-### 1. 聊天与推理
-
-- 支持普通聊天、重试回答、停止生成
-- reasoning 面板支持流式展示
-- reasoning 会随 assistant message 一起持久化到数据库
-- 前端消费统一 NDJSON 事件流：
-  - `meta`
-  - `status`
-  - `reasoning`
-  - `token`
-  - `sources`
-  - `context`
-  - `done`
-  - `error`
-
-### 2. 检索
-
-- `none`：不检索
-- `rag`：检索当前用户上传的 Markdown 知识库
-- `web`：联网搜索
-
-知识库支持逻辑文件夹分组：
-
-- 可以上传单个/多个 Markdown 到指定分组
-- 可以直接上传文件夹，保留目录相对路径
-- 可以在知识库页面按分组查看、筛选、批量移动、批量删除
-- 聊天开启知识库模式后，可以选择检索全部知识库、默认分组或某个文件夹分组
-
-`rag` 模式当前会先做一层“查询重写”：
-
-- 结合最近几轮对话，把“它 / 那个 / 上面那段”改写成更完整的检索问题
-- 只影响知识库检索，不影响最终用户原始问题
-- 相关配置见 `RAG_QUERY_REWRITE_*`
-
-### 3. 多模态与附件
-
-后端现在按 API 模型能力处理附件：
-
-- `native_multimodal="false"`
-  - 不走本地 OCR / 视觉模型
-  - 文件仍可走轻量解析器抽取文本
-  - 把结果写入 `attachment_context`
-
-- `native_multimodal="codex"`
-  - 图片直接作为原生多模态输入发送给 Codex / GPT-5
-  - 文档和其他文件继续走本地解析
-  - 不复用 `/v1/files` 直传链路
-
-- `native_multimodal="gemini"` / `"claude"`
-  - 图片和支持的文档按 provider 原生多模态协议发送
-  - 其他文件仍走本地轻量解析器
-
-当前 `native_multimodal` 由 [backend/model_catalog.json](backend/model_catalog.json) 控制。
-`capabilities.input.*` 会同时约束前端上传入口和后端校验；当前 DeepSeek v4 Pro / Flash 已关闭图片上传。
-
-### 4. 认证与用户
-
-- 不开放注册页
-- 通过数据库注入/脚本创建账号
-- 登录后通过 Cookie Session 维持状态
-- 会话、记忆、设置按用户隔离
-
-创建用户脚本：
-
-```powershell
-cd backend
-python scripts/create_user.py --username alice --password secret123
+```text
+请求
+  -> 鉴权 / 会话
+  -> 会话与消息持久化
+  -> 历史 / 记忆 / 检索上下文
+  -> 模型运行时
+  -> 流式事件
+  -> assistant 消息持久化
+  -> 异步记忆刷新
 ```
 
-如果要接管历史无主数据：
+## 快速开始
 
-```powershell
-cd backend
-python scripts/create_user.py --username alice --password secret123 --take-ownership-of-orphans
+本地开发细节见 [dev/README.md](dev/README.md)。
+
+启动开发数据库和缓存：
+
+```bash
+docker compose -f dev/docker-compose.dev-infra.yml up -d
 ```
 
-## 模型配置
+启动后端：
 
-模型由 [backend/model_catalog.json](backend/model_catalog.json) 管理。
-
-当前常用字段：
-
-- `id`
-- `display_name`
-- `provider_ref`
-- `upstream_model`
-- `thinking_mode`
-- `context_window`
-- `native_multimodal`
-- `enabled`
-
-当前 provider 主要有：
-
-- `openai`，当前主要用于 DeepSeek 这类 OpenAI-compatible API
-- `codex`
-- `claude`
-- `gemini`
-- `trio`
-
-前端 `/api/models` 当前使用的模型能力字段：
-
-- `supports_thinking`
-- `supports_thinking_trace`
-- `supports_attachment_upload`
-- `chat_model`
-- `reasoning_model`
-
-## 环境变量
-
-后端支持分层环境文件：
-
-- 默认：`backend/.env`
-- 命名环境：`CHATCHAT_ENV=<name>` 时额外加载 `backend/.env.<name>`
-- 显式文件：`CHATCHAT_ENV_FILE=<path>`
-
-示例：
-
-```powershell
-$env:CHATCHAT_ENV = "dev.windows"
+```bash
 cd backend
 python app.py
 ```
 
+启动前端：
+
 ```bash
-CHATCHAT_ENV=deploy.wsl python app.py
-```
-
-### 关键环境变量
-
-#### 数据库 / 缓存
-
-本地开发使用 `docker-compose.dev-infra.yml` 里的 Postgres / Redis：
-
-```env
-DATABASE_URL=postgresql+psycopg://chatchat_dev:chatchat_dev@127.0.0.1:5433/chatchat_dev
-REDIS_URL=redis://127.0.0.1:6380/0
-```
-
-完整 Docker 部署使用 `docker-compose.yml` 里的内置服务：
-
-```env
-DATABASE_URL=postgresql+psycopg://chatchat:chatchat@postgres:5432/chatchat
-REDIS_URL=redis://redis:6379/0
-```
-
-#### 模型与路由
-
-```env
-DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
-DEEPSEEK_API_KEY=
-CODEX_BASE_URL=
-CODEX_API_KEY=
-DASHSCOPE_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-DASHSCOPE_API_KEY=
-MODEL_CATALOG_PATH=./model_catalog.json
-MODEL_CATALOG_STRICT=true
-DEFAULT_PROVIDER=openai
-DEFAULT_MODEL=openai:deepseek-v4-flash
-```
-
-DeepSeek 聊天模型走 `DEEPSEEK_*`，百炼 `DASHSCOPE_*` 用于 embedding、rerank、语音输入和语音播放。
-如果不接 OpenAI / Codex，可以把 `OPENAI_API_KEY`、`CODEX_API_KEY` 留空；DeepSeek 不依赖 OpenAI key。
-
-如果要接入 OpenAI Codex，推荐单独配置：
-
-```env
-CODEX_BASE_URL=https://api.openai.com/v1
-CODEX_API_KEY=sk-...
-DEFAULT_PROVIDER=codex
-DEFAULT_MODEL=codex:gpt-5.3-codex
-```
-
-#### 并发与连接池
-
-```env
-REQUEST_TIMEOUT_SECONDS=180
-OPENAI_CONNECT_TIMEOUT_SECONDS=30
-HTTP_POOL_MAX_CONNECTIONS=100
-HTTP_POOL_MAX_KEEPALIVE_CONNECTIONS=20
-OPENAI_HTTP_MAX_CONCURRENCY=8
-WEB_SEARCH_HTTP_MAX_CONCURRENCY=4
-MODEL_MAX_CONCURRENCY_PER_MODEL=3
-ATTACHMENT_PROCESSING_MAX_CONCURRENCY=2
-MEMORY_REFRESH_MAX_CONCURRENCY=1
-```
-
-#### 检索 / 知识库
-
-```env
-KNOWLEDGE_STORAGE_ROOT=./storage/knowledge
-KNOWLEDGE_EMBEDDING_PROVIDER=dashscope
-KNOWLEDGE_EMBEDDING_MODEL=text-embedding-v4
-KNOWLEDGE_EMBEDDING_DIMENSIONS=1024
-KNOWLEDGE_EMBEDDING_BATCH_SIZE=8
-KNOWLEDGE_RERANK_PROVIDER=dashscope
-KNOWLEDGE_RERANK_MODEL=gte-rerank-v2
-KNOWLEDGE_RERANK_BASE_URL=https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank
-KNOWLEDGE_RERANK_TIMEOUT_SECONDS=30
-KNOWLEDGE_MAX_FILE_SIZE_BYTES=2097152
-KNOWLEDGE_MAX_DOCUMENTS_PER_USER=100
-KNOWLEDGE_MAX_TOTAL_SIZE_BYTES=104857600
-RAG_QUERY_REWRITE_ENABLED=true
-RAG_QUERY_REWRITE_MODEL=codex:gpt-5.2
-RAG_QUERY_REWRITE_HISTORY_MESSAGES=6
-WEB_SEARCH_PROVIDER=dashscope
-WEB_SEARCH_BASE_URL=https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation
-WEB_SEARCH_API_KEY=
-WEB_SEARCH_MODEL=qwen-plus
-WEB_SEARCH_STRATEGY=turbo
-WEB_SEARCH_FORCED=true
-WEB_SEARCH_ENABLE_SOURCE=true
-WEB_SEARCH_ENABLE_CITATION=true
-WEB_SEARCH_CITATION_FORMAT=[ref_<number>]
-WEB_SEARCH_MAX_RESULTS=5
-WEB_SEARCH_TOP_K=4
-WEB_SEARCH_MIN_SCORE=0.2
-WEB_SEARCH_CONTENT_MAX_CHARS=1600
-WEB_SEARCH_TRANSLATION_MODEL=codex:gpt-5.2
-```
-
-切换 embedding 模型后，旧知识库向量需要重新索引。
-`WEB_SEARCH_API_KEY` 可以留空，网页搜索会复用 `DASHSCOPE_API_KEY`；只有搜索单独走另一把百炼 key 时才需要填写。
-
-#### 语音
-
-```env
-AUDIO_TRANSCRIPTION_ENABLED=true
-AUDIO_TRANSCRIPTION_MODEL=qwen3-asr-flash
-AUDIO_TRANSCRIPTION_TIMEOUT_SECONDS=60
-AUDIO_TTS_ENABLED=true
-AUDIO_TTS_MODEL=cosyvoice-v3-flash
-AUDIO_TTS_VOICE=longanyang
-AUDIO_TTS_FORMAT=mp3
-AUDIO_TTS_SAMPLE_RATE=24000
-AUDIO_TTS_TIMEOUT_SECONDS=60
-```
-
-Embedding、rerank、语音输入和语音播放默认复用 `DASHSCOPE_API_KEY`。TTS 默认使用百炼原生语音合成接口，只有需要改代理地址时才配置 `AUDIO_TTS_BASE_URL`。
-
-## 本地开发
-
-### 1. 启动后端
-
-```powershell
-cd backend
-python app.py --reload
-```
-
-默认后端接口：
-
-- `http://127.0.0.1:8050/api/health`
-
-### 2. 启动前端
-
-```powershell
 cd frontend
-npm install
-npm run dev
+pnpm install
+pnpm dev
 ```
 
-默认前端地址：
+默认前端开发服务由 Vite 提供，后端服务由 FastAPI 提供。首次接入模型前，需要在后端环境变量和 `backend/model_catalog.json` 中配置可用模型提供方。
 
-- `http://127.0.0.1:5200`
-- 开发态默认代理后端：`http://127.0.0.1:8050`
+## 配置说明
 
-开发与部署端口约定：
+常用配置入口：
 
-- 开发：前端 `5200`，后端 `8050`
-- Docker 部署：前端 `3300`，后端 `8000`
+- `backend/.env`：后端运行配置。
+- `backend/model_catalog.json`：模型目录、提供方映射和能力声明。
+- `dev/docker-compose.dev-infra.yml`：本地开发数据库和缓存。
+- `docker-compose.yml`：部署编排示例。
 
-## Docker
+后端至少需要配置：
 
-当前 `docker compose` 主要启动：
+- 数据库连接。
+- 缓存连接。
+- 默认模型。
+- 至少一个可用模型提供方。
 
-- `frontend`
-- `backend`
+知识库、网页搜索、语音、图片生成等能力可以按需配置。未配置的能力应在 UI 或后端返回明确不可用状态。
 
-后端不包含本地模型栈，适合纯 CPU + API 模型部署。
-默认 compose 会启动：
+## 文档导航
 
-- `postgres`：PostgreSQL + pgvector
-- `redis`：缓存与运行状态辅助
-- `backend`：FastAPI 服务
-- `frontend`：Nginx 托管的前端静态资源
+- [文档索引](docs/README.md)
+- [系统架构](docs/architecture.md)
+- [配置说明](docs/configuration.md)
+- [部署指南](docs/deployment.md)
+- [开发说明](docs/development.md)
 
-前后端镜像需要先在本地电脑或高配构建机 build，并推送到阿里云 ACR。先准备根目录 `.env`：
+## 开发
 
-```env
-POSTGRES_IMAGE=registry.cn-hangzhou.aliyuncs.com/你的命名空间/chatchat-pgvector:pg16
-REDIS_IMAGE=registry.cn-hangzhou.aliyuncs.com/你的命名空间/chatchat-redis:7-alpine
-BACKEND_IMAGE=registry.cn-hangzhou.aliyuncs.com/你的命名空间/chatchat-backend:latest
-FRONTEND_IMAGE=registry.cn-hangzhou.aliyuncs.com/你的命名空间/chatchat-frontend:latest
-POSTGRES_DB=chatchat
-POSTGRES_USER=chatchat
-POSTGRES_PASSWORD=请改成强密码
-POSTGRES_PORT=5432
-REDIS_PORT=6379
-BACKEND_DATABASE_URL=postgresql+psycopg://chatchat:请改成强密码@postgres:5432/chatchat
-BACKEND_REDIS_URL=redis://redis:6379/0
-AUDIO_TRANSCRIPTION_MODEL=qwen3-asr-flash
-BACKEND_PORT=8000
-FRONTEND_PORT=3300
-BACKEND_STORAGE_HOST_PATH=./storage
-DOCKER_REGISTRY=docker.io
-PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
-```
+本地开发流程：
 
-本地构建并推送：
+- [dev/README.md](dev/README.md)
+
+后端测试：
 
 ```bash
-docker login registry.cn-hangzhou.aliyuncs.com
-docker pull pgvector/pgvector:pg16
-docker pull redis:7-alpine
-docker tag pgvector/pgvector:pg16 "$POSTGRES_IMAGE"
-docker tag redis:7-alpine "$REDIS_IMAGE"
-docker compose -f docker-compose.yml -f docker-compose.build.yml build backend frontend
-docker push "$POSTGRES_IMAGE"
-docker push "$REDIS_IMAGE"
-docker push "$BACKEND_IMAGE"
-docker push "$FRONTEND_IMAGE"
+PYTHONPATH=backend python -m pytest backend/tests
 ```
 
-服务器只拉取镜像并启动：
+前端构建：
 
 ```bash
-docker login registry.cn-hangzhou.aliyuncs.com
-docker compose pull
-docker compose up -d
-```
-
-停止：
-
-```bash
-docker compose down
-```
-
-看日志：
-
-```bash
-docker compose logs -f
-```
-
-## WSL2 / 远程 API
-
-部署环境只需要能访问 DeepSeek、百炼和你配置的其他云 API。
-
-开发模式已经预设：
-
-- Vite dev server 固定占用 `5200`
-- Vite 代理默认转发到 `127.0.0.1:8050`
-- 如需改前端开发代理目标，可设置环境变量 `CHATCHAT_DEV_API_ORIGIN`
-- 如需通过你自己的内网穿透 host 访问 Vite，可设置环境变量 `CHATCHAT_DEV_ALLOWED_HOSTS`
-
-不再需要为本地模型路由配置 WSL2 端口转发。
-
-## 服务器建议
-
-这套服务已经没有 GPU 常驻模型，资源主要花在 FastAPI、PostgreSQL、Redis、文件解析、向量检索和前端静态服务上。最多三五个人一起用、RAG 不高频时，可以按下面选：
-
-| 场景 | CPU / 内存 | 磁盘 | 说明 |
-| --- | --- | --- | --- |
-| 最小可跑 | 2 vCPU / 4GB | 40GB SSD | 聊天为主，少量文件解析，建议限制并发 |
-| 推荐 | 2 vCPU / 8GB | 60GB SSD | 三五个人日常使用更稳，PostgreSQL 和文件解析有余量 |
-| 更舒服 | 4 vCPU / 8GB+ | 80GB SSD | 同时上传/解析文件、开知识库索引、多人并发时更从容 |
-
-带宽通常不是瓶颈，1-5 Mbps 就能跑日常聊天；如果经常上传 PDF/DOCX 或多人同时语音，优先选更高上行和更稳定的线路。生产环境建议把 `MODEL_MAX_CONCURRENCY_PER_MODEL` 控在 `2-3`，避免上游 API 和本机文件解析同时被打满。
-
-## 常用接口
-
-### 系统
-
-- `GET /api/health`
-- `GET /api/models`
-
-### 认证
-
-- `POST /api/auth/login`
-- `POST /api/auth/logout`
-- `GET /api/auth/session`
-
-### 对话
-
-- `GET /api/conversations`
-- `GET /api/conversations/{id}`
-- `PATCH /api/conversations/{id}`
-- `DELETE /api/conversations/{id}`
-
-### 聊天
-
-- `POST /api/chat/stream`
-- `POST /api/chat/regenerate`
-- `PATCH /api/chat/messages/{message_id}/feedback`
-
-### 检索 / 知识库 / 记忆 / 语音
-
-- `GET /api/knowledge/status`
-- `GET /api/knowledge/documents`
-- `POST /api/knowledge/documents`
-- `POST /api/knowledge/documents/batch`
-- `POST /api/knowledge/documents/{id}/reindex`
-- `POST /api/knowledge/reindex`
-- `DELETE /api/knowledge/documents/{id}`
-- `POST /api/knowledge/documents/delete`
-- `PATCH /api/knowledge/documents/folder`
-- `GET /api/memories`
-- `POST /api/memories/items`
-- `PATCH /api/memories/items/{id}`
-- `POST /api/memories/{id}/promote`
-- `POST /api/memories/{id}/dismiss`
-- `DELETE /api/memories/items/{id}`
-- `POST /api/audio/transcribe`
-- `POST /api/audio/speech`
-
-说明：
-
-- `rag` 模式现在只检索当前登录用户自己的 Markdown 知识库
-- 知识库文档支持 `folder/path` 逻辑分组，上传文件夹时会保留相对目录
-- 查询重写会在 `rag` 检索前结合最近会话，把模糊问题改成更完整的知识库查询
-- 知识库 `v1` 只支持 `.md` 上传，不再维护全局 Obsidian 扫描链路
-- 支持批量上传和批量删除 Markdown 文档
-- 上传文档后只会进入待更新状态，点击“更新知识库”后才会统一切分和建索引
-
-## 测试
-
-后端：
-
-```powershell
-$env:PYTHONPATH='E:\VScodeproject\Chatchat\backend'
-python -m pytest backend\tests
-```
-
-前端：
-
-```powershell
 cd frontend
-npm run build
+pnpm build
 ```
 
-## 当前文档对应代码状态
+## 设计原则
 
-本 README 已按当前代码整理，重点同步了：
-
-- 登录/多用户链路
-- `native_multimodal` 三态策略
-- reasoning 持久化
-- memory 系统
-- 共享 HTTP 连接池与上游限流
-- 本地开发 / Docker / WSL2 / SSH tunnel 场景
-
-如果你要继续开发，请优先同时更新：
-
-- [README.md](README.md)
-- [docs/开发文档.md](docs/开发文档.md)
-- [docs/部署与模型接入.md](docs/部署与模型接入.md)
-- [backend/model_catalog.json](backend/model_catalog.json)
+- 模型接入通过提供方和模型目录隔离。
+- 上下文构建由 history、memory、retrieval、tool context 分层组成。
+- 用户数据默认按账号隔离。
+- 外部能力通过显式配置启用。
+- 错误应清晰暴露，不用隐式替代路径掩盖配置问题。

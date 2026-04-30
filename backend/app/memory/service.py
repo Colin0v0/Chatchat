@@ -11,6 +11,7 @@ from ..chat.types import ChatMessagePayload
 from ..core.config import Settings
 from ..storage.database import SessionLocal
 from ..storage.models import Conversation, MemoryDocument, MemoryItem, Message
+from .embedder import MemoryEmbedder
 from .extractor import MemoryExtractor
 from .normalizer import normalize_candidate, normalize_memory_fields
 from .store import MemoryCollection, MemoryStore, utcnow
@@ -51,6 +52,72 @@ TRANSIENT_MARKERS = (
     "current",
     "temporary",
 )
+GROOMING_MARKERS = (
+    "谢谢",
+    "感谢",
+    "明白了",
+    "好的",
+    "知道了",
+    "没问题",
+    "ok",
+    "okay",
+    "thx",
+    "thanks",
+    "got it",
+    "明白",
+    "收到",
+    "嗯",
+    "哦",
+    "啊",
+    "好",
+    "行",
+    "可以",
+)
+AUTO_GLOBAL_PROFILE_TITLES = {
+    "姓名",
+    "昵称",
+    "生日",
+    "出生日期",
+    "称呼",
+    "称呼偏好",
+    "性别",
+    "职业",
+    "所在地",
+    "城市",
+    "邮箱",
+    "电话",
+}
+AUTO_GLOBAL_PREFERENCE_TITLES = {
+    "回复语言",
+    "语言偏好",
+    "默认语言",
+    "称呼偏好",
+    "回复风格",
+    "语气",
+    "称呼方式",
+    "工作习惯",
+}
+AUTO_GLOBAL_PROFILE_DETAIL_MARKERS = (
+    "用户叫",
+    "用户生日是",
+    "用户出生日期",
+    "称呼用户",
+    "用户是",
+    "我是一名",
+    "我在",
+)
+AUTO_GLOBAL_PREFERENCE_DETAIL_MARKERS = (
+    "默认使用中文",
+    "默认使用英文",
+    "称呼我",
+    "叫我",
+    "请用",
+    "喜欢用",
+    "不喜欢",
+    "习惯",
+)
+AUTO_GLOBAL_MIN_CONFIDENCE = 0.60
+AUTO_GLOBAL_PREFERENCE_LOOSE_CONFIDENCE = 0.55
 TOKEN_PATTERN = re.compile(r"[0-9A-Za-z_\u4e00-\u9fff]{2,}")
 
 
@@ -65,8 +132,18 @@ class MemoryService:
         self._recall_limit = max(1, settings.memory_recall_top_k)
         self._refresh_semaphore = asyncio.Semaphore(max(1, settings.memory_refresh_max_concurrency))
         self._refresh_tasks: dict[int, asyncio.Task[None]] = {}
+        self._embedding_enabled = bool(settings.memory_embedding_enabled)
+        self._vector_weight = max(0.0, min(1.0, float(settings.memory_vector_weight)))
+        self._keyword_weight = max(0.0, min(1.0, float(settings.memory_keyword_weight)))
+        self._embedder: MemoryEmbedder | None = None
+        if self._embedding_enabled:
+            try:
+                self._embedder = MemoryEmbedder(settings)
+            except Exception:
+                logger.warning("Memory embedder initialization failed, disabling vector recall")
+                self._embedding_enabled = False
 
-    def build_prompt_payload(
+    async def build_prompt_payload(
         self,
         *,
         db: Session,
@@ -80,11 +157,22 @@ class MemoryService:
         store = MemoryStore(db)
         store.expire_stale_working_memory(user_id=user_id)
         documents = store.list_documents(user_id=user_id, conversation_id=conversation_id)
+
+        query_embedding: list[float] | None = None
+        if self._embedding_enabled and self._embedder is not None and query.strip():
+            try:
+                query_embedding = await self._embedder.embed_query(query)
+            except Exception:
+                logger.exception("memory query embedding failed, falling back to keyword recall")
+
         hits = store.recall(
             query=query,
             user_id=user_id,
             conversation_id=conversation_id,
             limit=self._recall_limit,
+            query_embedding=query_embedding,
+            vector_weight=self._vector_weight,
+            keyword_weight=self._keyword_weight,
         )
 
         hit_items: list[MemoryItem] = []
@@ -97,7 +185,17 @@ class MemoryService:
         if not documents and not hit_items:
             return MemoryPromptPayload(debug={"memory_documents": 0, "memory_hits": 0})
 
-        payload_message = self._build_prompt_message(documents=documents, hit_items=hit_items)
+        # Treat as fresh conversation if there are very few messages.
+        from ..storage.models import Message
+        from sqlalchemy import func as sql_func
+        message_count = db.scalar(
+            db.query(sql_func.count()).where(Message.conversation_id == conversation_id)
+        ) or 0
+        is_fresh = message_count <= 2
+
+        payload_message = self._build_prompt_message(
+            documents=documents, hit_items=hit_items, is_fresh_conversation=is_fresh
+        )
         if hit_items:
             store.touch([item.id for item in hit_items], user_id=user_id)
             db.commit()
@@ -197,12 +295,29 @@ class MemoryService:
                 db.commit()
                 return
 
+            # Gather existing memories so the extractor can avoid duplicates
+            # and detect updates/corrections.
+            store = MemoryStore(db)
+            existing_items = store.list_collection(
+                user_id=conversation.user_id,
+                conversation_id=conversation_id,
+            )
+            existing_memories: list[str] = []
+            for item in existing_items.global_items:
+                if item.status == "active" and item.active:
+                    existing_memories.append(f"[{item.kind}] {item.title}: {item.detail}")
+            for item in existing_items.conversation_items:
+                if item.status == "active" and item.active:
+                    existing_memories.append(f"[{item.kind}] {item.title}: {item.detail}")
+            # Cap to avoid bloating the extraction prompt.
+            existing_memories = existing_memories[:24]
+
             candidates = await self._extractor.extract(
                 model=self._memory_model or response_model,
                 conversation_title=conversation.title,
                 user_message=user_message.content,
                 assistant_message=assistant_message.content,
-                existing_memories=[],
+                existing_memories=existing_memories,
             )
             if not candidates:
                 MemoryStore(db).rebuild_documents(user_id=conversation.user_id, conversation_id=conversation_id)
@@ -222,6 +337,18 @@ class MemoryService:
                 if resolved is None:
                     continue
                 resolved_candidate, status, expires_at, write_policy = resolved
+
+                embedding: list[float] | None = None
+                if self._embedder is not None:
+                    try:
+                        embedding = await self._embedder.embed_memory(
+                            title=resolved_candidate.title,
+                            detail=resolved_candidate.detail,
+                            tags=list(resolved_candidate.tags),
+                        )
+                    except Exception:
+                        logger.exception("memory embedding failed during refresh, storing without vector")
+
                 item = store.upsert_auto_memory(
                     candidate=resolved_candidate,
                     user_id=conversation.user_id,
@@ -234,6 +361,8 @@ class MemoryService:
                     expires_at=expires_at,
                     user_message_id=user_message_id,
                     assistant_message_id=assistant_message_id,
+                    embedding=embedding,
+                    action=normalized.action,
                 )
                 if item is not None:
                     wrote_any = True
@@ -405,30 +534,59 @@ class MemoryService:
         *,
         documents: list[MemoryDocument],
         hit_items: list[MemoryItem],
+        is_fresh_conversation: bool = False,
     ) -> ChatMessagePayload:
         lines = [
-            "Use the following user-exclusive memory context as background guidance.",
-            "Prefer the current conversation over memory if they conflict.",
-            "Memory documents are curated summaries; relevant memory hits are precise retrieved notes.",
+            "The following is what you know about the user from past conversations.",
+            "Use this naturally—do not mention that you \"remember\" it unless it genuinely improves the response.",
+            "Prefer the current conversation over this background if they conflict.",
         ]
+        if is_fresh_conversation:
+            lines.append(
+                "If this is the very first exchange, greet the user briefly using what you know about them."
+            )
 
+        # Render documents (curated summaries like user_profile, workspace_profile, conversation_brief)
         if documents:
-            lines.append("")
-            lines.append("Memory documents:")
             for document in documents:
-                lines.append(f"- {document.title}")
-                lines.append(document.content)
                 lines.append("")
+                lines.append(f"{document.title}:")
+                lines.append(document.content)
 
+        # Render hit_items as natural context (skip technical labels like [global/Profile])
         if hit_items:
-            lines.append("Relevant memory hits:")
-            for index, item in enumerate(hit_items, start=1):
-                line = f"{index}. [{item.scope}/{memory_kind_label(item.kind)}] {item.title}"
+            lines.append("")
+            lines.append("Related context:")
+            for item in hit_items:
+                line = f"- {item.title}"
                 if item.detail:
-                    line += f" :: {item.detail}"
+                    line += f": {item.detail}"
+                time_hint = self._relative_time_hint(item.updated_at or item.created_at)
+                if time_hint:
+                    line += f" ({time_hint})"
                 lines.append(line)
 
         return ChatMessagePayload(role="system", content="\n".join(lines).strip())
+
+    def _relative_time_hint(self, dt: datetime | None) -> str:
+        if dt is None:
+            return ""
+        now = utcnow()
+        delta = now - dt
+        if delta.days < 1:
+            return "今天"
+        if delta.days < 2:
+            return "昨天"
+        if delta.days < 7:
+            return f"{delta.days} 天前"
+        if delta.days < 30:
+            weeks = delta.days // 7
+            return f"{weeks} 周前"
+        if delta.days < 365:
+            months = delta.days // 30
+            return f"{months} 个月前"
+        years = delta.days // 365
+        return f"{years} 年前"
 
     def _build_turn_policy(self, *, user_message: Message) -> MemoryTurnPolicy:
         content = (user_message.content or "").strip().casefold()
@@ -453,7 +611,15 @@ class MemoryService:
         if len(content) < 8:
             return False
         tokens = TOKEN_PATTERN.findall(content)
-        return len(tokens) >= 2
+        if len(tokens) < 2:
+            return False
+        # Skip grooming / low-information responses
+        content_lower = content.casefold()
+        if any(marker in content_lower for marker in GROOMING_MARKERS):
+            # If the message is very short and only contains grooming words, skip
+            if len(content) < 30:
+                return False
+        return True
 
     def _resolve_auto_memory(
         self,
@@ -494,6 +660,22 @@ class MemoryService:
                 "session",
             )
 
+        # 用户画像类信息价值高、体量小，自动确认后才能形成跨会话可感知的长期记忆。
+        if self._should_auto_promote_global(candidate):
+            return (
+                MemoryCandidate(
+                    scope="global",
+                    kind=candidate.kind,
+                    title=candidate.title,
+                    detail=candidate.detail,
+                    tags=candidate.tags,
+                    confidence=candidate.confidence,
+                ),
+                "active",
+                None,
+                "explicit",
+            )
+
         return (
             MemoryCandidate(
                 scope="conversation",
@@ -513,3 +695,35 @@ class MemoryService:
         if any(marker in combined for marker in TRANSIENT_MARKERS):
             return True
         return candidate.kind in {"goal", "project", "constraint"}
+
+    def _should_auto_promote_global(self, candidate: MemoryCandidate) -> bool:
+        title = candidate.title.strip()
+        detail = candidate.detail.strip()
+        combined = f"{title} {detail}"
+        tags = set(candidate.tags)
+
+        if candidate.kind == "profile":
+            if candidate.confidence < AUTO_GLOBAL_MIN_CONFIDENCE:
+                return False
+            return (
+                title in AUTO_GLOBAL_PROFILE_TITLES
+                or any(marker in combined for marker in AUTO_GLOBAL_PROFILE_DETAIL_MARKERS)
+                or bool(tags & {"个人", "姓名", "生日", "性别", "职业"})
+            )
+
+        if candidate.kind == "preference":
+            # Standard strict rules
+            if candidate.confidence >= AUTO_GLOBAL_MIN_CONFIDENCE:
+                if (
+                    title in AUTO_GLOBAL_PREFERENCE_TITLES
+                    or any(marker in combined for marker in AUTO_GLOBAL_PREFERENCE_DETAIL_MARKERS)
+                    or bool(tags & {"语言", "称呼", "风格", "习惯"})
+                ):
+                    return True
+            # Loose rules for explicit preference expressions
+            if candidate.confidence >= AUTO_GLOBAL_PREFERENCE_LOOSE_CONFIDENCE:
+                loose_markers = ("请用", "喜欢用", "不喜欢", "习惯", "偏好", "倾向", "总是", "通常")
+                if any(marker in combined for marker in loose_markers):
+                    return True
+
+        return False

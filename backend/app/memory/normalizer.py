@@ -47,6 +47,11 @@ NAME_PATTERNS = (
     re.compile(r"(?:用户叫|名字是|姓名是)\s*(.+?)(?:[，。；]|$)"),
 )
 
+BIRTHDAY_PATTERNS = (
+    re.compile(r"(?:birthday is|date of birth is|born on)\s+(.+?)(?:[.,;]|$)", re.IGNORECASE),
+    re.compile(r"(?:生日是|出生日期是)\s*(.+?)(?:[，。；]|$)"),
+)
+
 LANGUAGE_PATTERNS = (
     re.compile(r"(?:respond in|reply in|use)\s+(chinese|english|中文|英文)", re.IGNORECASE),
     re.compile(r"(?:preferred language|response language)\s*(?:is|:)\s*(chinese|english|中文|英文)", re.IGNORECASE),
@@ -104,6 +109,35 @@ def normalize_memory_fields(
             tags=merge_tags(("个人", "姓名"), translated_tags),
         )
 
+    if clean_title in {"姓名", "名字"} and clean_detail:
+        # 有些模型会把姓名拆成 title=姓名、detail=名字本身，这里收束成统一画像格式。
+        normalized_name = clean_detail.removeprefix("用户叫").strip()
+        return NormalizedMemory(
+            kind="profile",
+            title="姓名",
+            detail=f"用户叫{normalized_name}",
+            tags=merge_tags(("个人", "姓名"), translated_tags),
+        )
+
+    birthday = extract_birthday(clean_title, clean_detail)
+    if birthday:
+        return NormalizedMemory(
+            kind="profile",
+            title="生日",
+            detail=f"用户生日是{birthday}",
+            tags=merge_tags(("个人", "生日"), translated_tags),
+        )
+
+    if clean_title in {"生日", "出生日期"} and clean_detail:
+        # 生日属于稳定身份资料，统一成可直接进入全局画像的短句。
+        normalized_birthday = clean_detail.removeprefix("用户生日是").strip()
+        return NormalizedMemory(
+            kind="profile",
+            title="生日",
+            detail=f"用户生日是{normalized_birthday}",
+            tags=merge_tags(("个人", "生日"), translated_tags),
+        )
+
     language = extract_language(clean_title, clean_detail)
     if language:
         return NormalizedMemory(
@@ -119,6 +153,8 @@ def normalize_memory_fields(
         "preferred language": ("preference", "回复语言"),
         "response language": ("preference", "回复语言"),
         "language preference": ("preference", "回复语言"),
+        "birthday": ("profile", "生日"),
+        "date of birth": ("profile", "生日"),
     }
     lowered_title = clean_title.casefold()
     mapped = title_map.get(lowered_title)
@@ -185,6 +221,18 @@ def extract_name(title: str, detail: str) -> str | None:
     return None
 
 
+def extract_birthday(title: str, detail: str) -> str | None:
+    for text in [detail, title]:
+        for pattern in BIRTHDAY_PATTERNS:
+            match = pattern.search(text)
+            if match is None:
+                continue
+            raw = sanitize_text(match.group(1), max_length=80)
+            if raw:
+                return raw
+    return None
+
+
 def extract_language(title: str, detail: str) -> str | None:
     for text in [detail, title]:
         for pattern in LANGUAGE_PATTERNS:
@@ -207,6 +255,8 @@ def translate_known_title(value: str) -> str | None:
         "preferred language": "回复语言",
         "response language": "回复语言",
         "language preference": "回复语言",
+        "birthday": "生日",
+        "date of birth": "生日",
     }
     return mapping.get(lowered)
 

@@ -394,6 +394,9 @@ class MemoryItem(Base):
         ForeignKey("message_attachments.id"),
         nullable=True,
     )
+    embedding: Mapped[Optional[list[float]]] = mapped_column(
+        Vector(settings.knowledge_embedding_dimensions), nullable=True
+    )
     expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     last_confirmed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     promoted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)

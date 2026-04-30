@@ -105,11 +105,10 @@
 
 ## 7. 配置失败处理
 
-如果用户开启 `search` 但未配置 DashScope key，会返回明确拒绝：
+如果用户开启 `search` 但未配置搜索 provider，会返回明确拒绝：
 
 ```text
 当前 Search 模式还没配置好，暂时不能联网搜索。
 ```
 
 如果开启 `knowledge` 但没有 ready 文档，也会返回可理解的提示。
-

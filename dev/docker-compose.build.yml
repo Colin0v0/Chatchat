@@ -1,0 +1,15 @@
+services:
+  backend:
+    image: ${BACKEND_IMAGE:?请设置 BACKEND_IMAGE，例如 your-registry/chatchat-backend:latest}
+    build:
+      context: ../backend
+      args:
+        DOCKER_REGISTRY: ${DOCKER_REGISTRY:?请设置 DOCKER_REGISTRY，例如 docker.io}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
+
+  frontend:
+    image: ${FRONTEND_IMAGE:?请设置 FRONTEND_IMAGE，例如 your-registry/chatchat-frontend:latest}
+    build:
+      context: ../frontend
+      args:
+        DOCKER_REGISTRY: ${DOCKER_REGISTRY:?请设置 DOCKER_REGISTRY，例如 docker.io}

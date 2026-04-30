@@ -1,8 +1,6 @@
 services:
   postgres:
-    # 服务器也从显式镜像地址拉取 pgvector，国内部署建议转存到阿里云 ACR。
-    platform: linux/amd64
-    image: ${POSTGRES_IMAGE:?请设置 POSTGRES_IMAGE，例如 registry.cn-hangzhou.aliyuncs.com/命名空间/chatchat-pgvector:pg16}
+    image: ${POSTGRES_IMAGE:-pgvector/pgvector:pg16}
     container_name: chatchat-postgres
     environment:
       POSTGRES_DB: ${POSTGRES_DB:?请设置 POSTGRES_DB}
@@ -20,9 +18,7 @@ services:
     restart: unless-stopped
 
   redis:
-    # 服务器也从显式镜像地址拉取 Redis，国内部署建议转存到阿里云 ACR。
-    platform: linux/amd64
-    image: ${REDIS_IMAGE:?请设置 REDIS_IMAGE，例如 registry.cn-hangzhou.aliyuncs.com/命名空间/chatchat-redis:7-alpine}
+    image: ${REDIS_IMAGE:-redis:7-alpine}
     container_name: chatchat-redis
     ports:
       - "${REDIS_HOST:?请设置 REDIS_HOST}:${REDIS_PORT:?请设置 REDIS_PORT}:6379"
@@ -36,17 +32,14 @@ services:
     restart: unless-stopped
 
   backend:
-    # 部署环境只拉取已经构建好的后端镜像，不在小服务器上执行 build。
-    platform: linux/amd64
-    image: ${BACKEND_IMAGE:?请设置 BACKEND_IMAGE，例如 registry.cn-hangzhou.aliyuncs.com/命名空间/chatchat-backend:latest}
+    image: ${BACKEND_IMAGE:?请设置 BACKEND_IMAGE，例如 your-registry/chatchat-backend:latest}
     container_name: chatchat-backend
-    env_file:
-      - ./backend/.env
-      - ./backend/.env.deploy.wsl
     environment:
       DATABASE_URL: ${BACKEND_DATABASE_URL:?请设置 BACKEND_DATABASE_URL}
       REDIS_URL: ${BACKEND_REDIS_URL:?请设置 BACKEND_REDIS_URL}
-      AUDIO_TRANSCRIPTION_MODEL: ${AUDIO_TRANSCRIPTION_MODEL:?请设置 AUDIO_TRANSCRIPTION_MODEL}
+      MODEL_CATALOG_PATH: ${MODEL_CATALOG_PATH:-./model_catalog.json}
+      DEFAULT_PROVIDER: ${DEFAULT_PROVIDER:?请设置 DEFAULT_PROVIDER}
+      DEFAULT_MODEL: ${DEFAULT_MODEL:?请设置 DEFAULT_MODEL}
     extra_hosts:
       - "host:host-gateway"
     depends_on:
@@ -58,14 +51,11 @@ services:
       - "${BACKEND_HOST:?请设置 BACKEND_HOST}:${BACKEND_PORT:?请设置 BACKEND_PORT}:8000"
     volumes:
       - ${BACKEND_STORAGE_HOST_PATH:?请设置 BACKEND_STORAGE_HOST_PATH}:/app/storage
-      - ./backend/.env.deploy.wsl:/app/.env.deploy.wsl:ro
       - pip-cache:/root/.cache/pip
     restart: unless-stopped
 
   frontend:
-    # 部署环境只拉取已经构建好的前端镜像，不在小服务器上执行 build。
-    platform: linux/amd64
-    image: ${FRONTEND_IMAGE:?请设置 FRONTEND_IMAGE，例如 registry.cn-hangzhou.aliyuncs.com/命名空间/chatchat-frontend:latest}
+    image: ${FRONTEND_IMAGE:?请设置 FRONTEND_IMAGE，例如 your-registry/chatchat-frontend:latest}
     container_name: chatchat-frontend
     depends_on:
       - backend

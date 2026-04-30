@@ -109,7 +109,7 @@ pending document
   -> 读取 Markdown
   -> 解析标题和段落
   -> chunking
-  -> DashScope embedding
+  -> embedding provider
   -> 写 knowledge_chunks
   -> status=ready
 ```
@@ -132,7 +132,7 @@ user query
   -> query embedding
   -> pgvector recall
   -> 文本匹配补分
-  -> DashScope rerank
+  -> optional rerank
   -> 邻近 chunk 扩展
   -> SourceItem(type=note)
   -> ContextEntry
@@ -153,7 +153,7 @@ user query
 
 ```text
 用户：上面那套部署方案怎么改？
-改写：Chatchat 纯 CPU API 部署方案如何调整服务器配置？
+改写：Chatchat 部署方案如何调整服务器配置？
 ```
 
 配置：
@@ -181,12 +181,12 @@ RAG_QUERY_REWRITE_HISTORY_MESSAGES=6
 
 ```env
 KNOWLEDGE_STORAGE_ROOT=./storage/knowledge
-KNOWLEDGE_EMBEDDING_PROVIDER=dashscope
-KNOWLEDGE_EMBEDDING_MODEL=text-embedding-v4
-KNOWLEDGE_EMBEDDING_DIMENSIONS=1024
+KNOWLEDGE_EMBEDDING_PROVIDER=
+KNOWLEDGE_EMBEDDING_MODEL=
+KNOWLEDGE_EMBEDDING_DIMENSIONS=
 KNOWLEDGE_EMBEDDING_BATCH_SIZE=8
-KNOWLEDGE_RERANK_PROVIDER=dashscope
-KNOWLEDGE_RERANK_MODEL=gte-rerank-v2
+KNOWLEDGE_RERANK_PROVIDER=
+KNOWLEDGE_RERANK_MODEL=
 KNOWLEDGE_TOP_K=5
 KNOWLEDGE_CANDIDATE_LIMIT=4
 KNOWLEDGE_RERANK_WINDOW=2
@@ -200,4 +200,3 @@ KNOWLEDGE_MIN_SCORE=0.22
 - 不使用本地 reranker。
 - 切换 embedding 维度后必须重建索引。
 - 大文件和大量文档需要调高上传限制和服务器资源。
-

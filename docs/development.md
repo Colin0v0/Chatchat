@@ -4,42 +4,31 @@
 
 本文档描述当前代码已经落地的真实能力、目录职责、关键链路和开发约定。它是给开发者看的，不是产品宣传文档。
 
-## 0. 2026-04-27 增补说明
-
-这份文档最初写于旧架构阶段，下面仍保留了一部分历史说明，方便理解为什么后来要重构；但从今天开始，阅读和开发时请优先以本节为准。
-
-如果你看到下面还有这些旧说法：
-
-- 前端主目录还是 `app/`、`components/`
-- 后端聊天主链还是 `chat/workflow.py`、`chat/streamer.py`
-- 检索输入还是 `retrieval_mode`
-- 运行时仍以 SQLite 为主
-
-请把它们当成历史背景，而不是当前实现。
+## 0. 当前基线
 
 ### 0.0 当前部署口径
 
-当前主线已经切到纯 CPU + 云端 API 模型：
+当前主线按标准 Web 应用部署：
 
-- DeepSeek 聊天走 `DEEPSEEK_BASE_URL` / `DEEPSEEK_API_KEY`
-- embedding、rerank、ASR、云端 TTS 默认走 `DASHSCOPE_API_KEY`
-- 数据库和缓存仍建议用 Docker 本地部署：PostgreSQL + pgvector + Redis
-- 后端不再加载 Ollama、本地 OCR、本地视觉模型、本地 ASR、本地 embedding、本地 reranker
-- 浏览器本机音色仍保留，它只是播放端能力，不属于后端本地模型推理
+- 前端是静态单页应用。
+- 后端是 FastAPI 服务。
+- 数据库和缓存使用 PostgreSQL + pgvector + Redis。
+- 模型、检索、语音等外部能力通过 provider 配置接入。
+- 浏览器本机音色属于前端播放能力。
 
-部署细节、服务器规格和环境变量说明见 `docs/部署与模型接入.md`。
+部署细节、服务器规格和环境变量说明见 `docs/deployment.md`。
 
 ### 0.1 当前总体状态
 
 Chatchat 当前已经进入“前端逐步 feature-first、后端 runtime-first”的阶段：
 
-- 前端已经建立 `features/ + shared/` 骨架，`auth / workspace / models / knowledge / memories` 迁移已基本成型。
+- 前端已经建立 `features/ + shared/` 骨架，`auth / workspace / models / knowledge / memories` 模块边界已基本成型。
 - 前端仍保留两个明显的过渡中枢：
   - `frontend/src/features/workspace/model/useChatApp.ts`
   - `frontend/src/lib/api.ts`
 - 后端已经完成统一 runtime 主链，`chat` / `debate` 不再各自维护独立的底层流式执行骨架。
 - 后端基础设施已经切到 `PostgreSQL + pgvector + Redis + Alembic`，SQLite 只剩少量测试夹具。
-- 模型接入不再保留本地模型 family；新增模型优先通过云端 API provider 和 `backend/model_catalog.json` 扩展。
+- 模型接入通过 provider 和 `backend/model_catalog.json` 扩展。
 
 ### 0.2 当前根目录职责
 
@@ -57,7 +46,7 @@ Chatchat/
 - `frontend/`
   - React 19 + Vite + TypeScript 单页应用
 - `docs/`
-  - 当前重构文档、部署说明与架构迁移说明
+  - 部署说明、功能模块说明和开发约定
 - `storage/`
   - 媒体附件、知识库原文件等持久化目录，不再承担主数据库职责
 
@@ -236,10 +225,10 @@ frontend/src/
 
 当前 provider 口径：
 
-- `openai` family 当前主要承载 DeepSeek 这类 OpenAI-compatible API
-- `codex` / `gemini` / `claude` 仍是云端 provider
-- 百炼/DashScope 不作为聊天 provider 出现在模型列表里，主要服务 embedding / rerank / ASR / TTS
-- DeepSeek 模型在 catalog 中关闭图片上传，文件类附件仍可先经轻量解析器转成文本上下文
+- 聊天模型通过 `model_catalog.json` 选择 provider。
+- embedding / rerank / web search / ASR / TTS 是独立能力，不一定出现在聊天模型列表里。
+- 模型输入能力以 catalog 中的 `capabilities` 为准。
+- 文件类附件可先经轻量解析器转成文本上下文。
 
 当前后端仍保留一部分过渡兼容：
 
@@ -260,12 +249,11 @@ frontend/src/
 如果是新同学入场，建议按下面顺序读：
 
 1. 本文档第 0 节
-2. `docs/部署与模型接入.md`
-3. `docs/后端重构.md`
-4. `docs/前端重构.md`
-5. `backend/app/main.py`
-6. `backend/app/application/*`
-7. `backend/app/runtime/*`
+2. `docs/deployment.md`
+3. `docs/README.md`
+4. `backend/app/main.py`
+5. `backend/app/application/*`
+6. `backend/app/runtime/*`
 7. `frontend/src/App.tsx`
 8. `frontend/src/features/workspace/model/useChatApp.ts`
 
@@ -300,11 +288,11 @@ Chatchat 现在是一个“带登录、多模型、多模态、检索、记忆�
 ```text
 Chatchat/
   backend/
+  dev/
+  docs/
   frontend/
-  storage/
-  docker-compose.yml
   README.md
-  开发文档.md
+  storage/
 ```
 
 ### 2.1 `backend/`
@@ -669,6 +657,7 @@ Memory 维度：
 当前自动写入策略：
 
 - 显式“记住”类语义可直接写入 active memory
+- 高置信 `profile` / `preference` 长期记忆可自动进入 `global active`
 - 默认自动抽取写成：
   - `working active`
   - 或 `conversation candidate`
@@ -767,8 +756,7 @@ Memory 维度：
 - 支持批量上传、批量删除
 - 上传时只落盘和入库，不立即切分
 - 点击“更新知识库”后才批量切分、embedding、写入 chunk
-- 默认 embedding 模型为 `qwen3-embedding:0.6b`
-- 默认 rerank 模型为 `dengcao/Qwen3-Reranker-0.6B:Q8_0`
+- embedding 和 rerank 由对应 provider 配置决定
 - 检索前会做一层 RAG 查询重写，把“那一段 / 上面那个方案”改成更完整的知识库查询
 - 分块后写入 `knowledge_chunks`
 - 检索时严格按 `user_id` 过滤
@@ -783,15 +771,14 @@ Memory 维度：
 
 ### 8.4 Web Search
 
-当前 Web Search 走 DashScope 原生 Generation API 的联网搜索能力。
-请求使用 `enable_search=true` 和 `search_options.enable_source=true`，从 `output.search_info.search_results` 读取来源。
+Web Search 通过 provider 适配层返回结构化来源，再进入去重、过滤、rerank 和上下文注入链路。
 
 关键文件：
 
 - `retrieval/websearch/service.py`
 - `retrieval/websearch/planner.py`
 - `retrieval/websearch/translator.py`
-- `retrieval/websearch/providers/dashscope.py`
+- `retrieval/websearch/providers/`
 
 当前已加：
 
@@ -809,7 +796,7 @@ Memory 维度：
 
 - `native_multimodal`
 
-它定义在 [backend/model_catalog.json](E:/VScodeproject/Chatchat/backend/model_catalog.json)。
+它定义在 `backend/model_catalog.json`。
 
 ### 9.2 `native_multimodal=false`
 
@@ -872,19 +859,11 @@ Memory 维度：
 
 ### 10.1 当前 provider
 
-以当前 `model_catalog.json` 为准，主要走 DeepSeek 官方 API、百炼/DashScope API，以及其他 OpenAI-compatible 云端 provider。
+以当前 `model_catalog.json` 为准，聊天模型通过 provider registry 接入。
 
-### 10.2 当前已经启用的主要模型
+### 10.2 模型能力开关
 
-以当前 `model_catalog.json` 为准，常见包括：
-
-- `openai:deepseek-chat`
-- `openai:deepseek-reasoner`
-
-其中当前目录里的多模态开关状态是：
-
-- DeepSeek 文本模型禁用上传图片能力
-- Codex / Gemini / Claude 等云端原生多模态模型按 catalog 能力开启
+以当前 `model_catalog.json` 为准。多模态、reasoning、上下文窗口等能力由 catalog 声明，前端展示和后端校验都应读取同一份能力数据。
 
 ### 10.3 当前前端模型能力字段
 
@@ -926,7 +905,27 @@ assistant 回答结束后会异步调度 memory refresh。
 - 旧任务会取消
 - 有 `memory_refresh_max_concurrency` 并发上限
 
-## 11.4 RAG 查询重写
+### 11.4 自动记忆确认策略
+
+自动记忆不是全量自动保存。
+
+当前策略：
+
+- 显式记忆请求直接写入 active memory。
+- 高置信长期记忆可自动确认到 `global active`：
+  - `profile`
+  - `preference`
+- 普通自动抽取结果仍保持保守：
+  - 项目、目标、约束等临时上下文进入 `working active`，默认短期过期。
+  - 普通事实进入 `conversation candidate`，需要用户 promote。
+
+相关文件：
+
+- `backend/app/memory/extractor.py`：抽取 prompt，引导模型把稳定画像识别为 durable global memory。
+- `backend/app/memory/normalizer.py`：清洗和归一化候选记忆字段。
+- `backend/app/memory/service.py`：决定候选写成 `global active`、`working active` 还是 `conversation candidate`。
+
+### 11.5 RAG 查询重写
 
 RAG 查询重写是知识库检索前的一层文本预处理，不是新的检索模式。
 
@@ -1104,7 +1103,7 @@ docker compose down
 
 如果模型路由不和后端在同一网络环境：
 
-当前部署不再保留本地模型路由；后端直接访问云端 provider 的 `*_BASE_URL`，并通过对应 `*_API_KEY` 鉴权。
+后端通过 provider 的 `*_BASE_URL` 和 `*_API_KEY` 访问外部服务。跨网络访问时，应确认服务端到 provider 的网络连通性。
 
 ## 16. 测试
 
@@ -1122,7 +1121,7 @@ docker compose down
 运行：
 
 ```powershell
-$env:PYTHONPATH='E:\VScodeproject\Chatchat\backend'
+$env:PYTHONPATH='backend'
 python -m pytest backend\tests
 ```
 
@@ -1160,6 +1159,6 @@ npm run build
 如果后面继续改链路，请至少同步：
 
 - `README.md`
-- `开发文档.md`
+- `docs/development.md`
 - `backend/model_catalog.json`
 - 相关 `.env.*.example`
