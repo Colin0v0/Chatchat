@@ -188,6 +188,7 @@ class MemoryStore:
         pinned: bool,
         active: bool,
         conversation_id: int | None,
+        embedding: list[float] | None = None,
     ) -> MemoryItem:
         memory = MemoryItem(
             user_id=user_id,
@@ -204,6 +205,7 @@ class MemoryStore:
             pinned=bool(pinned),
             active=bool(active),
             conversation_id=conversation_id if scope in {"conversation", "working"} else None,
+            embedding=embedding if embedding else None,
             last_confirmed_at=utcnow(),
         )
         self._db.add(memory)
@@ -267,6 +269,7 @@ class MemoryStore:
         pinned: bool,
         active: bool,
         conversation_id: int | None,
+        embedding: list[float] | None = None,
     ) -> MemoryItem:
         memory.user_id = user_id
         memory.scope = scope
@@ -283,6 +286,8 @@ class MemoryStore:
         memory.source_type = "manual"
         memory.last_confirmed_at = utcnow()
         memory.updated_at = utcnow()
+        if embedding is not None:
+            memory.embedding = embedding
         self._db.add(memory)
         self._db.flush()
         self.reindex_memory(memory)
@@ -343,6 +348,8 @@ class MemoryStore:
         expires_at: datetime | None,
         user_message_id: int,
         assistant_message_id: int,
+        embedding: list[float] | None = None,
+        action: str = "add",
     ) -> MemoryItem | None:
         title = normalize_memory_text(candidate.title, max_length=255)
         if not title:
@@ -359,6 +366,30 @@ class MemoryStore:
             detail=detail,
             conversation_id=scoped_conversation_id,
         )
+
+        # Handle remove: archive the similar existing memory and do not create new.
+        if action == "remove":
+            if existing is not None:
+                existing.status = "archived"
+                existing.active = False
+                existing.updated_at = utcnow()
+                self._db.add(existing)
+                self._db.flush()
+                self.reindex_memory(existing)
+                return existing
+            return None
+
+        # Handle replace: archive the old one, then create/update as new.
+        if action == "replace" and existing is not None:
+            existing.status = "archived"
+            existing.active = False
+            existing.updated_at = utcnow()
+            self._db.add(existing)
+            self._db.flush()
+            self.reindex_memory(existing)
+            # Force creation of a new item by nulling existing.
+            existing = None
+
         if existing is None:
             existing = MemoryItem(
                 user_id=user_id,
@@ -377,6 +408,7 @@ class MemoryStore:
                 conversation_id=scoped_conversation_id,
                 source_user_message_id=user_message_id,
                 source_assistant_message_id=assistant_message_id,
+                embedding=embedding if embedding else None,
                 expires_at=expires_at,
                 last_confirmed_at=utcnow() if status == "active" else None,
             )
@@ -396,6 +428,8 @@ class MemoryStore:
         existing.expires_at = expires_at
         existing.source_user_message_id = user_message_id
         existing.source_assistant_message_id = assistant_message_id
+        if embedding is not None:
+            existing.embedding = embedding
         if status == "active":
             existing.last_confirmed_at = utcnow()
         existing.updated_at = utcnow()
@@ -466,8 +500,32 @@ class MemoryStore:
         user_id: int,
         conversation_id: int,
         limit: int,
+        query_embedding: list[float] | None = None,
+        vector_weight: float = 0.75,
+        keyword_weight: float = 0.25,
     ) -> list[MemoryMatch]:
         self.expire_stale_working_memory(user_id=user_id)
+
+        # Prefer vector search when embedding is available and we're on PostgreSQL.
+        if (
+            query_embedding
+            and len(query_embedding) > 0
+            and not self._uses_sqlite_memory_search()
+        ):
+            try:
+                return self._recall_with_vector_search(
+                    query_embedding=query_embedding,
+                    query=query,
+                    user_id=user_id,
+                    conversation_id=conversation_id,
+                    limit=limit,
+                    vector_weight=vector_weight,
+                    keyword_weight=keyword_weight,
+                )
+            except DatabaseError:
+                self._db.rollback()
+                # fall through to keyword-only recall
+
         tokens = self._search_tokens(query)
         if not tokens:
             items = self._list_ranked_active_memory_ids(
@@ -537,6 +595,13 @@ class MemoryStore:
                 MemoryItem.user_id == user_id,
             )
         )
+
+    def set_memory_embedding(self, memory_id: int, embedding: list[float] | None) -> None:
+        item = self._db.scalar(select(MemoryItem).where(MemoryItem.id == memory_id))
+        if item is not None:
+            item.embedding = embedding
+            self._db.add(item)
+            self._db.flush()
 
     def list_pinned(self, *, user_id: int, conversation_id: int, limit: int) -> list[MemoryItem]:
         self.expire_stale_working_memory(user_id=user_id)
@@ -713,6 +778,92 @@ class MemoryStore:
             )
             .limit(limit)
         ).all()
+
+    def _recall_with_vector_search(
+        self,
+        *,
+        query_embedding: list[float],
+        query: str,
+        user_id: int,
+        conversation_id: int,
+        limit: int,
+        vector_weight: float = 0.75,
+        keyword_weight: float = 0.25,
+    ) -> list[MemoryMatch]:
+        candidate_limit = max(limit * 3, limit + 8)
+
+        # 1. Vector recall via pgvector cosine_distance
+        distance_expr = MemoryItem.embedding.cosine_distance(query_embedding)
+        vector_rows = self._db.execute(
+            select(MemoryItem.id, distance_expr.label("distance"))
+            .where(
+                *self._active_scope_filters(user_id=user_id, conversation_id=conversation_id),
+                MemoryItem.embedding.is_not(None),
+            )
+            .order_by(distance_expr.asc(), MemoryItem.updated_at.desc(), MemoryItem.id.desc())
+            .limit(candidate_limit)
+        ).mappings().all()
+
+        merged: dict[int, dict[str, float]] = {}
+        vector_scores_list: list[float] = []
+        for row in vector_rows:
+            memory_id = int(row["id"])
+            distance = float(row["distance"] or 1.0)
+            vector_score = max(0.0, 1.0 - distance)
+            merged[memory_id] = {"vector": vector_score, "keyword": 0.0}
+            vector_scores_list.append(vector_score)
+
+        # 2. Keyword recall as supplement (for items without embedding or weak vector match)
+        tokens = self._search_tokens(query)
+        keyword_scores_list: list[float] = []
+        if tokens:
+            keyword_matches = self._recall_with_database_search(
+                tokens=tokens,
+                user_id=user_id,
+                conversation_id=conversation_id,
+                limit=candidate_limit,
+            )
+            # Normalize keyword scores to [0, 1]
+            raw_keyword_scores = [m.score for m in keyword_matches]
+            min_k = min(raw_keyword_scores) if raw_keyword_scores else 0.0
+            max_k = max(raw_keyword_scores) if raw_keyword_scores else 0.0
+            for match in keyword_matches:
+                item = merged.setdefault(match.memory_id, {"vector": 0.0, "keyword": 0.0})
+                if max_k > min_k:
+                    norm = (match.score - min_k) / (max_k - min_k)
+                elif max_k > 0:
+                    norm = 1.0
+                else:
+                    norm = 0.0
+                item["keyword"] = max(item["keyword"], norm)
+                keyword_scores_list.append(norm)
+
+        # 3. Hybrid scoring
+        if not merged:
+            return []
+
+        # Normalize vector scores to [0, 1]
+        if vector_scores_list:
+            min_v = min(vector_scores_list)
+            max_v = max(vector_scores_list)
+        else:
+            min_v = max_v = 0.0
+
+        scored_matches: list[MemoryMatch] = []
+        for memory_id, scores in merged.items():
+            v_score = scores["vector"]
+            k_score = scores["keyword"]
+            if max_v > min_v:
+                v_norm = (v_score - min_v) / (max_v - min_v)
+            elif max_v > 0:
+                v_norm = 1.0
+            else:
+                v_norm = 0.0
+            hybrid = vector_weight * v_norm + keyword_weight * k_score
+            scored_matches.append(MemoryMatch(memory_id=memory_id, score=hybrid))
+
+        scored_matches.sort(key=lambda m: (m.score, m.memory_id), reverse=True)
+        return scored_matches[:limit]
 
     def _recall_with_database_search(
         self,
@@ -903,7 +1054,9 @@ class MemoryStore:
             return incoming
         if normalize_memory_key(current) == normalize_memory_key(incoming):
             return current
-        return incoming if len(incoming) > len(current) else current
+        # Prefer the latest information over the longest text.
+        # This ensures corrections (e.g., "my name is actually X") take effect.
+        return incoming
 
     def _upsert_document(
         self,

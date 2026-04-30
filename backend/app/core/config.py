@@ -148,6 +148,10 @@ class Settings(BaseSettings):
     memory_pinned_top_k: int = 3
     memory_extract_max_items: int = 6
     memory_refresh_max_concurrency: int = 1
+    memory_embedding_enabled: bool = True
+    memory_vector_weight: float = 0.75
+    memory_keyword_weight: float = 0.25
+    memory_auto_promote_min_confidence: float = 0.60
     retrieval_context_top_k: int = 6
     rag_query_rewrite_enabled: bool = True
     rag_query_rewrite_model: str = "codex:gpt-5.2"

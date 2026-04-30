@@ -1,19 +1,19 @@
 # 系统架构与目录
 
-更新时间：2026-04-27
+更新时间：2026-04-30
 
-## 1. 当前架构定位
+## 1. 架构定位
 
-Chatchat 当前是一个面向个人和小团队的 AI 聊天工作台。部署口径是应用服务纯 CPU，模型能力全部走云端 API。
+Chatchat 是一个自托管 AI 聊天工作台。应用本身负责 Web UI、用户数据、上下文构建和模型编排；模型、检索、语音等能力通过 provider 接入。
 
 核心组成：
 
-- `frontend`：React 19 + Vite + TypeScript 单页应用。
+- `frontend`：React + Vite + TypeScript 单页应用。
 - `backend`：FastAPI + SQLAlchemy + Alembic 后端。
-- `postgres`：PostgreSQL + pgvector，存业务数据、消息、向量。
-- `redis`：缓存和运行时辅助。
-- `storage`：媒体附件、知识库原文、生成图片等文件。
-- 云端 API：DeepSeek、DashScope、可选图片生成接口。
+- `postgres`：保存用户、会话、消息、知识库、向量和记忆。
+- `redis`：缓存和运行时辅助状态。
+- `storage`：媒体附件、知识库原文、生成文件等。
+- provider：模型、检索、语音和图片生成等外部能力。
 
 ## 2. 根目录
 
@@ -24,7 +24,7 @@ Chatchat/
   docs/
   storage/
   docker-compose.yml
-  docker-compose.dev-infra.yml
+  dev/docker-compose.dev-infra.yml
   README.md
 ```
 
@@ -33,9 +33,9 @@ Chatchat/
 - `backend/`：后端服务、模型调用、检索、记忆、数据库迁移。
 - `frontend/`：前端界面、状态管理、API 调用。
 - `docs/`：部署、开发、功能模块说明。
-- `storage/`：运行时文件目录，不再承担数据库职责。
-- `docker-compose.yml`：完整部署栈。
-- `docker-compose.dev-infra.yml`：本地开发数据库和 Redis。
+- `storage/`：运行时文件目录。
+- `docker-compose.yml`：完整部署栈示例。
+- `dev/docker-compose.dev-infra.yml`：本地开发数据库和 Redis。
 
 ## 3. 后端目录
 
@@ -49,7 +49,6 @@ backend/app/
   core/
   debate/
   knowledge/
-  llm/
   memory/
   multimodal/
   provider_codecs/
@@ -63,10 +62,10 @@ backend/app/
 
 关键职责：
 
-- `api/`：FastAPI 路由层，只做鉴权、入参、响应模型。
+- `api/`：FastAPI 路由层。
 - `application/`：聊天请求准备、会话处理、运行时分发。
-- `runtime/`：统一流式运行时，承接 chat/debate。
-- `providers/`：模型目录、能力矩阵、provider family。
+- `runtime/`：统一流式运行时。
+- `providers/`：模型目录、能力矩阵、provider registry。
 - `provider_transports/`：真实上游 HTTP 调用。
 - `provider_codecs/`：provider 请求和流式响应归一化。
 - `retrieval/`：知识库、网页搜索、附件上下文。
@@ -109,16 +108,7 @@ frontend/src/
 - `shared/api`：通用 API 请求工具。
 - `shared/ui`：共享 UI 组件。
 
-## 5. 当前仍在过渡的地方
-
-前端仍有两个过渡中枢：
-
-- `frontend/src/features/workspace/model/useChatApp.ts`
-- `frontend/src/lib/api.ts`
-
-后续继续拆分时，优先从这两个文件把业务逻辑移动到对应 feature 内。
-
-## 6. 请求流概览
+## 5. 请求流概览
 
 普通聊天请求：
 
@@ -127,7 +117,7 @@ Browser
   -> frontend ChatComposer
   -> POST /api/chat/stream
   -> application/chat_preparation
-  -> tools/context build
+  -> memory / retrieval / tool context
   -> runtime orchestrator
   -> provider transport
   -> NDJSON stream
@@ -140,10 +130,10 @@ Browser
 Browser
   -> tool_mode=knowledge
   -> ToolRuntimeService
-  -> RagQueryRewriter
+  -> query rewrite
   -> KnowledgeService.retrieve_context
-  -> pgvector + rerank
-  -> context/source 注入
+  -> vector search + optional rerank
+  -> context/source injection
 ```
 
 网页搜索请求：
@@ -152,9 +142,7 @@ Browser
 Browser
   -> tool_mode=search
   -> WebSearchService
-  -> DashScope native web search
-  -> search_info.search_results
+  -> WebSearchProvider
   -> dedupe/filter/rerank
-  -> context/source 注入
+  -> context/source injection
 ```
-

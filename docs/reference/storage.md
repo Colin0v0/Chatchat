@@ -107,7 +107,7 @@ Provider 文件引用：
 本地开发推荐使用：
 
 ```powershell
-docker-compose -f docker-compose.dev-infra.yml up -d
+docker compose -f dev/docker-compose.dev-infra.yml up -d
 ```
 
 默认端口：

@@ -161,7 +161,7 @@ async def stream_chat_run(
                 yield line
 
         retrieval_query = latest_user_query(prepared_retrieval_history.messages, query)
-        memory_prompt = services.memory_service.build_prompt_payload(
+        memory_prompt = await services.memory_service.build_prompt_payload(
             db=run_db,
             user_id=conversation.user_id or 0,
             conversation_id=conversation.id,

@@ -12,6 +12,7 @@ MemoryStatus = Literal["candidate", "active", "archived"]
 MemorySourceType = Literal["manual", "auto", "promoted"]
 MemoryWritePolicy = Literal["manual", "explicit", "auto_candidate", "session"]
 MemoryDocumentType = Literal["user_profile", "workspace_profile", "conversation_brief"]
+MemoryAction = Literal["add", "update", "replace", "remove"]
 
 MEMORY_SCOPES: tuple[MemoryScope, ...] = ("working", "conversation", "global")
 MEMORY_KINDS: tuple[MemoryKind, ...] = (
@@ -40,6 +41,7 @@ class MemoryCandidate:
     detail: str = ""
     tags: tuple[str, ...] = ()
     confidence: float = 0.7
+    action: MemoryAction = "add"
 
 
 @dataclass(frozen=True)
