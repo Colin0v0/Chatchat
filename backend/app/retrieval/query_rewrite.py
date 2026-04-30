@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import re
 from typing import Sequence
 
+from ..cache import build_cache_key, get_json, set_json
 from ..chat.types import ChatMessagePayload
 from ..core.config import Settings
 from ..runtime.model_runner import complete_model_response
@@ -38,6 +39,7 @@ class QueryRewriteResult:
 
 class RagQueryRewriter:
     def __init__(self, settings: Settings):
+        self._settings = settings
         self._enabled = settings.rag_query_rewrite_enabled
         self._model = settings.rag_query_rewrite_model.strip() or None
         self._history_limit = max(0, settings.rag_query_rewrite_history_messages)
@@ -68,6 +70,29 @@ class RagQueryRewriter:
             )
 
         context_messages = self._select_context_messages(history_messages)
+        cache_key = build_cache_key(
+            self._settings,
+            namespace="rag_query_rewrite",
+            version=1,
+            payload={
+                "model": self._model,
+                "query": original_query,
+                "context_messages": context_messages,
+                "prompt_version": "2026-04-29",
+            },
+        )
+        cached = await get_json(self._settings, cache_key)
+        if cached is not None:
+            if not isinstance(cached, str):
+                raise RuntimeError("RAG query rewrite cache entry must be a string.")
+            return QueryRewriteResult(
+                original_query=original_query,
+                effective_query=cached,
+                applied=cached != original_query,
+                model=self._model,
+                context_message_count=len(context_messages),
+            )
+
         rewritten = _normalize_rewritten_query(
             await complete_model_response(
                 model=self._model,
@@ -86,6 +111,14 @@ class RagQueryRewriter:
         )
         if not _is_valid_rewritten_query(original_query=original_query, rewritten=rewritten):
             rewritten = original_query
+
+        # 查询改写由近期上下文和提示词版本完全决定，缓存后可以减少一次模型调用。
+        await set_json(
+            self._settings,
+            cache_key,
+            rewritten,
+            ttl_seconds=max(1, int(getattr(self._settings, "cache_rag_query_rewrite_ttl_seconds", 21600))),
+        )
 
         return QueryRewriteResult(
             original_query=original_query,

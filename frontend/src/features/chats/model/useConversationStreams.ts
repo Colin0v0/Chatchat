@@ -26,6 +26,7 @@ import {
   setAssistantDraftModel,
   setAssistantDraftContext,
   setAssistantDraftFinalContent,
+  setAssistantDraftSearchTrace,
   setAssistantDraftSources,
   sortConversations,
   stageFromStatusItems,
@@ -426,6 +427,16 @@ export function useConversationStreams({
       if (event.type === "sources") {
         updateSessionConversation(conversationId, (current) =>
           setAssistantDraftSources(current, event.sources),
+        );
+        return;
+      }
+
+      if (event.type === "search_trace") {
+        updateSessionConversation(conversationId, (current) =>
+          setAssistantDraftSearchTrace(current, {
+            queries: event.queries,
+            sources: event.sources,
+          }),
         );
         return;
       }

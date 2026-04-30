@@ -61,6 +61,14 @@ class Settings(BaseSettings):
     cors_allowed_origins: str = "http://127.0.0.1:5200,http://localhost:5200,http://127.0.0.1:3300,http://localhost:3300"
     database_url: str = "postgresql+psycopg://chatchat:chatchat@127.0.0.1:5432/chatchat"
     redis_url: str = "redis://127.0.0.1:6379/0"
+    cache_enabled: bool = True
+    cache_key_prefix: str = "chatchat"
+    cache_default_ttl_seconds: int = 300
+    cache_web_search_ttl_seconds: int = 900
+    cache_web_translate_ttl_seconds: int = 604800
+    cache_rag_query_rewrite_ttl_seconds: int = 21600
+    cache_embedding_ttl_seconds: int = 2592000
+    cache_rerank_ttl_seconds: int = 21600
     media_root: str = "./storage/media"
     auth_session_cookie_name: str = "chatchat_session"
     auth_session_ttl_hours: int = 168

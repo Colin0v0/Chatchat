@@ -52,6 +52,11 @@ export interface MessageContext {
   sections: MessageContextSection[];
 }
 
+export interface SearchTrace {
+  queries: string[];
+  sources: MessageSource[];
+}
+
 export interface ConversationSummary {
   id: number;
   title: string;
@@ -85,6 +90,7 @@ export interface ChatMessage {
   model?: string | null;
   attachments?: MessageAttachment[];
   sources?: MessageSource[];
+  search_trace?: SearchTrace | null;
   context?: MessageContext | null;
   feedback?: FeedbackValue | null;
   created_at?: string | null;
@@ -509,6 +515,11 @@ type ChatStreamEventPayload =
     }
   | {
       type: "sources";
+      sources: MessageSource[];
+    }
+  | {
+      type: "search_trace";
+      queries: string[];
       sources: MessageSource[];
     }
   | {

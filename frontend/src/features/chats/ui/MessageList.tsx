@@ -1,4 +1,4 @@
-import { Check, Copy, Pencil, RotateCcw, Square, ThumbsDown, ThumbsUp, Volume2 } from "lucide-react";
+import { Check, Copy, Globe, Pencil, RotateCcw, Square, ThumbsDown, ThumbsUp, Volume2 } from "lucide-react";
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 
 import { thinkingPanelLabels } from "../../models/lib/modelCapabilities";
@@ -6,7 +6,7 @@ import { findModelOption } from "../../models/lib/modelOptions";
 import { useMessageSpeechPlayback } from "../model/useMessageSpeechPlayback";
 import { useSpeechPreferences } from "../../settings/model/useSpeechPreferences";
 import { ASSISTANT_DRAFT_ID } from "../lib/constants";
-import type { ChatMessage, FeedbackValue, ModelOption } from "../../../types";
+import type { ChatMessage, FeedbackValue, ModelOption, SearchTrace } from "../../../types";
 import { ContextPanel } from "./context/ContextPanel";
 import { MarkdownMessage } from "./markdown/MarkdownMessage";
 import { MessageAttachmentStrip } from "./message/MessageAttachmentStrip";
@@ -79,6 +79,38 @@ function StreamingStatusSlot({
   }
 
   return <StreamingLabel label={label} />;
+}
+
+function SearchTracePanel({ trace }: { trace: SearchTrace }) {
+  const queries = trace.queries.slice(0, 8);
+  const sources = trace.sources.slice(0, 8);
+  if (queries.length === 0 && sources.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="mb-4 text-[15px] leading-7 text-app-muted/82">
+      <div className="mb-2 inline-flex items-center gap-2 text-app-muted/88">
+        <Globe className="size-4" />
+        <span>正在搜索网页</span>
+      </div>
+      <div className="space-y-1.5 break-words [overflow-wrap:anywhere]">
+        {queries.map((query) => (
+          <div key={`query-${query}`}>{query}</div>
+        ))}
+        {sources.map((source, index) => {
+          const url = source.url?.trim();
+          const title = source.title?.trim();
+          return (
+            <div key={`source-${url}-${index}`}>
+              {title ? <span>{title} </span> : null}
+              {url ? <span>{url}</span> : null}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 function pendingAssistantLabel(panelLabels: { streamingLabel: string }, hasReasoningCapability: boolean) {
@@ -456,6 +488,7 @@ export function MessageList({
           !showStreamingStatus &&
           (isPendingAssistantDraft || (isActiveStreamingAssistant && reserveThinkingSpace));
         const showSources = !isEmptyAssistant && item.id !== activeStreamingAssistantId;
+        const showSearchTrace = Boolean(isActiveStreamingAssistant && item.search_trace);
         const attachments = item.attachments ?? [];
         const isEditingUserMessage = !isAssistant && editingUserMessageId === item.id;
         const shouldHideOrphanReasoningMessage =
@@ -536,6 +569,8 @@ export function MessageList({
                   streaming={false}
                 />
               ) : null}
+
+              {showSearchTrace ? <SearchTracePanel trace={item.search_trace as SearchTrace} /> : null}
 
               {!isEmptyAssistant ? (
                 <div className="text-[15px] leading-8 text-app-text">

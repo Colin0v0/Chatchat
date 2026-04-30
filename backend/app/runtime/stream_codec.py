@@ -16,6 +16,12 @@ def encode_ndjson_event(event: CanonicalEvent) -> str | None:
         payload = {"type": "token", "content": event.payload.get("content", "")}
     elif event.kind == "sources":
         payload = {"type": "sources", "sources": event.payload.get("sources", [])}
+    elif event.kind == "search_trace":
+        payload = {
+            "type": "search_trace",
+            "queries": event.payload.get("queries", []),
+            "sources": event.payload.get("sources", []),
+        }
     elif event.kind == "context":
         payload = {"type": "context", "context": event.payload.get("context", {})}
     elif event.kind == "completed":

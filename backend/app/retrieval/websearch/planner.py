@@ -10,6 +10,22 @@ from .translator import translate_query_for_search
 from .types import WebSearchPlan, WebQuery
 from ...core.config import Settings
 
+AI_MODEL_QUERY_HINTS = ("ai", "llm", "model", "models", "大模型", "模型", "人工智能")
+AI_COMPANY_MARKERS = (
+    "openai",
+    "claude",
+    "anthropic",
+    "google",
+    "gemini",
+    "deepseek",
+    "qwen",
+    "minimax",
+    "xiaomi",
+    "glm",
+    "kimi",
+    "moonshot",
+)
+
 
 async def build_search_plan(raw_query: str, settings: Settings) -> WebSearchPlan:
     parsed = parse_web_query(raw_query)
@@ -36,4 +52,12 @@ def _should_skip_translation(raw_query: str, intent: str) -> bool:
     latin_subject = extract_latin_subject(raw_query)
     if not latin_subject:
         return False
+    if _looks_like_mixed_ai_model_query(raw_query):
+        return True
     return intent in {"music_entity_list", "entity_list", "stock"}
+
+
+def _looks_like_mixed_ai_model_query(raw_query: str) -> bool:
+    normalized = raw_query.lower()
+    matched_companies = sum(1 for marker in AI_COMPANY_MARKERS if marker in normalized)
+    return matched_companies >= 2 and any(hint in normalized for hint in AI_MODEL_QUERY_HINTS)

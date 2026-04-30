@@ -82,6 +82,7 @@ import type {
   DebateSessionSummary,
   DebateStreamEvent,
   ModelOption,
+  ModelsPayload,
   ReasoningProfileValue,
   ToolMode,
 } from "../../../types";
@@ -105,7 +106,12 @@ type DebateTransientState = {
 const CONVERSATION_VIEW_MESSAGE_LIMIT = 24;
 const CONVERSATION_EXPORT_MESSAGE_LIMIT = 100;
 const ACTIVE_CHAT_CONVERSATION_CACHE_STORAGE_KEY = "chatchat.active-chat-conversations";
+const CONVERSATION_SUMMARIES_CACHE_STORAGE_KEY = "chatchat.cache.conversation-summaries.v1";
+const DEBATE_SUMMARIES_CACHE_STORAGE_KEY = "chatchat.cache.debate-summaries.v1";
+const MODELS_CACHE_STORAGE_KEY = "chatchat.cache.models.v1";
 const DEBATE_TRANSIENT_STATE_STORAGE_KEY = "chatchat.debate-transient-states";
+const BROWSER_CACHE_SCHEMA_VERSION = 1;
+const BROWSER_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const DEFAULT_IMAGE_SIZE = "1024x1024";
 const DEFAULT_IMAGE_QUALITY = "auto";
 const DEFAULT_IMAGE_OUTPUT_FORMAT = "png";
@@ -122,6 +128,129 @@ function fileLooksLikeImage(file: File) {
 
 function modelAllowsImageAttachments(model: ModelOption) {
   return model.capabilities?.input.image ?? model.supports_attachment_upload;
+}
+
+type BrowserCacheEnvelope<T> = {
+  schema_version: number;
+  expires_at: number;
+  value: T;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object";
+}
+
+function readBrowserCache<T>(
+  key: string,
+  validate: (value: unknown) => value is T,
+): T | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) {
+      return null;
+    }
+
+    const envelope = JSON.parse(raw) as Partial<BrowserCacheEnvelope<unknown>>;
+    if (
+      envelope.schema_version !== BROWSER_CACHE_SCHEMA_VERSION
+      || typeof envelope.expires_at !== "number"
+      || envelope.expires_at <= Date.now()
+      || !validate(envelope.value)
+    ) {
+      window.localStorage.removeItem(key);
+      return null;
+    }
+
+    return envelope.value;
+  } catch {
+    window.localStorage.removeItem(key);
+    return null;
+  }
+}
+
+function writeBrowserCache<T>(key: string, value: T) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const envelope: BrowserCacheEnvelope<T> = {
+    schema_version: BROWSER_CACHE_SCHEMA_VERSION,
+    expires_at: Date.now() + BROWSER_CACHE_TTL_MS,
+    value,
+  };
+  try {
+    window.localStorage.setItem(key, JSON.stringify(envelope));
+  } catch {
+    // 浏览器存储空间不足时清掉当前缓存键，避免下一次读取半截数据。
+    window.localStorage.removeItem(key);
+  }
+}
+
+function isConversationSummary(value: unknown): value is ConversationSummary {
+  return (
+    isRecord(value)
+    && typeof value.id === "number"
+    && typeof value.title === "string"
+    && typeof value.model === "string"
+    && (typeof value.updated_at === "string" || value.updated_at === null)
+    && typeof value.last_message_preview === "string"
+  );
+}
+
+function isDebateSessionSummary(value: unknown): value is DebateSessionSummary {
+  return (
+    isRecord(value)
+    && typeof value.id === "number"
+    && typeof value.topic === "string"
+    && typeof value.status === "string"
+    && typeof value.stage === "string"
+    && (typeof value.updated_at === "string" || value.updated_at === null)
+    && typeof value.last_turn_preview === "string"
+  );
+}
+
+function isModelOption(value: unknown): value is ModelOption {
+  return (
+    isRecord(value)
+    && typeof value.id === "string"
+    && typeof value.label === "string"
+    && typeof value.supports_thinking === "boolean"
+    && typeof value.supports_thinking_trace === "boolean"
+    && typeof value.supports_attachment_upload === "boolean"
+    && (typeof value.chat_model === "string" || value.chat_model === null)
+    && (typeof value.reasoning_model === "string" || value.reasoning_model === null)
+  );
+}
+
+function isModelsPayload(value: unknown): value is ModelsPayload {
+  return (
+    isRecord(value)
+    && Array.isArray(value.models)
+    && value.models.every(isModelOption)
+    && typeof value.default_model === "string"
+  );
+}
+
+function loadStoredConversationSummariesCache(): ConversationSummary[] | null {
+  return readBrowserCache(
+    CONVERSATION_SUMMARIES_CACHE_STORAGE_KEY,
+    (value): value is ConversationSummary[] => Array.isArray(value) && value.every(isConversationSummary),
+  );
+}
+
+function loadStoredDebateSummariesCache(): DebateSessionSummary[] | null {
+  return readBrowserCache(
+    DEBATE_SUMMARIES_CACHE_STORAGE_KEY,
+    (value): value is DebateSessionSummary[] => Array.isArray(value) && value.every(isDebateSessionSummary),
+  );
+}
+
+function loadStoredModelsCache(): ModelsPayload | null {
+  return readBrowserCache(MODELS_CACHE_STORAGE_KEY, isModelsPayload);
 }
 
 function loadStoredChatConversationCache(): Record<number, ConversationDetail> {
@@ -356,12 +485,15 @@ export function useChatApp({
   sidebarOpen,
   toggleSidebar,
 }: UseChatAppOptions) {
-  const [conversations, setConversations] = useState<ConversationSummary[]>([]);
-  const [conversationsLoaded, setConversationsLoaded] = useState(false);
+  const [initialConversationSummariesCache] = useState(() => loadStoredConversationSummariesCache());
+  const [initialDebateSummariesCache] = useState(() => loadStoredDebateSummariesCache());
+  const [initialModelsCache] = useState(() => loadStoredModelsCache());
+  const [conversations, setConversations] = useState<ConversationSummary[]>(() => initialConversationSummariesCache ?? []);
+  const [conversationsLoaded, setConversationsLoaded] = useState(() => initialConversationSummariesCache !== null);
   const [activeConversationId, setActiveConversationId] = useState<number | null>(null);
   const [activeConversation, setActiveConversation] = useState<ConversationDetail | null>(null);
-  const [debateSessions, setDebateSessions] = useState<DebateSessionSummary[]>([]);
-  const [debateSessionsLoaded, setDebateSessionsLoaded] = useState(false);
+  const [debateSessions, setDebateSessions] = useState<DebateSessionSummary[]>(() => initialDebateSummariesCache ?? []);
+  const [debateSessionsLoaded, setDebateSessionsLoaded] = useState(() => initialDebateSummariesCache !== null);
   const [activeDebateId, setActiveDebateId] = useState<number | null>(null);
   const [activeDebate, setActiveDebate] = useState<DebateSessionDetail | null>(null);
   const [debateTransientStates, setDebateTransientStates] = useState<Record<number, DebateTransientState>>(
@@ -378,8 +510,14 @@ export function useChatApp({
   const [editingUserMessageId, setEditingUserMessageId] = useState<number | string | null>(null);
   const [editingUserMessageContent, setEditingUserMessageContent] = useState("");
   const [earlierMessagesError, setEarlierMessagesError] = useState<string | null>(null);
-  const [models, setModels] = useState<ModelOption[]>(() => createInitialModelOptions());
-  const [selectedModel, setSelectedModel] = useState(INITIAL_CHAT_MODEL);
+  const [models, setModels] = useState<ModelOption[]>(() =>
+    initialModelsCache?.models.length ? initialModelsCache.models : createInitialModelOptions(),
+  );
+  const [selectedModel, setSelectedModel] = useState(() =>
+    initialModelsCache?.models.length
+      ? resolveInitialSelectedModel(initialModelsCache.models, initialModelsCache.default_model)
+      : INITIAL_CHAT_MODEL,
+  );
   const [composerMode, setComposerModeState] = useState<ComposerMode>("chat");
   const [imageSize, setImageSize] = useState(DEFAULT_IMAGE_SIZE);
   const [imageQuality, setImageQuality] = useState(DEFAULT_IMAGE_QUALITY);
@@ -892,6 +1030,8 @@ export function useChatApp({
       if (!conversationsRefreshGuard.isCurrent(requestId)) {
         return;
       }
+      // 移动端和桌面端共用浏览器缓存：先秒开旧列表，再用服务器结果覆盖。
+      writeBrowserCache(CONVERSATION_SUMMARIES_CACHE_STORAGE_KEY, items);
       setConversations(mergeConversationSummariesWithSessions(items));
     } catch (refreshError) {
       if (conversationsRefreshGuard.isCurrent(requestId)) {
@@ -911,6 +1051,7 @@ export function useChatApp({
       if (!debatesRefreshGuard.isCurrent(requestId)) {
         return;
       }
+      writeBrowserCache(DEBATE_SUMMARIES_CACHE_STORAGE_KEY, items);
       setDebateSessions(items);
     } catch (refreshError) {
       if (debatesRefreshGuard.isCurrent(requestId)) {
@@ -932,6 +1073,10 @@ export function useChatApp({
       }
       const nextModels =
         payload.models.length > 0 ? payload.models : [createModelOption(payload.default_model)];
+      writeBrowserCache(MODELS_CACHE_STORAGE_KEY, {
+        default_model: payload.default_model,
+        models: nextModels,
+      } satisfies ModelsPayload);
       setModels(nextModels);
       setSelectedModel(resolveInitialSelectedModel(nextModels, payload.default_model));
     } catch (loadError) {

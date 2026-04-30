@@ -6,6 +6,7 @@ from typing import Protocol
 
 import httpx
 
+from ...cache import build_cache_key, get_json, set_json
 from ...core.config import Settings
 from .types import RagChunk, RagChunkSpec
 
@@ -52,6 +53,8 @@ class OpenAICompatibleEmbedder:
             batch_size=max(1, int(getattr(settings, "knowledge_embedding_batch_size", 8))),
             timeout_seconds=max(1.0, float(getattr(settings, "knowledge_embedding_timeout_seconds", 30.0))),
         )
+        self._settings = settings
+        self._cache_ttl_seconds = max(1, int(getattr(settings, "cache_embedding_ttl_seconds", 2592000)))
 
     async def embed_query(self, query: str) -> list[float]:
         embeddings = await self._embed_texts([query])
@@ -86,22 +89,48 @@ class OpenAICompatibleEmbedder:
         if not normalized_texts:
             return []
 
-        vectors: list[list[float]] = []
+        vectors: list[list[float] | None] = []
+        uncached_texts: list[str] = []
+        uncached_indexes: list[int] = []
+        for text in normalized_texts:
+            cache_key = self._cache_key(text)
+            cached = await get_json(self._settings, cache_key)
+            if cached is None:
+                vectors.append(None)
+                uncached_indexes.append(len(vectors) - 1)
+                uncached_texts.append(text)
+                continue
+            vectors.append(self._parse_cached_vector(cached))
+
+        if not uncached_texts:
+            return [vector for vector in vectors if vector is not None]
+
+        fetched_vectors: list[list[float]] = []
         async with httpx.AsyncClient(
             base_url=self._runtime.base_url,
             headers=self._headers(),
             timeout=self._runtime.timeout_seconds,
         ) as client:
-            for start in range(0, len(normalized_texts), self._runtime.batch_size):
-                batch = normalized_texts[start : start + self._runtime.batch_size]
+            for start in range(0, len(uncached_texts), self._runtime.batch_size):
+                batch = uncached_texts[start : start + self._runtime.batch_size]
                 response = await client.post(
                     "embeddings",
                     json=self._request_payload(batch),
                 )
                 response.raise_for_status()
-                vectors.extend(self._parse_embeddings(response.json()))
+                fetched_vectors.extend(self._parse_embeddings(response.json()))
 
-        return vectors
+        for index, text, vector in zip(uncached_indexes, uncached_texts, fetched_vectors):
+            vectors[index] = vector
+            # embedding 成本高且输入稳定，按模型、维度、base_url 和文本哈希缓存。
+            await set_json(
+                self._settings,
+                self._cache_key(text),
+                vector,
+                ttl_seconds=self._cache_ttl_seconds,
+            )
+
+        return [vector for vector in vectors if vector is not None]
 
     def _request_payload(self, batch: list[str]) -> dict[str, object]:
         payload: dict[str, object] = {
@@ -136,6 +165,30 @@ class OpenAICompatibleEmbedder:
                 )
             vectors.append(vector)
         return vectors
+
+    def _parse_cached_vector(self, payload: object) -> list[float]:
+        if not isinstance(payload, list):
+            raise RuntimeError("Embedding cache entry must be a list.")
+        vector = [float(value) for value in payload]
+        if len(vector) != self._runtime.dimensions:
+            raise RuntimeError(
+                "Embedding cache returned an unexpected vector dimension. "
+                f"Expected {self._runtime.dimensions}, got {len(vector)}."
+            )
+        return vector
+
+    def _cache_key(self, text: str) -> str:
+        return build_cache_key(
+            self._settings,
+            namespace="embedding",
+            version=1,
+            payload={
+                "base_url": self._runtime.base_url,
+                "model": self._runtime.model,
+                "dimensions": self._runtime.dimensions,
+                "text": text,
+            },
+        )
 
     def _headers(self) -> dict[str, str]:
         if not self._runtime.api_key:

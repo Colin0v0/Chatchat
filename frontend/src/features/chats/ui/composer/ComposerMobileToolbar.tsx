@@ -120,7 +120,7 @@ export function ComposerMobileToolbar({
                 label="上传照片和文件"
                 onClick={() => {
                   onAddAttachment();
-                  setMenuOpen(false);
+                  // 移动端会先切到系统文件选择器；返回页面时保留上拉菜单，避免用户感知成菜单闪退。
                 }}
               />
               <MobileMenuAction

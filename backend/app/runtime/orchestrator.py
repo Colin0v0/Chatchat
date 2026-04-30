@@ -19,6 +19,7 @@ from ..runtime.events import (
     meta_event,
     output_text_delta_event,
     reasoning_delta_event,
+    search_trace_event,
     sources_event,
     status_event,
 )
@@ -195,6 +196,12 @@ async def stream_chat_run(
             if line:
                 yield line
 
+        search_trace = _search_trace_payload(prompt_context.debug, prompt_context.sources)
+        if search_trace is not None:
+            line = trace.emit(search_trace_event(**search_trace))
+            if line:
+                yield line
+
         if prompt_context.sources:
             line = trace.emit(sources_event(prompt_context.sources))
             if line:
@@ -366,3 +373,21 @@ async def stream_chat_run(
         if reservation is not None:
             await reservation.release()
         run_db.close()
+
+
+def _search_trace_payload(debug: dict[str, object], sources: list[dict[str, object]]) -> dict[str, list] | None:
+    if not debug.get("search_executed"):
+        return None
+
+    raw_queries = debug.get("queries")
+    queries = [str(item).strip() for item in raw_queries] if isinstance(raw_queries, list) else []
+    queries = [item for item in queries if item]
+    web_sources = [source for source in sources if source.get("type") == "web"]
+    if not queries and not web_sources:
+        return None
+
+    # 搜索 trace 只展示用户需要核对的事实：实际搜索词和命中的网页。
+    return {
+        "queries": queries,
+        "sources": web_sources,
+    }

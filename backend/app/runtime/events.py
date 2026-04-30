@@ -9,6 +9,7 @@ CanonicalEventKind = Literal[
     "reasoning_delta",
     "output_text_delta",
     "sources",
+    "search_trace",
     "context",
     "completed",
     "failed",
@@ -39,6 +40,10 @@ def output_text_delta_event(content: str) -> CanonicalEvent:
 
 def sources_event(sources: list[dict[str, object]]) -> CanonicalEvent:
     return CanonicalEvent(kind="sources", payload={"sources": sources})
+
+
+def search_trace_event(*, queries: list[str], sources: list[dict[str, object]]) -> CanonicalEvent:
+    return CanonicalEvent(kind="search_trace", payload={"queries": queries, "sources": sources})
 
 
 def context_event(context: dict[str, object]) -> CanonicalEvent:
