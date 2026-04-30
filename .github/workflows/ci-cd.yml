@@ -52,7 +52,7 @@ jobs:
           DATABASE_URL: postgresql+psycopg://chatchat_test:chatchat_test@127.0.0.1:5433/chatchat_test
           REDIS_URL: redis://localhost:6379/0
           APP_ENV: test
-        run: pytest -v
+        run: PYTHONPATH=. pytest -v
 
   test-frontend:
     runs-on: ubuntu-latest
