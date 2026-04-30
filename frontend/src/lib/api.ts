@@ -19,9 +19,7 @@ export {
 export {
   createMemory,
   deleteMemory,
-  dismissMemory,
   fetchMemories,
-  promoteMemory,
   updateMemory,
 } from "../features/memories/api/memories";
 export {

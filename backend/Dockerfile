@@ -1,5 +1,5 @@
-# 构建镜像源由 compose 显式传入，避免构建机静默使用默认仓库。
-ARG DOCKER_REGISTRY
+# 默认使用 docker.io，compose / CI 仍可显式覆盖成私有镜像源。
+ARG DOCKER_REGISTRY=docker.io
 FROM ${DOCKER_REGISTRY}/library/python:3.11-slim
 
 # Python 包源由 compose 显式传入，便于在国内构建机上固定依赖下载来源。

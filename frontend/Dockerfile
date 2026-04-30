@@ -1,5 +1,5 @@
-# 构建镜像源由 compose 显式传入，避免构建机静默使用默认仓库。
-ARG DOCKER_REGISTRY
+# 默认使用 docker.io，compose / CI 仍可显式覆盖成私有镜像源。
+ARG DOCKER_REGISTRY=docker.io
 FROM ${DOCKER_REGISTRY}/library/node:22-alpine AS build
 
 WORKDIR /app
