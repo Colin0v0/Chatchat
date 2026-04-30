@@ -47,6 +47,9 @@ jobs:
           pip install -r requirements.txt
           pip install pytest pytest-asyncio trio
 
+      - name: Create test env file
+        run: touch .env.test
+
       - name: Run backend tests
         env:
           DATABASE_URL: postgresql+psycopg://chatchat_test:chatchat_test@127.0.0.1:5433/chatchat_test
