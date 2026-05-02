@@ -29,11 +29,6 @@ export function ContextPanel({ context }: ContextPanelProps) {
         type="button"
       >
         <span>上下文</span>
-        <span className="text-app-muted/70">
-          {`本次回答参考了最近 ${Math.max(1, context.recent_message_count)} 轮聊天`}
-          {context.older_message_count > 0 ? `，更早 ${context.older_message_count} 轮已自动压缩` : ""}
-          {hasMemory ? `，使用了 ${context.memory_count} 条记忆` : ""}
-        </span>
         <ChevronRight className={`size-4 transition-transform duration-200 ${expanded ? "rotate-90" : ""}`} />
       </button>
 
