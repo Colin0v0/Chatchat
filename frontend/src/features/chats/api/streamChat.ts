@@ -74,3 +74,15 @@ export async function streamActiveChat(
 
   await consumeNdjsonStream<ChatStreamEvent>(response, options.onEvent, options.batchWindowMs);
 }
+
+export async function cancelActiveChat(conversationId: number): Promise<void> {
+  const response = await fetch(toApiUrl("/api/chat/stream/cancel"), {
+    credentials: "include",
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ conversation_id: conversationId }),
+  });
+  await assertApiResponse(response);
+}

@@ -7,6 +7,7 @@ from ..chat.state import ChatServices
 from ..core.config import settings
 from ..multimodal.file_types import resolve_attachment_type
 from ..providers.catalog import ModelProfile
+from ..runtime.chat_runs import get_chat_run_registry
 from ..runtime.requests import ChatRunRequest
 from ..schemas import ReasoningProfileValue, RegenerateRequest, ToolMode
 from ..storage.media import persist_uploaded_attachments
@@ -24,6 +25,26 @@ from .chat_turns import persist_chat_turn, persist_regenerated_turn, resolve_cha
 def _ensure_chat_input_present(*, content: str, upload_count: int) -> None:
     if not content and upload_count == 0:
         raise HTTPException(status_code=400, detail="Message cannot be empty")
+
+
+def active_chat_run_conflict_detail(active_run: dict[str, object]) -> dict[str, object]:
+    return {
+        "code": "ActiveChatRunExists",
+        "message": "This conversation already has an active response. Stop it before sending a new message.",
+        "active_run": active_run,
+    }
+
+
+async def _ensure_no_active_chat_run(*, request: Request, conversation_id: int) -> None:
+    active_run = await get_chat_run_registry(request).describe(conversation_id)
+    if active_run is None:
+        return
+
+    # 中文注释：先拦截 active run，再落库新消息，避免重复 Enter 产生脏的 user/assistant 占位。
+    raise HTTPException(
+        status_code=409,
+        detail=active_chat_run_conflict_detail(active_run),
+    )
 
 
 def _ensure_uploads_supported_by_model(*, profile: ModelProfile, uploads: list[UploadFile]) -> None:
@@ -106,6 +127,8 @@ async def prepare_chat_stream_run_request(
         if conversation_id is not None
         else None
     )
+    if conversation is not None:
+        await _ensure_no_active_chat_run(request=request, conversation_id=conversation.id)
 
     try:
         uploaded_attachments = await persist_uploaded_attachments(uploads)
@@ -138,7 +161,7 @@ async def prepare_chat_stream_run_request(
     )
 
 
-def prepare_regeneration_run_request(
+async def prepare_regeneration_run_request(
     *,
     current_user: User,
     services: ChatServices,
@@ -152,6 +175,7 @@ def prepare_regeneration_run_request(
         conversation_id=payload.conversation_id,
         user_id=current_user.id,
     )
+    await _ensure_no_active_chat_run(request=request, conversation_id=conversation.id)
     ensure_conversation_run_model(
         db=db,
         conversation=conversation,

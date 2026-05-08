@@ -2,19 +2,28 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import Request, UploadFile
+from fastapi import HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from ..chat.state import ChatServices
-from ..runtime.chat_runs import get_chat_run_registry
+from ..runtime.chat_runs import ActiveChatRunConflict, get_chat_run_registry
 from ..runtime.streaming import ndjson_stream_response
 from ..schemas import ReasoningProfileValue, RegenerateRequest, ToolMode
 from ..storage.models import User
 from .chat_preparation import (
+    active_chat_run_conflict_detail,
     prepare_chat_stream_run_request,
     prepare_regeneration_run_request,
 )
+
+
+def _raise_active_run_conflict(exc: ActiveChatRunConflict) -> None:
+    # 中文注释：并发窗口里 registry 仍可能先发现冲突，这里转成 409，避免冒泡成 500。
+    raise HTTPException(
+        status_code=409,
+        detail=active_chat_run_conflict_detail(exc.active_run),
+    ) from exc
 
 
 async def regenerate_chat_response(
@@ -25,17 +34,20 @@ async def regenerate_chat_response(
     request: Request,
     db: Session,
 ) -> StreamingResponse:
-    run_request = prepare_regeneration_run_request(
+    run_request = await prepare_regeneration_run_request(
         current_user=current_user,
         services=services,
         payload=payload,
         request=request,
         db=db,
     )
-    stream = await get_chat_run_registry(request).start_or_attach(
-        app=request.app,
-        run_request=run_request,
-    )
+    try:
+        stream = await get_chat_run_registry(request).start_or_attach(
+            app=request.app,
+            run_request=run_request,
+        )
+    except ActiveChatRunConflict as exc:
+        _raise_active_run_conflict(exc)
     return ndjson_stream_response(stream)
 
 
@@ -66,10 +78,13 @@ async def chat_stream_response(
         reasoning_profile=reasoning_profile,
         files=files,
     )
-    stream = await get_chat_run_registry(request).start_or_attach(
-        app=request.app,
-        run_request=run_request,
-    )
+    try:
+        stream = await get_chat_run_registry(request).start_or_attach(
+            app=request.app,
+            run_request=run_request,
+        )
+    except ActiveChatRunConflict as exc:
+        _raise_active_run_conflict(exc)
     return ndjson_stream_response(stream)
 
 

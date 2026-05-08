@@ -24,6 +24,13 @@ class BackgroundChatRequest:
         return False
 
 
+class ActiveChatRunConflict(RuntimeError):
+    def __init__(self, conversation_id: int, active_run: dict[str, object]):
+        self.conversation_id = conversation_id
+        self.active_run = active_run
+        super().__init__("Conversation already has an active run.")
+
+
 @dataclass(slots=True)
 class ChatActiveRunState:
     conversation_id: int
@@ -47,11 +54,15 @@ class ChatRunRegistry:
             state = self._runs.get(conversation_id)
             if state is None or state.completed:
                 return None
-            return {
-                "action": "run",
-                "run_id": state.run_id,
-                "started_at": state.started_at.astimezone(timezone.utc).isoformat(timespec="milliseconds"),
-            }
+            return self._describe_state(state)
+
+    def _describe_state(self, state: ChatActiveRunState) -> dict[str, object]:
+        return {
+            "action": "run",
+            "run_id": state.run_id,
+            "last_seq": state.next_seq,
+            "started_at": state.started_at.astimezone(timezone.utc).isoformat(timespec="milliseconds"),
+        }
 
     async def start_or_attach(
         self,
@@ -63,7 +74,7 @@ class ChatRunRegistry:
             state = self._runs.get(run_request.conversation_id)
             if state is not None and not state.completed:
                 if state.message_id != run_request.message_id:
-                    raise RuntimeError("Conversation already has an active run.")
+                    raise ActiveChatRunConflict(run_request.conversation_id, self._describe_state(state))
                 return self._subscribe_iterator(state)
 
             state = ChatActiveRunState(
@@ -81,6 +92,20 @@ class ChatRunRegistry:
                 name=f"chat-run-{run_request.conversation_id}-{run_request.message_id}",
             )
             return self._subscribe_iterator(state)
+
+    async def cancel(self, conversation_id: int) -> bool:
+        async with self._lock:
+            state = self._runs.get(conversation_id)
+            if state is None or state.completed:
+                return False
+            task = state.task
+
+        if task is not None and not task.done():
+            # 中文注释：用户点 Stop 时要取消后台模型流，否则前端断开了，后端仍会占着 active run。
+            task.cancel()
+
+        await self._finish(state)
+        return True
 
     async def attach_existing(
         self,
@@ -140,6 +165,8 @@ class ChatRunRegistry:
 
     async def _finish(self, state: ChatActiveRunState) -> None:
         async with self._lock:
+            if state.completed:
+                return
             state.completed = True
             subscribers = tuple(state.subscribers)
             state.subscribers.clear()

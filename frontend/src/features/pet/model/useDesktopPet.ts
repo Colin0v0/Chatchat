@@ -2,6 +2,7 @@ import type { PointerEvent, RefObject } from "react";
 import { useEffect, useRef, useState } from "react";
 
 import { requestPetChatReply, type PetCompanionContext } from "../api/petChat";
+import { fetchPetState, savePetState, type PetStateApiResponse } from "../api/petState";
 import {
   resolvePetBehaviorSnapshot,
   type PetBehaviorSnapshot,
@@ -41,7 +42,7 @@ type DesktopPetOptions = {
 
 type PetMode = "awake" | "sleeping";
 
-type StoredPetState = {
+type PetStateSnapshot = {
   position: PetPosition;
   stats: PetStats;
 };
@@ -62,7 +63,6 @@ type PetChatMessage = {
   text: string;
 };
 
-const STORAGE_KEY = "chatchat.pet.fox.v4";
 const PET_SIZE = 144;
 const DEFAULT_PET_FOOT_OFFSET = PET_ANIMATIONS.idle.anchor.footOffset;
 const PAGE_EDGE_PADDING = 12;
@@ -99,7 +99,6 @@ const AMBIENT_MOTIVE_ANIMATIONS: Record<PetMotiveKey, PetAnimationKey | null> = 
   thirsty: "click",
   unwell: null,
 };
-const INITIAL_POSITION: PetPosition = { bottom: 96, left: 28 };
 const INITIAL_STATS: PetStats = {
   energy: 78,
   hunger: 76,
@@ -108,31 +107,16 @@ const INITIAL_STATS: PetStats = {
   updatedAt: Date.now(),
 };
 const INITIAL_CHAT_MESSAGES: PetChatMessage[] = [
-  { id: 1, role: "pet", text: "我在。你可以跟我说话。" },
+  { id: 1, role: "pet", text: "我是小狐～有话要跟你说呢！" },
 ];
+const CARE_NEGATION_WORDS = ["不要", "不用", "不想", "不能", "别", "不", "没", "没有", "无需"];
+const FEED_INTENT_PHRASES = ["喂一下", "喂点", "喂它", "喂狐狸", "给它吃", "给狐狸吃", "吃饭", "想吃", "零食", "食物"];
+const DRINK_INTENT_PHRASES = ["喝水", "添水", "给它水", "给狐狸水", "渴了", "口渴", "想喝水"];
+const SLEEP_INTENT_PHRASES = ["睡觉", "休息", "晚安", "哄睡", "困了", "想睡"];
+const PRAISE_INTENT_PHRASES = ["夸一下", "夸它", "夸狐狸", "乖", "棒", "可爱", "喜欢"];
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object";
-}
-
-function isStoredPetState(value: unknown): value is StoredPetState {
-  if (!isRecord(value) || !isRecord(value.position) || !isRecord(value.stats)) {
-    return false;
-  }
-
-  return (
-    typeof value.position.bottom === "number"
-    && typeof value.position.left === "number"
-    && typeof value.stats.energy === "number"
-    && typeof value.stats.hunger === "number"
-    && typeof value.stats.mood === "number"
-    && typeof value.stats.thirst === "number"
-    && typeof value.stats.updatedAt === "number"
-  );
 }
 
 function normalizeStats(stats: PetStats): PetStats {
@@ -146,48 +130,27 @@ function normalizeStats(stats: PetStats): PetStats {
 }
 
 function applyOfflineDecay(stats: PetStats): PetStats {
-  const elapsedMinutes = Math.max(0, Math.floor((Date.now() - stats.updatedAt) / 60000));
-  const decaySteps = Math.floor(elapsedMinutes / 15);
+  const elapsedMinutes = Math.max(0, (Date.now() - stats.updatedAt) / 60000);
 
   return normalizeStats({
-    energy: stats.energy - Math.floor(decaySteps / 2),
-    hunger: stats.hunger - decaySteps,
-    mood: stats.mood - Math.floor(decaySteps / 3),
-    thirst: stats.thirst - decaySteps,
+    // 中文注释：离线衰减按连续时间结算，最后统一归整，避免 14/15 分钟这种临界跳变。
+    energy: stats.energy - elapsedMinutes / 30,
+    hunger: stats.hunger - elapsedMinutes / 15,
+    mood: stats.mood - elapsedMinutes / 45,
+    thirst: stats.thirst - elapsedMinutes / 15,
     updatedAt: Date.now(),
   });
 }
 
-function readStoredPetState(initialPosition: PetPosition): StoredPetState {
-  if (typeof window === "undefined") {
-    return { position: initialPosition, stats: INITIAL_STATS };
-  }
-
-  const raw = window.localStorage.getItem(STORAGE_KEY);
-  if (!raw) {
-    return { position: initialPosition, stats: INITIAL_STATS };
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!isStoredPetState(parsed)) {
-      return { position: initialPosition, stats: INITIAL_STATS };
-    }
-
-    return {
-      position: {
-        bottom: Math.max(PET_MIN_BOTTOM, parsed.position.bottom),
-        left: Math.max(8, parsed.position.left),
-      },
-      stats: applyOfflineDecay(parsed.stats),
-    };
-  } catch {
-    return { position: initialPosition, stats: INITIAL_STATS };
-  }
-}
-
-function writeStoredPetState(state: StoredPetState) {
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+function toPetStateSnapshot(payload: PetStateApiResponse): PetStateSnapshot {
+  return {
+    position: payload.position,
+    // 中文注释：后端只保存真实数值和服务端更新时间，前端拿到后再结算离线衰减。
+    stats: applyOfflineDecay({
+      ...payload.stats,
+      updatedAt: payload.updatedAt,
+    }),
+  };
 }
 
 function resolveInitialMode(stats: PetStats): PetMode {
@@ -269,8 +232,30 @@ function canReturnToBaseAnimation(animation: PetAnimationKey) {
   return phase === "pose" || phase === "locomotion";
 }
 
-function hasAnyWord(text: string, words: string[]) {
-  return words.some((word) => text.includes(word));
+function hasNearbyCareNegation(text: string, phraseStart: number) {
+  const prefix = text.slice(Math.max(0, phraseStart - 5), phraseStart);
+  return CARE_NEGATION_WORDS.some((word) => prefix.includes(word));
+}
+
+function hasCareIntent(text: string, phrases: string[]) {
+  return phrases.some((phrase) => {
+    let searchStart = 0;
+    while (searchStart < text.length) {
+      const phraseStart = text.indexOf(phrase, searchStart);
+      if (phraseStart === -1) {
+        return false;
+      }
+
+      if (!hasNearbyCareNegation(text, phraseStart)) {
+        return true;
+      }
+
+      // 中文注释：同一句里可能先否定再提出真实意图，继续找后面的明确短语。
+      searchStart = phraseStart + phrase.length;
+    }
+
+    return false;
+  });
 }
 
 function buildPetChatContext(context: PetCompanionContext, preferences: PetPreferences): PetCompanionContext {
@@ -288,11 +273,18 @@ function clampPosition(position: PetPosition, stageSize: StageSize): PetPosition
     PET_MIN_BOTTOM,
     stageSize.height + PET_MAX_FOOT_OFFSET - PET_SIZE - PAGE_EDGE_PADDING,
   );
+  const bottom = clamp(position.bottom, PET_MIN_BOTTOM, maxBottom);
+  const left = clamp(position.left, PAGE_EDGE_PADDING, maxLeft);
+
+  if (bottom === position.bottom && left === position.left) {
+    // 中文注释：没被边界修正时复用原对象，减少拖拽/走路时的无意义重渲染链路。
+    return position;
+  }
 
   return {
     // position.bottom 表示狐狸视觉脚底的位置，渲染时会扣掉透明画布的底部体积。
-    bottom: clamp(position.bottom, PET_MIN_BOTTOM, maxBottom),
-    left: clamp(position.left, PAGE_EDGE_PADDING, maxLeft),
+    bottom,
+    left,
   };
 }
 
@@ -311,10 +303,19 @@ function resolveAmbientBehaviorDelayMs(level: PetProactiveLevel) {
   return Math.round(baseDelay * (0.78 + Math.random() * 0.44));
 }
 
+function isPointerOutsideViewport(event: PointerEvent<HTMLButtonElement>) {
+  return (
+    event.clientX < 0
+    || event.clientY < 0
+    || event.clientX >= window.innerWidth
+    || event.clientY >= window.innerHeight
+  );
+}
+
 export function useDesktopPet(stageRef: RefObject<HTMLDivElement | null>, options: DesktopPetOptions) {
-  const initialStateRef = useRef<StoredPetState | null>(null);
+  const initialStateRef = useRef<PetStateSnapshot | null>(null);
   if (initialStateRef.current === null) {
-    initialStateRef.current = readStoredPetState(options.targetPosition);
+    initialStateRef.current = { position: options.targetPosition, stats: INITIAL_STATS };
   }
 
   const [stageSize, setStageSize] = useState<StageSize>({ height: 0, width: 0 });
@@ -361,6 +362,8 @@ export function useDesktopPet(stageRef: RefObject<HTMLDivElement | null>, option
   const animationRef = useRef(animation);
   const lowNeedActiveRef = useRef(lowNeedActive);
   const modeRef = useRef(mode);
+  const petStateLoadedRef = useRef(false);
+  const petStateSaveTimerRef = useRef<number | null>(null);
   const positionRef = useRef(position);
   const statsRef = useRef(stats);
   const onDragEndRef = useRef(options.onDragEnd);
@@ -403,6 +406,11 @@ export function useDesktopPet(stageRef: RefObject<HTMLDivElement | null>, option
   }, [chatPending]);
 
   useEffect(() => {
+    if (wanderTimerRef.current !== null) {
+      // 中文注释：走路时 position state 是 CSS 过渡终点，positionRef 继续代表屏幕当前点，避免后续动作拿未来坐标。
+      return;
+    }
+
     positionRef.current = position;
   }, [position]);
 
@@ -437,6 +445,45 @@ export function useDesktopPet(stageRef: RefObject<HTMLDivElement | null>, option
     }
 
     setPosition((current) => clampPosition(current, stageSize));
+  }, [stageSize.height, stageSize.width]);
+
+  useEffect(() => {
+    if (petStateLoadedRef.current || stageSize.width === 0 || stageSize.height === 0) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadPetState() {
+      const snapshot = toPetStateSnapshot(await fetchPetState());
+      if (cancelled) {
+        return;
+      }
+
+      const nextPosition = clampPosition(snapshot.position, stageSize);
+      const nextMode = resolveInitialMode(snapshot.stats);
+      const nextLowNeedActive = nextMode === "awake" && shouldEnterLowNeedPose(snapshot.stats);
+      petStateLoadedRef.current = true;
+      positionRef.current = nextPosition;
+      statsRef.current = snapshot.stats;
+      modeRef.current = nextMode;
+      lowNeedActiveRef.current = nextLowNeedActive;
+      setMoveDurationMs(0);
+      setPosition(nextPosition);
+      setStats(snapshot.stats);
+      setMode(nextMode);
+      setLowNeedActive(nextLowNeedActive);
+      setFrameIndex(0);
+      setAnimation(resolveBaseAnimation(nextMode, nextLowNeedActive));
+    }
+
+    void loadPetState().catch((error: unknown) => {
+      console.error("Failed to load pet state", error);
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, [stageSize.height, stageSize.width]);
 
   useEffect(() => {
@@ -483,7 +530,6 @@ export function useDesktopPet(stageRef: RefObject<HTMLDivElement | null>, option
     setFacing(deltaX >= 0 ? 1 : -1);
     setFrameIndex(0);
     setAnimation("walk");
-    positionRef.current = nextPosition;
     walkStartFrameRef.current = window.requestAnimationFrame(() => {
       walkStartFrameRef.current = null;
       setPosition(nextPosition);
@@ -505,10 +551,6 @@ export function useDesktopPet(stageRef: RefObject<HTMLDivElement | null>, option
     options.targetPosition.left,
     stageSize.height,
     stageSize.width,
-    stats.energy,
-    stats.hunger,
-    stats.mood,
-    stats.thirst,
     lowNeedActive,
   ]);
 
@@ -577,8 +619,37 @@ export function useDesktopPet(stageRef: RefObject<HTMLDivElement | null>, option
   }, []);
 
   useEffect(() => {
-    writeStoredPetState({ position, stats });
-  }, [position, stats]);
+    if (!petStateLoadedRef.current) {
+      return;
+    }
+
+    if (petStateSaveTimerRef.current !== null) {
+      window.clearTimeout(petStateSaveTimerRef.current);
+    }
+
+    // 中文注释：拖拽和走路会频繁改坐标，统一轻微防抖后写库，避免每一帧都打后端。
+    petStateSaveTimerRef.current = window.setTimeout(() => {
+      petStateSaveTimerRef.current = null;
+      void savePetState({
+        position,
+        stats: {
+          energy: stats.energy,
+          hunger: stats.hunger,
+          mood: stats.mood,
+          thirst: stats.thirst,
+        },
+      }).catch((error: unknown) => {
+        console.error("Failed to save pet state", error);
+      });
+    }, 700);
+
+    return () => {
+      if (petStateSaveTimerRef.current !== null) {
+        window.clearTimeout(petStateSaveTimerRef.current);
+        petStateSaveTimerRef.current = null;
+      }
+    };
+  }, [position.bottom, position.left, stats.energy, stats.hunger, stats.mood, stats.thirst]);
 
   useEffect(() => {
     return () => {
@@ -594,6 +665,9 @@ export function useDesktopPet(stageRef: RefObject<HTMLDivElement | null>, option
         window.clearTimeout(ambientBehaviorTimerRef.current);
       }
 
+      if (petStateSaveTimerRef.current !== null) {
+        window.clearTimeout(petStateSaveTimerRef.current);
+      }
     };
   }, []);
 
@@ -642,13 +716,13 @@ export function useDesktopPet(stageRef: RefObject<HTMLDivElement | null>, option
 
     const normalizedText = userText.toLowerCase();
     // 聊天里的明确照顾意图会直接变成一次互动；回复本身交给后端模型生成。
-    if (hasAnyWord(normalizedText, ["喂", "吃", "饭", "零食", "食物"])) {
+    if (hasCareIntent(normalizedText, FEED_INTENT_PHRASES)) {
       playAnimation("eat", { hunger: 14, mood: 2 });
-    } else if (hasAnyWord(normalizedText, ["喝", "水", "渴"])) {
+    } else if (hasCareIntent(normalizedText, DRINK_INTENT_PHRASES)) {
       playAnimation("drink", { energy: 2, mood: 2, thirst: 18 });
-    } else if (hasAnyWord(normalizedText, ["睡", "休息", "困", "晚安"])) {
+    } else if (hasCareIntent(normalizedText, SLEEP_INTENT_PHRASES)) {
       startSleeping();
-    } else if (hasAnyWord(normalizedText, ["乖", "棒", "可爱", "夸", "喜欢"])) {
+    } else if (hasCareIntent(normalizedText, PRAISE_INTENT_PHRASES)) {
       playAnimation("praise", { mood: 8 });
     }
 
@@ -727,10 +801,16 @@ export function useDesktopPet(stageRef: RefObject<HTMLDivElement | null>, option
     }
 
     activitySignalIdRef.current = signal.id;
+    if (modeRef.current === "sleeping") {
+      // 中文注释：睡着时主聊天的发送/完成/出错都不回应，也不顺手叫醒。
+      return;
+    }
+
     // 业务事件只挑三种最明确的反馈：发送、完成、出错。
     // 这里不要再复用“手动点击”的 click 动画，不然视觉上会像宠物把两类事件混在一起了。
     if (signal.type === "send") {
       speak("我盯着呢");
+      // 中文注释：主聊天发送只在当前位置停脚做表情，不再先跑回输入框或固定点。
       playAnimation("emotion", { mood: 1 });
       return;
     }
@@ -947,7 +1027,36 @@ export function useDesktopPet(stageRef: RefObject<HTMLDivElement | null>, option
     return true;
   }
 
+  function completeDrag(event: PointerEvent<HTMLButtonElement>) {
+    const dragState = dragStateRef.current;
+    if (!dragState || dragState.pointerId !== event.pointerId) {
+      return;
+    }
+
+    dragStateRef.current = null;
+    setIsDragging(false);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    if (dragState.moved) {
+      suppressClickRef.current = true;
+      const landedPosition = clampPosition(positionRef.current, stageSize);
+      setPosition(landedPosition);
+      onDragEndRef.current(landedPosition);
+      // 中文注释：拖拽拖到页面外就直接收手，保留一次完整“放下”反馈，不让拖拽态挂在指针外侧。
+      if (Date.now() - dragState.startedAt >= LONG_DRAG_REACTION_MS) {
+        speak("有点晕");
+        playAnimation("surprised", { mood: -2 });
+        return;
+      }
+
+      speak("放好啦");
+      playAnimation("putdown", { mood: 1 });
+    }
+  }
+
   function handlePointerDown(event: PointerEvent<HTMLButtonElement>) {
+    // 中文注释：鼠标和触摸共用 Pointer Events；真正限制滚动的区域只有狐狸的小 hitbox。
     const pinnedPosition = stopWalkingAtCurrentPosition();
     if (pinnedPosition === null) {
       return;
@@ -995,34 +1104,15 @@ export function useDesktopPet(stageRef: RefObject<HTMLDivElement | null>, option
       positionRef.current = nextPosition;
       setPosition(nextPosition);
     }
+
+    if (isPointerOutsideViewport(event)) {
+      // 中文注释：拖拽一旦跑出浏览器可视范围，就按松手处理，避免狐狸继续挂在外面被拖着走。
+      completeDrag(event);
+    }
   }
 
   function handlePointerUp(event: PointerEvent<HTMLButtonElement>) {
-    const dragState = dragStateRef.current;
-    if (!dragState || dragState.pointerId !== event.pointerId) {
-      return;
-    }
-
-    dragStateRef.current = null;
-    setIsDragging(false);
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-    if (dragState.moved) {
-      suppressClickRef.current = true;
-      const landedPosition = clampPosition(positionRef.current, stageSize);
-      setPosition(landedPosition);
-      onDragEndRef.current(landedPosition);
-      // 拖拽太久会从温和放下变成受惊反馈，让拖拽也有一点性格。
-      if (Date.now() - dragState.startedAt >= LONG_DRAG_REACTION_MS) {
-        speak("有点晕");
-        playAnimation("surprised", { mood: -2 });
-        return;
-      }
-
-      speak("放好啦");
-      playAnimation("putdown", { mood: 1 });
-    }
+    completeDrag(event);
   }
 
   return {

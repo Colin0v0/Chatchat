@@ -17,6 +17,7 @@ type PetOverlayProps = {
   activitySignal?: PetSignal | null;
   context: PetCompanionContext;
   onDragEnd: (position: PetPosition) => void;
+  onPositionChange: (position: PetPosition) => void;
   preferences: PetPreferences;
   targetPosition: PetPosition;
 };
@@ -38,6 +39,8 @@ type ViewportSize = {
 };
 
 const PET_BOX_SIZE = 144;
+const PET_HITBOX_WIDTH = 104;
+const PET_HITBOX_HEIGHT = 96;
 const QUICKBAR_WIDTH = 92;
 const QUICKBAR_HEIGHT = 38;
 const CARE_WIDTH = 292;
@@ -132,7 +135,14 @@ function readViewportSize(): ViewportSize {
   };
 }
 
-export function PetOverlay({ activitySignal, context, onDragEnd, preferences, targetPosition }: PetOverlayProps) {
+export function PetOverlay({
+  activitySignal,
+  context,
+  onDragEnd,
+  onPositionChange,
+  preferences,
+  targetPosition,
+}: PetOverlayProps) {
   const stageRef = useRef<HTMLDivElement | null>(null);
   const petVisualRef = useRef<HTMLDivElement | null>(null);
   const [careOpen, setCareOpen] = useState(false);
@@ -150,6 +160,47 @@ export function PetOverlay({ activitySignal, context, onDragEnd, preferences, ta
     targetPosition,
     visualRef: petVisualRef,
   });
+
+  useEffect(() => {
+    let frame: number | null = null;
+
+    const notifyRenderedPosition = () => {
+      const visualNode = petVisualRef.current;
+      if (!visualNode) {
+        return;
+      }
+
+      const rect = visualNode.getBoundingClientRect();
+      // 中文注释：父层要拿屏幕上真实显示的位置；走路时 pet.position 已经是终点，直接用会让后续锚点像瞬移。
+      onPositionChange({
+        bottom: window.innerHeight - rect.bottom + pet.visualFootOffset,
+        left: rect.left,
+      });
+    };
+
+    if (!pet.isWalking) {
+      notifyRenderedPosition();
+      return;
+    }
+
+    const trackWalkingPosition = () => {
+      notifyRenderedPosition();
+      frame = window.requestAnimationFrame(trackWalkingPosition);
+    };
+
+    frame = window.requestAnimationFrame(trackWalkingPosition);
+    return () => {
+      if (frame !== null) {
+        window.cancelAnimationFrame(frame);
+      }
+    };
+  }, [
+    onPositionChange,
+    pet.isWalking,
+    pet.position.bottom,
+    pet.position.left,
+    pet.visualFootOffset,
+  ]);
 
   useEffect(() => {
     function handleResize() {
@@ -205,6 +256,15 @@ export function PetOverlay({ activitySignal, context, onDragEnd, preferences, ta
     setCareOpen(false);
   }
 
+  function handleRestAction() {
+    const wasSleeping = pet.isSleeping;
+    pet.actions.rest();
+    if (!wasSleeping) {
+      // 中文注释：点“哄睡”后状态面板同步收起，避免睡着了还挂着照顾框。
+      setCareOpen(false);
+    }
+  }
+
   function openChatPanel() {
     setCareOpen(false);
     setControlsOpen(false);
@@ -214,7 +274,8 @@ export function PetOverlay({ activitySignal, context, onDragEnd, preferences, ta
   const floatingPanelOpen = careOpen || pet.chat.opened;
   // 头顶操作改成“点狐狸才展开”，避免 hover 反复抢焦点、遮挡气泡和面板。
   const quickbarVisible = controlsOpen && !pet.isDragging && !floatingPanelOpen;
-  const petTop = viewportSize.height - (pet.position.bottom - pet.visualFootOffset) - PET_BOX_SIZE;
+  const petRenderedBottom = pet.position.bottom - pet.visualFootOffset;
+  const petTop = viewportSize.height - petRenderedBottom - PET_BOX_SIZE;
   const visualTop = petTop + pet.visualTopOffset;
   const quickbarFitsAbove = visualTop >= QUICKBAR_HEIGHT + PANEL_GAP + PAGE_EDGE_PADDING;
   const quickbarTop = quickbarFitsAbove ? pet.visualTopOffset - QUICKBAR_HEIGHT - PANEL_GAP : PET_BOX_SIZE + PANEL_GAP;
@@ -244,9 +305,9 @@ export function PetOverlay({ activitySignal, context, onDragEnd, preferences, ta
     <div ref={stageRef} className="pointer-events-none fixed inset-0 z-20 overflow-visible">
       <div
         ref={petVisualRef}
-        className="group pointer-events-auto absolute select-none"
+        className="group pointer-events-none absolute select-none"
         style={{
-          bottom: pet.position.bottom - pet.visualFootOffset,
+          bottom: petRenderedBottom,
           height: PET_BOX_SIZE,
           left: pet.position.left,
           transition: pet.isDragging
@@ -264,10 +325,10 @@ export function PetOverlay({ activitySignal, context, onDragEnd, preferences, ta
             width: QUICKBAR_WIDTH,
           }}
         >
-          <PetActionButton label="照顾" onClick={openCarePanel}>
+          <PetActionButton label="照顾小狐" onClick={openCarePanel}>
             <Heart className="size-3.5" />
           </PetActionButton>
-          <PetActionButton label="聊天" onClick={openChatPanel}>
+          <PetActionButton label="跟小狐聊天" onClick={openChatPanel}>
             <MessageCircle className="size-3.5" />
           </PetActionButton>
         </div>
@@ -283,7 +344,7 @@ export function PetOverlay({ activitySignal, context, onDragEnd, preferences, ta
             }}
           >
             <div className="flex h-9 items-center justify-between border-b border-app-border px-4">
-              <div className="text-[13px] font-semibold text-app-text">照顾</div>
+              <div className="text-[13px] font-semibold text-app-text">照顾小狐</div>
               <button
                 aria-label="关闭照顾面板"
                 className="flex h-7 w-7 items-center justify-center rounded-full text-app-muted transition hover:bg-app-panel-soft hover:text-app-text focus:outline-none focus-visible:ring-2 focus-visible:ring-app-border-strong"
@@ -310,7 +371,7 @@ export function PetOverlay({ activitySignal, context, onDragEnd, preferences, ta
               <PetCareActionButton
                 active={pet.isSleeping}
                 label={pet.isSleeping ? "叫醒" : "哄睡"}
-                onClick={pet.actions.rest}
+                onClick={handleRestAction}
               >
                 <Moon
                   className={`size-3.5 transition duration-200 ${
@@ -336,9 +397,11 @@ export function PetOverlay({ activitySignal, context, onDragEnd, preferences, ta
               top: chatTop,
               width: CHAT_WIDTH,
             }}
+            onPointerDown={(event) => event.stopPropagation()}
+            onWheel={(event) => event.stopPropagation()}
           >
             <div className="flex h-9 items-center justify-between border-b border-app-border px-3">
-              <div className="text-[13px] font-semibold text-app-text">狐狸</div>
+              <div className="text-[13px] font-semibold text-app-text">跟小狐聊天</div>
               <button
                 aria-label="关闭聊天"
                 className="flex h-7 w-7 items-center justify-center rounded-full text-app-muted transition hover:bg-app-panel-soft hover:text-app-text focus:outline-none focus-visible:ring-2 focus-visible:ring-app-border-strong"
@@ -349,7 +412,7 @@ export function PetOverlay({ activitySignal, context, onDragEnd, preferences, ta
               </button>
             </div>
 
-            <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-3 py-2">
+            <div className="app-scrollbar flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain px-3 py-2">
               {pet.chat.messages.map((message) => (
                 <div
                   className={`max-w-[88%] rounded-[8px] px-2.5 py-1.5 text-[12px] leading-5 ${
@@ -364,7 +427,7 @@ export function PetOverlay({ activitySignal, context, onDragEnd, preferences, ta
               ))}
               {pet.chat.pending ? (
                 <div className="mr-auto rounded-[8px] bg-app-panel-soft px-2.5 py-1.5 text-[12px] leading-5 text-app-muted">
-                  狐狸在想...
+                  小狐在想...
                 </div>
               ) : null}
               {pet.chat.error ? (
@@ -376,12 +439,12 @@ export function PetOverlay({ activitySignal, context, onDragEnd, preferences, ta
 
             <form className="flex items-center gap-1.5 border-t border-app-border p-2" onSubmit={handleChatSubmit}>
               <input
-                aria-label="给狐狸发消息"
+                aria-label="给小狐发消息"
                 className="min-w-0 flex-1 rounded-full border border-app-border bg-app-panel px-3 py-1.5 text-[12px] text-app-text placeholder:text-app-muted focus:border-app-border-strong"
                 maxLength={80}
                 disabled={pet.chat.pending}
                 onChange={(event) => setChatDraft(event.target.value)}
-                placeholder="跟狐狸说点什么"
+                placeholder="跟小狐说点什么"
                 value={chatDraft}
               />
               <button
@@ -396,9 +459,17 @@ export function PetOverlay({ activitySignal, context, onDragEnd, preferences, ta
           </div>
         ) : null}
 
+        <img
+          alt=""
+          className={`pointer-events-none h-full w-full object-contain ${
+            pet.facing === -1 ? "scale-x-[-1]" : ""
+          }`}
+          draggable={false}
+          src={pet.framePath}
+        />
         <button
           aria-label="桌面宠物"
-          className="pointer-events-auto relative flex h-full w-full touch-none items-center justify-center overflow-visible bg-transparent transition-transform duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-app-border-strong"
+          className="pointer-events-auto absolute rounded-full bg-transparent focus:outline-none focus-visible:ring-2 focus-visible:ring-app-border-strong"
           onClick={(event) => {
             event.currentTarget.blur();
             if (pet.handlers.click({ playReaction: false })) {
@@ -416,17 +487,16 @@ export function PetOverlay({ activitySignal, context, onDragEnd, preferences, ta
           onPointerDown={pet.handlers.pointerDown}
           onPointerMove={pet.handlers.pointerMove}
           onPointerUp={pet.handlers.pointerUp}
+          style={{
+            height: PET_HITBOX_HEIGHT,
+            left: pet.visualCenterX - PET_HITBOX_WIDTH / 2,
+            // 中文注释：命中区覆盖头和身体主体；透明外框不接管触摸，页面其他地方仍然正常上下滑动。
+            top: pet.visualTopOffset + 8,
+            touchAction: "pan-y",
+            width: PET_HITBOX_WIDTH,
+          }}
           type="button"
-        >
-          <img
-            alt=""
-            className={`h-full w-full object-contain ${
-              pet.facing === -1 ? "scale-x-[-1]" : ""
-            }`}
-            draggable={false}
-            src={pet.framePath}
-          />
-        </button>
+        />
       </div>
     </div>
   );

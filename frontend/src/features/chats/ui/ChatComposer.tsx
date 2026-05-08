@@ -630,6 +630,7 @@ export function ChatComposer({
 
         <textarea
           className="min-h-[72px] max-h-[220px] w-full resize-none overflow-y-auto bg-transparent px-3 py-3 text-[16px] leading-7 text-app-text placeholder:text-[#9a9387] [field-sizing:fixed] md:min-h-24 md:px-4 md:py-4"
+          data-pet-caret-source="chat-composer"
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}

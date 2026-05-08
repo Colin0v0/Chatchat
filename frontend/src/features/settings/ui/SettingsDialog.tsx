@@ -7,6 +7,7 @@ import type {
   PetProactiveLevel,
   PetReplyLength,
   PetTone,
+  PetWalkMode,
 } from "../../pet/model/usePetPreferences";
 import {
   IMAGE_OUTPUT_FORMAT_OPTIONS,
@@ -21,7 +22,7 @@ import { useSpeechPreferences, type SpeechPlaybackProvider } from "../model/useS
 
 type SettingsTab = "account" | "pet" | "voice" | "image";
 type ImageSelectKind = "size" | "quality" | "format";
-type PetSelectKind = "proactiveLevel" | "replyLength" | "tone";
+type PetSelectKind = "proactiveLevel" | "replyLength" | "tone" | "walkMode";
 type SpeechLanguage = "zh" | "en";
 type VoiceSelectKind = "cloud" | SpeechLanguage;
 type PasswordMessage = { tone: "error" | "success"; text: string };
@@ -44,6 +45,11 @@ const PET_TONE_OPTIONS: Array<{ label: string; value: PetTone }> = [
   { label: "黏人", value: "clingy" },
   { label: "吐槽", value: "wry" },
   { label: "元气", value: "bright" },
+];
+const PET_WALK_MODE_OPTIONS: Array<{ label: string; value: PetWalkMode }> = [
+  { label: "普通", value: "normal" },
+  { label: "全局走动", value: "global" },
+  { label: "不走动", value: "off" },
 ];
 
 function speechLanguageForVoice(voice: SpeechSynthesisVoice | null | undefined): SpeechLanguage | null {
@@ -782,24 +788,24 @@ export function SettingsDialog({
                       </div>
                       <ToggleSwitch
                         checked={petEnabled}
-                        label="显示狐狸宠物"
+                        label="显示宠物"
                         onChange={onPetEnabledChange}
                       />
                     </div>
                   </SettingRow>
-                  <SettingRow label="自动散步">
-                    <div className="flex w-full items-center justify-start gap-3 md:w-[360px] md:justify-between">
-                      <div className="min-w-0">
-                        <div className="text-[14px] font-medium text-app-text">空闲时自己走走</div>
-                        <div className="mt-1 text-[13px] leading-5 text-app-muted">
-                          关闭后狐狸只会跟随输入和回复位置，不会随机巡逻。
-                        </div>
-                      </div>
-                      <ToggleSwitch
-                        checked={petPreferences.autoWalk}
-                        label="自动散步"
-                        onChange={(autoWalk) => onPetPreferencesChange({ autoWalk })}
+                  <SettingRow label="走动模式">
+                    <div className="space-y-2">
+                      <SettingSelect
+                        label="走动模式"
+                        onChange={(walkMode) => onPetPreferencesChange({ walkMode: walkMode as PetWalkMode })}
+                        onOpenChange={(nextOpen) => setOpenPetSelect(nextOpen ? "walkMode" : null)}
+                        open={openPetSelect === "walkMode"}
+                        options={PET_WALK_MODE_OPTIONS}
+                        value={petPreferences.walkMode}
                       />
+                      <div className="max-w-[360px] text-[13px] leading-5 text-app-muted">
+                        普通会贴着当前页面的输入框或底部脚线散步；全局走动会在页面里上下左右乱逛；不走动只保留拖拽和必要回位。
+                      </div>
                     </div>
                   </SettingRow>
                   <SettingRow label="主动提示">
@@ -841,7 +847,7 @@ export function SettingsDialog({
                       <div className="min-w-0">
                         <div className="text-[14px] font-medium text-app-text">参考当前对话</div>
                         <div className="mt-1 text-[13px] leading-5 text-app-muted">
-                          关闭后狐狸聊天不会读取主对话最近内容。
+                          关闭后聊天不会读取主对话最近内容。
                         </div>
                       </div>
                       <ToggleSwitch
@@ -856,7 +862,7 @@ export function SettingsDialog({
                       <div className="min-w-0">
                         <div className="text-[14px] font-medium text-app-text">参考输入框草稿</div>
                         <div className="mt-1 text-[13px] leading-5 text-app-muted">
-                          关闭后狐狸聊天不会读取你还没发送的内容。
+                          关闭后聊天不会读取你还没发送的内容。
                         </div>
                       </div>
                       <ToggleSwitch

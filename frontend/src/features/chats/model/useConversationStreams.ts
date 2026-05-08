@@ -9,6 +9,7 @@ import {
 } from "react";
 
 import type { ChatStreamEvent, ConversationDetail, ConversationSummary } from "../../../types";
+import { cancelActiveChat } from "../api/streamChat";
 import { ASSISTANT_DRAFT_ID } from "../lib/constants";
 import {
   appendAssistantDraftContent,
@@ -657,8 +658,15 @@ export function useConversationStreams({
         }
       }
       updateSessionConversation(conversationId, markAssistantDraftStopped);
-      settleStreamSession(conversationId, "stopped");
+      const cancelRequest = cancelActiveChat(conversationId);
       controller.abort();
+      try {
+        // 中文注释：先等后端确认取消，再把本地 running 放掉，避免用户立刻 Enter 触发残留 active run。
+        await cancelRequest;
+      } catch (cancelError) {
+        setError(cancelError instanceof Error ? cancelError.message : "Failed to cancel active response.");
+      }
+      settleStreamSession(conversationId, "stopped");
 
       const stoppedSession = streamSessionsRef.current[key];
       if (stoppedSession) {

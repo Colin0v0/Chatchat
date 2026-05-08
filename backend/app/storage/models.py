@@ -49,6 +49,11 @@ class User(Base):
         cascade="all, delete-orphan",
         order_by="KnowledgeFolder.name",
     )
+    pet_state: Mapped[Optional["PetState"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
     sessions: Mapped[list["UserSession"]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
@@ -71,6 +76,29 @@ class UserSession(Base):
     )
 
     user: Mapped[User] = relationship(back_populates="sessions")
+
+
+class PetState(Base):
+    # 中文注释：桌面小狐狸的跨设备状态，和用户是一对一关系。
+    __tablename__ = "pet_states"
+    __table_args__ = (UniqueConstraint("user_id", name="uq_pet_states_user_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    energy: Mapped[int] = mapped_column(Integer, default=78)
+    hunger: Mapped[int] = mapped_column(Integer, default=76)
+    mood: Mapped[int] = mapped_column(Integer, default=82)
+    thirst: Mapped[int] = mapped_column(Integer, default=74)
+    position_bottom: Mapped[float] = mapped_column(Float, default=96)
+    position_left: Mapped[float] = mapped_column(Float, default=28)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    user: Mapped[User] = relationship(back_populates="pet_state")
 
 
 class Conversation(Base):

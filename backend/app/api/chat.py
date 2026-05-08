@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -15,6 +16,10 @@ from ..storage.database import get_db
 from ..storage.models import Conversation, Message, User
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
+
+
+class ChatStreamCancelRequest(BaseModel):
+    conversation_id: int = Field(ge=1)
 
 
 @router.post("/regenerate")
@@ -61,6 +66,27 @@ async def chat_stream(
         reasoning_profile=reasoning_profile,
         files=files,
     )
+
+
+@router.post("/stream/cancel")
+async def cancel_chat_stream(
+    payload: ChatStreamCancelRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
+    conversation = db.scalar(
+        select(Conversation).where(
+            Conversation.id == payload.conversation_id,
+            Conversation.user_id == current_user.id,
+        )
+    )
+    if conversation is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    # 中文注释：前端 Stop 会调用这里，真正取消后台 run，避免下一次发送撞上残留 active run。
+    cancelled = await get_chat_run_registry(request).cancel(conversation.id)
+    return {"cancelled": cancelled}
 
 
 @router.get("/stream/active")

@@ -3,22 +3,22 @@ import { useCallback, useEffect, useState } from "react";
 export type PetProactiveLevel = "low" | "normal" | "high";
 export type PetReplyLength = "tiny" | "short" | "normal";
 export type PetTone = "calm" | "clingy" | "wry" | "bright";
+export type PetWalkMode = "off" | "normal" | "global";
 
 export interface PetPreferences {
-  autoWalk: boolean;
   enabled: boolean;
   proactiveLevel: PetProactiveLevel;
   referenceConversation: boolean;
   referenceDraft: boolean;
   replyLength: PetReplyLength;
   tone: PetTone;
+  walkMode: PetWalkMode;
 }
 
 const STORAGE_KEY = "chatchat.pet.preferences";
 const UPDATED_EVENT = "chatchat:pet-preferences-updated";
 
 const DEFAULT_PREFERENCES: PetPreferences = {
-  autoWalk: true,
   // 宠物仍属于可选陪伴功能，新用户默认关闭，避免一进来就被动效打扰。
   enabled: false,
   proactiveLevel: "normal",
@@ -26,11 +26,13 @@ const DEFAULT_PREFERENCES: PetPreferences = {
   referenceDraft: true,
   replyLength: "short",
   tone: "clingy",
+  walkMode: "normal",
 };
 
 const PROACTIVE_LEVELS: PetProactiveLevel[] = ["low", "normal", "high"];
 const REPLY_LENGTHS: PetReplyLength[] = ["tiny", "short", "normal"];
 const TONES: PetTone[] = ["calm", "clingy", "wry", "bright"];
+const WALK_MODES: PetWalkMode[] = ["off", "normal", "global"];
 
 function includesValue<T extends string>(values: T[], value: unknown): value is T {
   return typeof value === "string" && values.includes(value as T);
@@ -38,7 +40,6 @@ function includesValue<T extends string>(values: T[], value: unknown): value is 
 
 function normalizePreferences(value: Partial<PetPreferences> | null | undefined): PetPreferences {
   return {
-    autoWalk: typeof value?.autoWalk === "boolean" ? value.autoWalk : DEFAULT_PREFERENCES.autoWalk,
     enabled: typeof value?.enabled === "boolean" ? value.enabled : DEFAULT_PREFERENCES.enabled,
     proactiveLevel: includesValue(PROACTIVE_LEVELS, value?.proactiveLevel)
       ? value.proactiveLevel
@@ -51,6 +52,7 @@ function normalizePreferences(value: Partial<PetPreferences> | null | undefined)
       : DEFAULT_PREFERENCES.referenceDraft,
     replyLength: includesValue(REPLY_LENGTHS, value?.replyLength) ? value.replyLength : DEFAULT_PREFERENCES.replyLength,
     tone: includesValue(TONES, value?.tone) ? value.tone : DEFAULT_PREFERENCES.tone,
+    walkMode: includesValue(WALK_MODES, value?.walkMode) ? value.walkMode : DEFAULT_PREFERENCES.walkMode,
   };
 }
 

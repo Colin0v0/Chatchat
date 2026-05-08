@@ -24,6 +24,60 @@ const allowedHosts = Array.from(
       .filter(Boolean),
   ]),
 );
+const REACT_CORE_PACKAGES = ["react", "react-dom", "scheduler", "react-router", "react-router-dom"];
+const MARKDOWN_PACKAGES = [
+  "react-markdown",
+  "remark-gfm",
+  "remark-math",
+  "rehype-katex",
+  "unified",
+  "micromark",
+  "mdast-util",
+  "hast-util",
+  "unist-util",
+  "vfile",
+  "property-information",
+  "space-separated-tokens",
+  "comma-separated-tokens",
+  "decode-named-character-reference",
+  "markdown-table",
+  "trim-lines",
+  "trough",
+  "zwitch",
+];
+const DIAGRAM_GRAPH_PACKAGES = ["cytoscape", "cytoscape-cose-bilkent", "dagre", "elkjs"];
+
+function hasNodePackage(id: string, packageNames: string[]) {
+  const normalizedId = id.replaceAll("\\", "/");
+  return packageNames.some((packageName) => normalizedId.includes(`/node_modules/${packageName}/`));
+}
+
+function manualChunkForVendor(id: string) {
+  if (!id.includes("node_modules")) {
+    return;
+  }
+
+  // 中文注释：按真实依赖链拆包，避免 React/Markdown/Mermaid 的子依赖又回流进主包。
+  if (hasNodePackage(id, REACT_CORE_PACKAGES)) {
+    return "react-core";
+  }
+
+  if (hasNodePackage(id, ["lucide-react"])) {
+    return "ui-icons";
+  }
+
+  if (hasNodePackage(id, ["katex"])) {
+    return "math-rendering";
+  }
+
+  if (hasNodePackage(id, MARKDOWN_PACKAGES)) {
+    return "markdown-runtime";
+  }
+
+  if (hasNodePackage(id, DIAGRAM_GRAPH_PACKAGES)) {
+    return "diagram-graph";
+  }
+}
 
 function copyRuntimePublicAssets() {
   return {
@@ -61,13 +115,10 @@ export default defineConfig({
   },
   build: {
     copyPublicDir: false,
+    chunkSizeWarningLimit: 700,
     rollupOptions: {
       output: {
-        manualChunks: {
-          "react-core": ["react", "react-dom"],
-          markdown: ["react-markdown", "remark-gfm"],
-          "ui-icons": ["lucide-react"],
-        },
+        manualChunks: manualChunkForVendor,
       },
     },
   },

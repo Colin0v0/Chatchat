@@ -37,9 +37,11 @@ async def _conversation_active_run(request: Request, conversation_id: int) -> Ch
         return None
     started_at = payload.get("started_at")
     run_id = payload.get("run_id")
+    last_seq = payload.get("last_seq")
     return ChatActiveRunOut(
         action=str(payload.get("action", "")).strip(),
         run_id=run_id.strip() if isinstance(run_id, str) and run_id.strip() else "",
+        last_seq=last_seq if isinstance(last_seq, int) else None,
         started_at=started_at.strip() if isinstance(started_at, str) and started_at.strip() else None,
     )
 

@@ -1,14 +1,18 @@
 from __future__ import annotations
 
+import unicodedata
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from ..auth import require_current_user
 from ..chat.types import ChatMessagePayload
 from ..runtime.model_runner import complete_model_response
-from ..storage.models import User
+from ..storage.database import get_db
+from ..storage.models import PetState, User
 
 router = APIRouter(prefix="/api/pet", tags=["pet"])
 
@@ -27,6 +31,16 @@ PET_TONE_INSTRUCTIONS = {
     "clingy": "基础语气亲近、黏人一点，但不要撒娇过度。",
     "wry": "基础语气带一点轻微吐槽，但不要刻薄。",
 }
+DEFAULT_PET_STATS = {
+    "energy": 78,
+    "hunger": 76,
+    "mood": 82,
+    "thirst": 74,
+}
+DEFAULT_PET_POSITION = {
+    "bottom": 96.0,
+    "left": 28.0,
+}
 
 
 class PetChatStats(BaseModel):
@@ -34,6 +48,29 @@ class PetChatStats(BaseModel):
     hunger: int = Field(ge=0, le=100)
     mood: int = Field(ge=0, le=100)
     thirst: int = Field(ge=0, le=100)
+
+
+class PetStatePosition(BaseModel):
+    bottom: float = Field(ge=0, le=10000)
+    left: float = Field(ge=0, le=10000)
+
+
+class PetStateStats(BaseModel):
+    energy: int = Field(ge=0, le=100)
+    hunger: int = Field(ge=0, le=100)
+    mood: int = Field(ge=0, le=100)
+    thirst: int = Field(ge=0, le=100)
+
+
+class PetStateUpdate(BaseModel):
+    position: PetStatePosition
+    stats: PetStateStats
+
+
+class PetStateResponse(BaseModel):
+    position: PetStatePosition
+    stats: PetStateStats
+    updatedAt: int
 
 
 class PetChatMessageIn(BaseModel):
@@ -73,6 +110,47 @@ class PetChatResponse(BaseModel):
     reply: str
 
 
+def _updated_at_ms(state: PetState) -> int:
+    return int(state.updated_at.timestamp() * 1000)
+
+
+def _pet_state_response(state: PetState) -> PetStateResponse:
+    return PetStateResponse(
+        position=PetStatePosition(
+            bottom=state.position_bottom,
+            left=state.position_left,
+        ),
+        stats=PetStateStats(
+            energy=state.energy,
+            hunger=state.hunger,
+            mood=state.mood,
+            thirst=state.thirst,
+        ),
+        updatedAt=_updated_at_ms(state),
+    )
+
+
+def _ensure_pet_state(db: Session, user_id: int) -> PetState:
+    state = db.scalar(select(PetState).where(PetState.user_id == user_id))
+    if state is not None:
+        return state
+
+    # 中文注释：首次登录时创建一份服务器端初始状态，之后同一用户所有设备都读写这一行。
+    state = PetState(
+        user_id=user_id,
+        energy=DEFAULT_PET_STATS["energy"],
+        hunger=DEFAULT_PET_STATS["hunger"],
+        mood=DEFAULT_PET_STATS["mood"],
+        thirst=DEFAULT_PET_STATS["thirst"],
+        position_bottom=DEFAULT_PET_POSITION["bottom"],
+        position_left=DEFAULT_PET_POSITION["left"],
+    )
+    db.add(state)
+    db.commit()
+    db.refresh(state)
+    return state
+
+
 def _clip_text(text: str, limit: int = PET_CONTEXT_TEXT_LIMIT) -> str:
     return " ".join(text.split()).strip()[:limit]
 
@@ -106,7 +184,7 @@ def _build_pet_system_prompt(payload: PetChatRequest, current_user: User) -> str
     reply_max_chars = PET_REPLY_LIMITS[payload.replyLength]
     # 这里把状态塞进系统提示，让模型能自然地喊饿、喊渴、犯困，而不是前端写死规则。
     return (
-        "你是用户桌面上的小狐狸宠物，正在一个聊天应用里陪用户。"
+        "你是用户桌面上的小狐狸宠物，你叫小狐，正在一个聊天应用里陪用户。"
         "你只能用第一人称、中文、短句回复，可以黏人、机灵，但不要装成主助手。"
         f"每次只回一到两句，最多 {reply_max_chars} 个汉字，不写 Markdown，不编号，不说自己是 AI 或模型。"
         "禁止使用括号内容，禁止写动作、表情、舞台提示或心理旁白。"
@@ -134,7 +212,78 @@ def _trim_reply(reply: str, reply_max_chars: int) -> str:
     compact_reply = " ".join(reply.split()).strip()
     if not compact_reply:
         raise HTTPException(status_code=502, detail="Pet model returned an empty reply")
-    return compact_reply[:reply_max_chars].strip()
+    return compact_reply[:_safe_reply_end(compact_reply, reply_max_chars)].strip()
+
+
+def _is_variation_selector(character: str) -> bool:
+    codepoint = ord(character)
+    return 0xFE00 <= codepoint <= 0xFE0F or 0xE0100 <= codepoint <= 0xE01EF
+
+
+def _is_emoji_modifier(character: str) -> bool:
+    codepoint = ord(character)
+    return 0x1F3FB <= codepoint <= 0x1F3FF
+
+
+def _is_regional_indicator(character: str) -> bool:
+    codepoint = ord(character)
+    return 0x1F1E6 <= codepoint <= 0x1F1FF
+
+
+def _is_grapheme_continuation(character: str) -> bool:
+    # 中文注释：组合音标、变体选择符和肤色修饰符都不能作为截断后的第一个字符。
+    return bool(unicodedata.combining(character)) or _is_variation_selector(character) or _is_emoji_modifier(character)
+
+
+def _safe_reply_end(text: str, reply_max_chars: int) -> int:
+    if len(text) <= reply_max_chars:
+        return len(text)
+
+    end = reply_max_chars
+    while end > 0 and _is_grapheme_continuation(text[end]):
+        end -= 1
+
+    while end > 0 and text[end - 1] == "\u200d":
+        # 中文注释：ZWJ 不能留在截断结尾，否则会出现半个合成 emoji。
+        end -= 1
+
+    trailing_regional_indicators = 0
+    index = end - 1
+    while index >= 0 and _is_regional_indicator(text[index]):
+        trailing_regional_indicators += 1
+        index -= 1
+    if trailing_regional_indicators % 2 == 1 and end < len(text) and _is_regional_indicator(text[end]):
+        end -= 1
+
+    return end
+
+
+@router.get("/state", response_model=PetStateResponse)
+def read_pet_state(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+) -> PetStateResponse:
+    return _pet_state_response(_ensure_pet_state(db, current_user.id))
+
+
+@router.put("/state", response_model=PetStateResponse)
+def save_pet_state(
+    payload: PetStateUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+) -> PetStateResponse:
+    state = _ensure_pet_state(db, current_user.id)
+    # 中文注释：前端已经按当前窗口裁剪坐标，后端负责保存用户维度的最终状态。
+    state.energy = payload.stats.energy
+    state.hunger = payload.stats.hunger
+    state.mood = payload.stats.mood
+    state.thirst = payload.stats.thirst
+    state.position_bottom = payload.position.bottom
+    state.position_left = payload.position.left
+    db.add(state)
+    db.commit()
+    db.refresh(state)
+    return _pet_state_response(state)
 
 
 @router.post("/chat", response_model=PetChatResponse)

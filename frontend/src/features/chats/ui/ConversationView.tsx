@@ -243,9 +243,9 @@ export function ConversationView({
   ]);
 
   return (
-    <section className="flex min-h-0 flex-1 flex-col pb-1">
-      <div className="relative min-h-0 flex-1">
-        <div className="app-scrollbar min-h-0 flex-1 overflow-y-auto pt-4" ref={scrollRef}>
+    <section className="flex min-h-0 flex-1 flex-col overflow-hidden pb-1">
+      <div className="relative min-h-0 flex-1 overflow-hidden">
+        <div className="app-scrollbar h-full min-h-0 overflow-y-auto pt-4" ref={scrollRef}>
           <div className="mx-auto w-full max-w-[920px] px-4 md:px-6" data-pet-anchor="messageArea">
             {isLoadingEarlierMessages ? (
               <div className="mb-3 flex justify-center">
@@ -287,7 +287,7 @@ export function ConversationView({
 
       </div>
 
-      <div className="mx-auto w-full max-w-[920px] px-4 pt-2 md:px-6">
+      <div className="mx-auto w-full max-w-[920px] shrink-0 px-4 pt-2 md:px-6">
         <ChatComposer
           attachmentUploadAvailable={attachmentUploadAvailable}
           attachments={draftAttachments}

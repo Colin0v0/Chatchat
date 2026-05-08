@@ -245,6 +245,7 @@ class MessageOut(BaseModel):
 class ChatActiveRunOut(BaseModel):
     action: str
     run_id: str = ""
+    last_seq: Optional[int] = None
     started_at: Optional[datetime] = None
 
 
