@@ -36,7 +36,8 @@ def test_ensure_uploads_supported_by_model_rejects_images_when_model_disallows_t
     assert exc.value.detail == "The selected model does not support image uploads."
 
 
-def test_prepare_regeneration_run_request_coordinates_dependencies(monkeypatch):
+@pytest.mark.anyio
+async def test_prepare_regeneration_run_request_coordinates_dependencies(monkeypatch):
     conversation = Conversation(id=8, model="test-model")
     source_user = Message(id=3, conversation_id=8, role="user", content="retry this")
     regenerated_user = Message(id=4, conversation_id=8, role="user", content="retry this")
@@ -65,6 +66,10 @@ def test_prepare_regeneration_run_request_coordinates_dependencies(monkeypatch):
         captured["build"] = kwargs
         return built_run_request
 
+    async def fake_ensure_no_active_chat_run(**kwargs):
+        captured["active_check"] = kwargs
+
+    monkeypatch.setattr(chat_preparation, "_ensure_no_active_chat_run", fake_ensure_no_active_chat_run)
     monkeypatch.setattr(chat_preparation, "ensure_conversation_run_model", fake_ensure_conversation_run_model)
     monkeypatch.setattr(chat_preparation, "resolve_chat_model", lambda **kwargs: resolved_profile)
     monkeypatch.setattr(chat_preparation, "resolve_regeneration_source", fake_resolve_regeneration_source)
@@ -82,7 +87,7 @@ def test_prepare_regeneration_run_request_coordinates_dependencies(monkeypatch):
     services = SimpleNamespace()
     request = SimpleNamespace()
     db = SimpleNamespace()
-    result = chat_preparation.prepare_regeneration_run_request(
+    result = await chat_preparation.prepare_regeneration_run_request(
         current_user=SimpleNamespace(id=7),
         services=services,
         payload=payload,
@@ -91,6 +96,10 @@ def test_prepare_regeneration_run_request_coordinates_dependencies(monkeypatch):
     )
 
     assert result is built_run_request
+    assert captured["active_check"] == {
+        "request": request,
+        "conversation_id": 8,
+    }
     assert captured["model_sync"] == {
         "db": db,
         "conversation": conversation,
@@ -159,6 +168,10 @@ async def test_prepare_chat_stream_run_request_coordinates_submission_dependenci
         captured["build"] = kwargs
         return built_run_request
 
+    async def fake_ensure_no_active_chat_run(**kwargs):
+        captured["active_check"] = kwargs
+
+    monkeypatch.setattr(chat_preparation, "_ensure_no_active_chat_run", fake_ensure_no_active_chat_run)
     monkeypatch.setattr(chat_preparation, "persist_uploaded_attachments", fake_persist_uploaded_attachments)
     monkeypatch.setattr(chat_preparation, "persist_chat_turn", fake_persist_chat_turn)
     monkeypatch.setattr(chat_preparation, "reload_conversation_for_run", fake_reload_conversation_for_run)
@@ -179,6 +192,10 @@ async def test_prepare_chat_stream_run_request_coordinates_submission_dependenci
     )
 
     assert result is built_run_request
+    assert captured["active_check"] == {
+        "request": request,
+        "conversation_id": 5,
+    }
     assert captured["profile"] == {
         "requested_model": "chat-model",
         "fallback_model": chat_preparation.settings.default_model,
