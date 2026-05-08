@@ -7,6 +7,7 @@ export function DesktopSidebar({ open, onToggleSidebar, ...contentProps }: Sideb
   return (
     <>
       <div
+        data-pet-anchor="sidebarEdge"
         className={cn(
           "relative hidden h-full overflow-hidden border-r border-app-border bg-app-sidebar transition-[width] md:flex md:flex-col",
           SIDEBAR_MOTION,

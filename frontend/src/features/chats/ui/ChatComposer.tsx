@@ -608,6 +608,7 @@ export function ChatComposer({
   return (
     <div className={`w-full ${centered ? "mx-auto max-w-[880px]" : ""}`}>
       <div
+        data-pet-anchor="composerTop"
         className={`relative rounded-lg border bg-app-panel-strong shadow-[0_1px_3px_rgba(39,28,18,0.05)] transition-colors ${
           dragActive ? "border-app-accent-strong bg-app-panel-soft" : "border-app-border"
         }`}

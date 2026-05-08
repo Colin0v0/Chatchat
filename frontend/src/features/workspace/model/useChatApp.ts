@@ -42,9 +42,12 @@ import {
   loadStoredModelsCache,
   saveModelsCache,
 } from "./workspaceCache";
+import type { PetSignal, PetSignalType } from "../../pet/model/petSignals";
+import type { PetCompanionContext, PetCompanionContextMessage } from "../../pet/api/petChat";
 import type {
   ComposerMode,
   ConversationDetail,
+  ChatMessage,
   ConversationSummary,
   ModelOption,
   ModelsPayload,
@@ -66,6 +69,8 @@ const DEFAULT_IMAGE_SIZE = "1024x1024";
 const DEFAULT_IMAGE_QUALITY = "auto";
 const DEFAULT_IMAGE_OUTPUT_FORMAT = "png";
 const IMAGE_ATTACHMENT_EXTENSIONS = new Set([".gif", ".jpeg", ".jpg", ".png", ".webp"]);
+const PET_CONTEXT_MESSAGE_LIMIT = 8;
+const PET_CONTEXT_TEXT_LIMIT = 420;
 
 function fileExtension(name: string) {
   const dotIndex = name.lastIndexOf(".");
@@ -74,6 +79,21 @@ function fileExtension(name: string) {
 
 function fileLooksLikeImage(file: File) {
   return file.type.startsWith("image/") || IMAGE_ATTACHMENT_EXTENSIONS.has(fileExtension(file.name));
+}
+
+function compactPetContextText(text: string) {
+  return text.replace(/\s+/g, " ").trim().slice(0, PET_CONTEXT_TEXT_LIMIT);
+}
+
+function toPetContextMessages(messages: ChatMessage[]): PetCompanionContextMessage[] {
+  return messages
+    .filter((message) => message.role === "user" || message.role === "assistant" || message.role === "system")
+    .map((message) => ({
+      content: compactPetContextText(message.content),
+      role: message.role,
+    }))
+    .filter((message) => message.content.length > 0)
+    .slice(-PET_CONTEXT_MESSAGE_LIMIT);
 }
 
 function modelAllowsImageAttachments(model: ModelOption) {
@@ -123,6 +143,7 @@ export function useChatApp({
   const [landingHeroAnimated, setLandingHeroAnimated] = useState(false);
   const [landingTitle] = useState(() => pickLandingTitle());
   const [error, setError] = useState<string | null>(null);
+  const [petSignal, setPetSignal] = useState<PetSignal | null>(null);
   const memoryManager = useMemoryManager({
     activeConversationId: activeConversationId && activeConversationId > 0 ? activeConversationId : null,
     enabled: activeSection === "memories",
@@ -137,6 +158,7 @@ export function useChatApp({
   const deferredQuery = useDeferredValue(query);
   const reasoningSyncKeyRef = useRef<string | null>(null);
   const previousRouteSectionRef = useRef(routeSection);
+  const petSignalIdRef = useRef(0);
 
   const selectedModelOption = useMemo(
     () => findModelOption(models, selectedModel),
@@ -165,6 +187,13 @@ export function useChatApp({
     () => ensureSelectedModel(models, selectedModel),
     [models, selectedModel],
   );
+  const emitPetSignal = useCallback((type: PetSignalType) => {
+    petSignalIdRef.current += 1;
+    setPetSignal({
+      id: petSignalIdRef.current,
+      type,
+    });
+  }, []);
   const {
     activeId: activeDebateId,
     activeSession: activeDebate,
@@ -208,6 +237,7 @@ export function useChatApp({
     draftFiles: draftAttachments.map((attachment) => attachment.file),
     knowledgeFolders: activeKnowledgeFolders,
     onDraftAccepted: clearAttachments,
+    onPetEvent: emitPetSignal,
     query: deferredQuery,
     setError,
     toolMode,
@@ -408,6 +438,15 @@ export function useChatApp({
     return () => window.clearTimeout(timeoutId);
   }, [error]);
 
+  useEffect(() => {
+    if (!error) {
+      return;
+    }
+
+    // 错误提示一出现，宠物就给出一次明确的“出错”反应，不跟着每次渲染重复抖动。
+    emitPetSignal("error");
+  }, [emitPetSignal, error]);
+
   const handleModelChange = useCallback((model: string) => {
     setSelectedModel(model);
   }, []);
@@ -521,6 +560,7 @@ export function useChatApp({
     isRecording,
     isStreaming,
     isTranscribing,
+    onPetEvent: emitPetSignal,
     refreshConversations,
     replaceAttachments,
     restoreChatComposerMode,
@@ -565,6 +605,36 @@ export function useChatApp({
       : activeSection === "debates"
         ? "Chatchat: Debate"
         : "Chatchat";
+  const petDraftActive =
+    activeSection === "battle"
+      ? battleDraft.trim().length > 0
+      : draft.trim().length > 0 || editingUserMessageContent.trim().length > 0;
+  const petStreaming =
+    activeSection === "battle"
+      ? battleStreaming
+      : activeSection === "chats"
+        ? visibleStreaming
+        : false;
+  const petContext = useMemo<PetCompanionContext>(() => {
+    const activeDraft = activeSection === "battle"
+      ? battleDraft
+      : editingUserMessageContent.trim()
+        ? editingUserMessageContent
+        : draft;
+
+    return {
+      activeSection,
+      conversation: activeSection === "chats" && activeConversation
+        ? {
+            id: activeConversation.id,
+            messages: toPetContextMessages(activeConversation.messages),
+            model: activeConversation.model || selectedModel,
+            title: activeConversation.title,
+          }
+        : null,
+      draft: compactPetContextText(activeDraft),
+    };
+  }, [activeConversation, activeSection, battleDraft, draft, editingUserMessageContent, selectedModel]);
 
   return {
     activeSection,
@@ -764,6 +834,12 @@ export function useChatApp({
       activeConversationId: activeConversationId && activeConversationId > 0 ? activeConversationId : null,
       activeConversationTitle: activeConversation?.title ?? "",
       memories: memoryManager,
+    },
+    petActivity: {
+      context: petContext,
+      draftActive: petDraftActive,
+      isStreaming: petStreaming,
+      signal: petSignal,
     },
     modelsPageProps: {
       models: availableModels,

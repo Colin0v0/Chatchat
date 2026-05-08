@@ -1,7 +1,13 @@
-import { Check, ChevronDown, Image as ImageIcon, UserRound, Volume2, X, type LucideIcon } from "lucide-react";
+import { Check, ChevronDown, Image as ImageIcon, PawPrint, UserRound, Volume2, X, type LucideIcon } from "lucide-react";
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 
 import { changePassword } from "../../auth/api/session";
+import type {
+  PetPreferences,
+  PetProactiveLevel,
+  PetReplyLength,
+  PetTone,
+} from "../../pet/model/usePetPreferences";
 import {
   IMAGE_OUTPUT_FORMAT_OPTIONS,
   IMAGE_QUALITY_OPTIONS,
@@ -13,8 +19,9 @@ import {
 import { CLOUD_VOICE_OPTIONS, type CloudVoiceOption } from "../model/cloudVoices";
 import { useSpeechPreferences, type SpeechPlaybackProvider } from "../model/useSpeechPreferences";
 
-type SettingsTab = "account" | "voice" | "image";
+type SettingsTab = "account" | "pet" | "voice" | "image";
 type ImageSelectKind = "size" | "quality" | "format";
+type PetSelectKind = "proactiveLevel" | "replyLength" | "tone";
 type SpeechLanguage = "zh" | "en";
 type VoiceSelectKind = "cloud" | SpeechLanguage;
 type PasswordMessage = { tone: "error" | "success"; text: string };
@@ -22,6 +29,22 @@ type PasswordMessage = { tone: "error" | "success"; text: string };
 const MIN_PASSWORD_LENGTH = 8;
 const PASSWORD_INPUT_CLASS =
   "h-9 w-full rounded-[8px] border border-app-border/85 bg-app-panel px-3 text-[14px] text-app-text outline-none transition-colors placeholder:text-app-muted/45 focus:border-app-border-strong focus:bg-app-panel-strong";
+const PET_PROACTIVE_OPTIONS: Array<{ label: string; value: PetProactiveLevel }> = [
+  { label: "少", value: "low" },
+  { label: "正常", value: "normal" },
+  { label: "多", value: "high" },
+];
+const PET_REPLY_LENGTH_OPTIONS: Array<{ label: string; value: PetReplyLength }> = [
+  { label: "很短", value: "tiny" },
+  { label: "短", value: "short" },
+  { label: "正常", value: "normal" },
+];
+const PET_TONE_OPTIONS: Array<{ label: string; value: PetTone }> = [
+  { label: "安静", value: "calm" },
+  { label: "黏人", value: "clingy" },
+  { label: "吐槽", value: "wry" },
+  { label: "元气", value: "bright" },
+];
 
 function speechLanguageForVoice(voice: SpeechSynthesisVoice | null | undefined): SpeechLanguage | null {
   const lang = voice?.lang.toLowerCase() ?? "";
@@ -386,6 +409,7 @@ function ToggleSwitch({
 
 const SETTINGS_TABS: Array<{ icon: LucideIcon; id: SettingsTab; label: string }> = [
   { icon: UserRound, id: "account", label: "账户" },
+  { icon: PawPrint, id: "pet", label: "宠物" },
   { icon: Volume2, id: "voice", label: "语音" },
   { icon: ImageIcon, id: "image", label: "图片" },
 ];
@@ -398,7 +422,11 @@ export function SettingsDialog({
   onImageOutputFormatChange,
   onImageQualityChange,
   onImageSizeChange,
+  onPetEnabledChange,
+  onPetPreferencesChange,
   open,
+  petEnabled,
+  petPreferences,
   username,
 }: {
   imageOutputFormat: string;
@@ -408,11 +436,16 @@ export function SettingsDialog({
   onImageOutputFormatChange: (value: string) => void;
   onImageQualityChange: (value: string) => void;
   onImageSizeChange: (value: string) => void;
+  onPetEnabledChange: (enabled: boolean) => void;
+  onPetPreferencesChange: (patch: Partial<PetPreferences>) => void;
   open: boolean;
+  petEnabled: boolean;
+  petPreferences: PetPreferences;
   username: string;
 }) {
   const [activeTab, setActiveTab] = useState<SettingsTab>("account");
   const [openImageSelect, setOpenImageSelect] = useState<ImageSelectKind | null>(null);
+  const [openPetSelect, setOpenPetSelect] = useState<PetSelectKind | null>(null);
   const [openVoiceSelect, setOpenVoiceSelect] = useState<VoiceSelectKind | null>(null);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -590,7 +623,7 @@ export function SettingsDialog({
             </button>
           </header>
 
-          <div className="grid shrink-0 grid-cols-3 gap-2 border-b border-app-border/70 px-4 py-3 md:hidden">
+          <div className="grid shrink-0 grid-cols-4 gap-2 border-b border-app-border/70 px-4 py-3 md:hidden">
             {SETTINGS_TABS.map((item) => {
               const active = activeTab === item.id;
               return (
@@ -734,6 +767,105 @@ export function SettingsDialog({
                     ) : null}
                   </form>
                   ) : null}
+                </div>
+              ) : null}
+
+              {activeTab === "pet" ? (
+                <div>
+                  <SettingRow label="桌面宠物">
+                    <div className="flex w-full items-center justify-start gap-3 md:w-[360px] md:justify-between">
+                      <div className="min-w-0">
+                        <div className="text-[14px] font-medium text-app-text">显示狐狸宠物</div>
+                        <div className="mt-1 text-[13px] leading-5 text-app-muted">
+                          关闭后宠物会从页面里隐藏，但状态和偏好会保留。
+                        </div>
+                      </div>
+                      <ToggleSwitch
+                        checked={petEnabled}
+                        label="显示狐狸宠物"
+                        onChange={onPetEnabledChange}
+                      />
+                    </div>
+                  </SettingRow>
+                  <SettingRow label="自动散步">
+                    <div className="flex w-full items-center justify-start gap-3 md:w-[360px] md:justify-between">
+                      <div className="min-w-0">
+                        <div className="text-[14px] font-medium text-app-text">空闲时自己走走</div>
+                        <div className="mt-1 text-[13px] leading-5 text-app-muted">
+                          关闭后狐狸只会跟随输入和回复位置，不会随机巡逻。
+                        </div>
+                      </div>
+                      <ToggleSwitch
+                        checked={petPreferences.autoWalk}
+                        label="自动散步"
+                        onChange={(autoWalk) => onPetPreferencesChange({ autoWalk })}
+                      />
+                    </div>
+                  </SettingRow>
+                  <SettingRow label="主动提示">
+                    <SettingSelect
+                      label="主动提示频率"
+                      onChange={(proactiveLevel) =>
+                        onPetPreferencesChange({ proactiveLevel: proactiveLevel as PetProactiveLevel })
+                      }
+                      onOpenChange={(nextOpen) => setOpenPetSelect(nextOpen ? "proactiveLevel" : null)}
+                      open={openPetSelect === "proactiveLevel"}
+                      options={PET_PROACTIVE_OPTIONS}
+                      value={petPreferences.proactiveLevel}
+                    />
+                  </SettingRow>
+                  <SettingRow label="语气">
+                    <SettingSelect
+                      label="狐狸语气"
+                      onChange={(tone) => onPetPreferencesChange({ tone: tone as PetTone })}
+                      onOpenChange={(nextOpen) => setOpenPetSelect(nextOpen ? "tone" : null)}
+                      open={openPetSelect === "tone"}
+                      options={PET_TONE_OPTIONS}
+                      value={petPreferences.tone}
+                    />
+                  </SettingRow>
+                  <SettingRow label="回复长度">
+                    <SettingSelect
+                      label="狐狸回复长度"
+                      onChange={(replyLength) =>
+                        onPetPreferencesChange({ replyLength: replyLength as PetReplyLength })
+                      }
+                      onOpenChange={(nextOpen) => setOpenPetSelect(nextOpen ? "replyLength" : null)}
+                      open={openPetSelect === "replyLength"}
+                      options={PET_REPLY_LENGTH_OPTIONS}
+                      value={petPreferences.replyLength}
+                    />
+                  </SettingRow>
+                  <SettingRow label="当前对话">
+                    <div className="flex w-full items-center justify-start gap-3 md:w-[360px] md:justify-between">
+                      <div className="min-w-0">
+                        <div className="text-[14px] font-medium text-app-text">参考当前对话</div>
+                        <div className="mt-1 text-[13px] leading-5 text-app-muted">
+                          关闭后狐狸聊天不会读取主对话最近内容。
+                        </div>
+                      </div>
+                      <ToggleSwitch
+                        checked={petPreferences.referenceConversation}
+                        label="参考当前对话"
+                        onChange={(referenceConversation) => onPetPreferencesChange({ referenceConversation })}
+                      />
+                    </div>
+                  </SettingRow>
+                  <SettingRow label="输入草稿">
+                    <div className="flex w-full items-center justify-start gap-3 md:w-[360px] md:justify-between">
+                      <div className="min-w-0">
+                        <div className="text-[14px] font-medium text-app-text">参考输入框草稿</div>
+                        <div className="mt-1 text-[13px] leading-5 text-app-muted">
+                          关闭后狐狸聊天不会读取你还没发送的内容。
+                        </div>
+                      </div>
+                      <ToggleSwitch
+                        checked={petPreferences.referenceDraft}
+                        label="参考输入框草稿"
+                        onChange={(referenceDraft) => onPetPreferencesChange({ referenceDraft })}
+                      />
+                    </div>
+                  </SettingRow>
                 </div>
               ) : null}
 

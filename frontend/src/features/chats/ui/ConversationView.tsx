@@ -244,44 +244,47 @@ export function ConversationView({
 
   return (
     <section className="flex min-h-0 flex-1 flex-col pb-1">
-      <div className="app-scrollbar min-h-0 flex-1 overflow-y-auto pt-4" ref={scrollRef}>
-        <div className="mx-auto w-full max-w-[920px] px-4 md:px-6">
-          {isLoadingEarlierMessages ? (
-            <div className="mb-3 flex justify-center">
-              <div className="inline-flex items-center rounded-full px-3 py-1 text-xs text-app-muted">
-                正在加载更早消息...
+      <div className="relative min-h-0 flex-1">
+        <div className="app-scrollbar min-h-0 flex-1 overflow-y-auto pt-4" ref={scrollRef}>
+          <div className="mx-auto w-full max-w-[920px] px-4 md:px-6" data-pet-anchor="messageArea">
+            {isLoadingEarlierMessages ? (
+              <div className="mb-3 flex justify-center">
+                <div className="inline-flex items-center rounded-full px-3 py-1 text-xs text-app-muted">
+                  正在加载更早消息...
+                </div>
               </div>
-            </div>
-          ) : earlierMessagesError ? (
-            <div className="mb-3 flex justify-center">
-              <button
-                className="inline-flex min-h-8 items-center rounded-full border border-app-line px-3 text-xs text-app-muted transition hover:border-app-accent/35 hover:text-app-text"
-                onClick={() => void requestLoadEarlierMessages()}
-                type="button"
-              >
-                加载更早消息失败，点击重试
-              </button>
-            </div>
-          ) : null}
-          <MessageList
-            collapsedMessageIds={collapsedMessageIds}
-            conversationModel={conversation.model}
-            editingUserMessageContent={editingUserMessageContent}
-            editingUserMessageId={editingUserMessageId}
-            isReasoningStreaming={isReasoningStreaming}
-            onFeedback={onFeedback}
-            onCancelEditingUserMessage={onCancelEditingUserMessage}
-            onChangeEditingUserMessage={onChangeEditingUserMessage}
-            onStartEditingUserMessage={onStartEditingUserMessage}
-            isStreaming={isStreaming}
-            items={conversation.messages}
-            models={models}
-            onRetry={onRetry}
-            onSubmitEditingUserMessage={onSubmitEditingUserMessage}
-            reserveThinkingSpace={reserveThinkingSpace}
-            streamingStatusLabel={streamingStatusLabel}
-          />
+            ) : earlierMessagesError ? (
+              <div className="mb-3 flex justify-center">
+                <button
+                  className="inline-flex min-h-8 items-center rounded-full border border-app-line px-3 text-xs text-app-muted transition hover:border-app-accent/35 hover:text-app-text"
+                  onClick={() => void requestLoadEarlierMessages()}
+                  type="button"
+                >
+                  加载更早消息失败，点击重试
+                </button>
+              </div>
+            ) : null}
+            <MessageList
+              collapsedMessageIds={collapsedMessageIds}
+              conversationModel={conversation.model}
+              editingUserMessageContent={editingUserMessageContent}
+              editingUserMessageId={editingUserMessageId}
+              isReasoningStreaming={isReasoningStreaming}
+              onFeedback={onFeedback}
+              onCancelEditingUserMessage={onCancelEditingUserMessage}
+              onChangeEditingUserMessage={onChangeEditingUserMessage}
+              onStartEditingUserMessage={onStartEditingUserMessage}
+              isStreaming={isStreaming}
+              items={conversation.messages}
+              models={models}
+              onRetry={onRetry}
+              onSubmitEditingUserMessage={onSubmitEditingUserMessage}
+              reserveThinkingSpace={reserveThinkingSpace}
+              streamingStatusLabel={streamingStatusLabel}
+            />
+          </div>
         </div>
+
       </div>
 
       <div className="mx-auto w-full max-w-[920px] px-4 pt-2 md:px-6">

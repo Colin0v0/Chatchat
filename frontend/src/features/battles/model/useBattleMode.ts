@@ -7,6 +7,7 @@ import {
   reasoningRequestValueForModel,
   resolveModelDefaultReasoningProfile,
 } from "../../models/lib/reasoningProfiles";
+import type { PetSignalType } from "../../pet/model/petSignals";
 import {
   createBattleSession,
   deleteBattleSession,
@@ -23,6 +24,7 @@ interface UseBattleModeOptions {
   draftFiles: File[];
   knowledgeFolders: string[];
   onDraftAccepted?: () => void;
+  onPetEvent?: (type: PetSignalType) => void;
   query: string;
   setError: (message: string | null) => void;
   toolMode: ToolMode;
@@ -206,6 +208,7 @@ export function useBattleMode({
   draftFiles,
   knowledgeFolders,
   onDraftAccepted,
+  onPetEvent,
   query,
   setError,
   toolMode,
@@ -608,6 +611,9 @@ export function useBattleMode({
       setDraft("");
       onDraftAccepted?.();
 
+      // Battle 真正开始发起后再通知宠物，避免未通过校验的提交也触发动画。
+      onPetEvent?.("send");
+
       // 每个 side 都只继承自己之前的结果，避免把对手答案泄露给另一条流。
       const existingRounds = session.rounds.slice(0, -1);
       const buildSideHistory = (sideId: "a" | "b"): Array<{ role: string; content: string }> => {
@@ -791,6 +797,7 @@ export function useBattleMode({
     isStreaming,
     knowledgeFolders,
     onDraftAccepted,
+    onPetEvent,
     setError,
     toolMode,
     updateRound,

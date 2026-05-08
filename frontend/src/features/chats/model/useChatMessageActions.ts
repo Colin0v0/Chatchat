@@ -24,6 +24,7 @@ import {
   resolveImageGenerationQuality,
   resolveImageGenerationSize,
 } from "../lib/imageSizeOptions";
+import type { PetSignalType } from "../../pet/model/petSignals";
 import type {
   ChatMessage,
   ComposerMode,
@@ -81,6 +82,7 @@ interface UseChatMessageActionsOptions {
   isRecording: boolean;
   isStreaming: boolean;
   isTranscribing: boolean;
+  onPetEvent?: (type: PetSignalType) => void;
   refreshConversations: () => Promise<void>;
   replaceAttachments: (files: File[]) => void;
   restoreChatComposerMode: () => void;
@@ -115,6 +117,7 @@ export function useChatMessageActions({
   isRecording,
   isStreaming,
   isTranscribing,
+  onPetEvent,
   refreshConversations,
   replaceAttachments,
   restoreChatComposerMode,
@@ -177,6 +180,8 @@ export function useChatMessageActions({
             messages: [tempUserMessage, createAssistantDraftMessageForModel(conversationModel)],
           };
 
+      // 真正接受发送后再通知宠物，避免空消息/被拦截提交也触发动作。
+      onPetEvent?.("send");
       setDraft("");
       clearAttachments();
       restoreChatComposerMode();
@@ -207,6 +212,7 @@ export function useChatMessageActions({
       });
 
       if (result === "completed") {
+        onPetEvent?.("complete");
         await refreshConversations();
       }
       return;
@@ -240,6 +246,8 @@ export function useChatMessageActions({
           messages: [tempUserMessage, createAssistantDraftMessageForModel(effectiveModel)],
         };
 
+    // 真正接受发送后再通知宠物，避免空消息/被拦截提交也触发动作。
+    onPetEvent?.("send");
     setDraft("");
     clearAttachments();
     setActiveConversationId(tempConversationId);
@@ -271,6 +279,7 @@ export function useChatMessageActions({
     });
 
     if (result === "completed") {
+      onPetEvent?.("complete");
       await refreshConversations();
     }
   }, [
@@ -289,6 +298,7 @@ export function useChatMessageActions({
     isRecording,
     isStreaming,
     isTranscribing,
+    onPetEvent,
     refreshConversations,
     restoreChatComposerMode,
     runStream,
