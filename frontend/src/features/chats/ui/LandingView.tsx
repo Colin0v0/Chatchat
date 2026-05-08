@@ -118,8 +118,11 @@ export function LandingView({
 
   return (
     <section className="flex min-h-0 flex-1 flex-col pb-1">
-      <div className="flex min-h-0 flex-1 overflow-hidden pt-4">
-        <div className="flex min-h-0 w-full max-w-[920px] items-center justify-center px-3 md:mx-auto md:px-6">
+      <div className="relative min-h-0 flex-1 overflow-hidden pt-4">
+        <div
+          className="flex h-full min-h-0 w-full max-w-[920px] items-center justify-center px-3 md:mx-auto md:px-6"
+          data-pet-anchor="messageArea"
+        >
           <h1 className="max-w-[360px] text-center text-[34px] font-semibold leading-[1.06] tracking-[-0.06em] md:max-w-none md:text-[56px] md:leading-none">
             <span>{visibleTitle}</span>
             {showCaret ? (

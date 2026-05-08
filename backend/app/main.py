@@ -15,6 +15,7 @@ from .api import (
     knowledge_router,
     memories_router,
     models_router,
+    pet_router,
 )
 from .audio import build_audio_services
 from .cache import close_cache, initialize_cache
@@ -66,6 +67,7 @@ def create_app() -> FastAPI:
     app.include_router(knowledge_router)
     app.include_router(images_router)
     app.include_router(memories_router)
+    app.include_router(pet_router)
     app.include_router(conversations_router)
     app.include_router(debate_router)
     app.include_router(chat_router)

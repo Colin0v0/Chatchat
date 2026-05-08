@@ -142,7 +142,7 @@ export function MainHeader({
 
   return (
     <>
-      <header className="relative flex h-[68px] items-center justify-between px-3 md:px-6">
+      <header className="relative flex h-[68px] items-center justify-between px-3 md:px-6" data-pet-anchor="topBar">
         {showTitle ? (
           <div className="flex min-w-0 max-w-[calc(100%-4rem)] items-center gap-2 py-1 md:max-w-none">
             {!isDesktop ? (

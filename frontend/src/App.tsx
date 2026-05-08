@@ -4,6 +4,8 @@ import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-
 import { useChatApp } from "./features/workspace/model/useChatApp";
 import { useResponsiveSidebar } from "./features/workspace/model/useResponsiveSidebar";
 import { MainHeader } from "./features/workspace/ui/MainHeader";
+import { PetLayer } from "./features/pet/ui/PetLayer";
+import { usePetPreferences } from "./features/pet/model/usePetPreferences";
 import { Sidebar } from "./features/workspace/ui/Sidebar";
 import { WorkspaceMainView } from "./features/workspace/ui/WorkspaceMainView";
 import type { WorkspaceSection } from "./features/workspace/model/workspaceSections";
@@ -72,6 +74,7 @@ function WorkspaceApp({
   const navigate = useNavigate();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const sidebar = useResponsiveSidebar();
+  const petPreferences = usePetPreferences();
   const routeSection = sectionFromPathname(location.pathname) ?? "chats";
   const routeKnown = sectionFromPathname(location.pathname) !== null;
   const handleSectionRouteChange = useCallback(
@@ -134,13 +137,28 @@ function WorkspaceApp({
         />
 
         <ErrorToast message={app.error} />
+        {petPreferences.preferences.enabled ? (
+          <PetLayer
+            activitySignal={app.petActivity.signal}
+            activeSection={app.activeSection}
+            context={app.petActivity.context}
+            draftActive={app.petActivity.draftActive}
+            isStreaming={app.petActivity.isStreaming}
+            preferences={petPreferences.preferences}
+            sidebarOpen={sidebar.sidebarOpen}
+          />
+        ) : null}
         {(app.activeSection !== "debates" || !app.debateRoomProps) ? <Disclaimer /> : null}
       </main>
 
       <SettingsDialog
         {...app.imageSettingsProps}
         onClose={() => setSettingsOpen(false)}
+        onPetEnabledChange={petPreferences.setEnabled}
+        onPetPreferencesChange={petPreferences.updatePreferences}
         open={settingsOpen}
+        petEnabled={petPreferences.preferences.enabled}
+        petPreferences={petPreferences.preferences}
         username={username}
       />
     </div>

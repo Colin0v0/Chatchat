@@ -282,7 +282,7 @@ export function BattlePage({
   return (
     <section className="flex min-h-0 flex-1 flex-col pb-1 bg-[#fdfcfb] text-[#2f2d29]">
       <div ref={scrollRef} className="app-scrollbar min-h-0 flex-1 overflow-y-auto pt-4">
-        <div className="mx-auto w-full max-w-[920px] px-4 md:px-6">
+        <div className="mx-auto w-full max-w-[920px] px-4 md:px-6" data-pet-anchor="messageArea">
           {rounds.length > 0 ? (
             <div className="space-y-12">
               {rounds.map((round) => (

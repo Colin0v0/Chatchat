@@ -7,6 +7,7 @@ from .images import router as images_router
 from .knowledge import router as knowledge_router
 from .memories import router as memories_router
 from .models import router as models_router
+from .pet import router as pet_router
 from .debate import router as debate_router
 
 __all__ = [
@@ -20,4 +21,5 @@ __all__ = [
     "knowledge_router",
     "memories_router",
     "models_router",
+    "pet_router",
 ]
