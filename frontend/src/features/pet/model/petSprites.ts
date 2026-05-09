@@ -245,3 +245,9 @@ export function resolvePetFrameScale(animation: PetAnimationKey, frameIndex: num
 export const PET_MAX_FOOT_OFFSET = Math.max(
   ...Object.values(PET_ANIMATIONS).map((animation) => animation.anchor.footOffset),
 );
+
+// 中文注释：首次刷新后如果动作帧还没进浏览器缓存，切动作时会短暂拿旧图片套新缩放，视觉上像“先变大再变小”。
+// 中文注释：这里把整套帧 URL 提前导出，交给 UI 层一次性预热，避免第一次喂食/喝水/点击时闪比例。
+export const PET_FRAME_PRELOAD_URLS = Array.from(
+  new Set(Object.values(PET_ANIMATIONS).flatMap((animation) => animation.frames)),
+);

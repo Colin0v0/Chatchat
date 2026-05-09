@@ -374,6 +374,7 @@ export function PetLayer({
   const [activityHoldTarget, setActivityHoldTarget] = useState<PetPosition | null>(null);
   const [composerDraftTarget, setComposerDraftTarget] = useState<PetPosition | null>(null);
   const [petReady, setPetReady] = useState(false);
+  const [petPositionSynced, setPetPositionSynced] = useState(false);
   const [randomTarget, setRandomTarget] = useState<PetPosition | null>(null);
   const activityHoldSignalIdRef = useRef<number | null>(null);
   const activityHoldReleaseTimerRef = useRef<number | null>(null);
@@ -521,7 +522,7 @@ export function PetLayer({
   }, [activityHoldTarget, draftActive, isStreaming]);
 
   useEffect(() => {
-    if (!petReady) {
+    if (!petReady || !petPositionSynced) {
       return;
     }
 
@@ -560,10 +561,10 @@ export function PetLayer({
       setSelectedAnchor("composerTop");
       return;
     }
-  }, [activeSection, activityHoldTarget, anchors, draftActive, isStreaming, petReady, preferences.walkMode]);
+  }, [activeSection, activityHoldTarget, anchors, draftActive, isStreaming, petPositionSynced, petReady, preferences.walkMode]);
 
   const targetPosition = useMemo(() => {
-    if (!petReady) {
+    if (!petReady || !petPositionSynced) {
       return clampPetPosition(petPositionRef.current);
     }
 
@@ -607,6 +608,7 @@ export function PetLayer({
     composerDraftTarget,
     draftActive,
     isStreaming,
+    petPositionSynced,
     petReady,
     preferences.walkMode,
     randomTarget,
@@ -617,8 +619,8 @@ export function PetLayer({
     // 无输入和无回复时才让狐狸自由走动，写作/流式回复会把它拉回锚点。
     if (
       !petReady
+      || !petPositionSynced
       || preferences.walkMode === "off"
-      || (activeSection === "chats" && preferences.walkMode === "normal")
     ) {
       setRandomTarget(null);
       return;
@@ -646,7 +648,7 @@ export function PetLayer({
         randomWalkTimerRef.current = null;
       }
     };
-  }, [activeSection, activityHoldTarget, draftActive, isStreaming, petReady, preferences.walkMode, sidebarOpen]);
+  }, [activeSection, activityHoldTarget, draftActive, isStreaming, petPositionSynced, petReady, preferences.walkMode, sidebarOpen]);
 
   const handleDragEnd = useCallback((position: PetPosition) => {
     petPositionRef.current = position;
@@ -674,7 +676,11 @@ export function PetLayer({
 
   const handlePositionChange = useCallback((position: PetPosition) => {
     petPositionRef.current = position;
-  }, []);
+    if (!petPositionSynced) {
+      setPetPositionSynced(true);
+      setAnchors(collectAnchors(position));
+    }
+  }, [petPositionSynced]);
 
   return (
       <PetOverlay
@@ -684,6 +690,7 @@ export function PetLayer({
         onDragEnd={handleDragEnd}
         onReadyChange={setPetReady}
         preferences={preferences}
+        targetReady={petPositionSynced}
         targetPosition={targetPosition}
       />
   );

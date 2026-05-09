@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { useDesktopPet } from "../model/useDesktopPet";
 import type { PetCompanionContext } from "../api/petChat";
 import type { PetNeedKey, PetNeedSnapshot, PetNeedTone } from "../model/petBehavior";
-import { PET_ANIMATIONS, PET_UI_CENTER_X } from "../model/petSprites";
+import { PET_ANIMATIONS, PET_FRAME_PRELOAD_URLS, PET_UI_CENTER_X } from "../model/petSprites";
 import type { PetPreferences } from "../model/usePetPreferences";
 import type { PetSignal } from "../model/petSignals";
 
@@ -21,6 +21,7 @@ type PetOverlayProps = {
   onPositionChange: (position: PetPosition) => void;
   onReadyChange: (ready: boolean) => void;
   preferences: PetPreferences;
+  targetReady: boolean;
   targetPosition: PetPosition;
 };
 
@@ -45,7 +46,7 @@ const PET_HITBOX_WIDTH = 104;
 const PET_HITBOX_HEIGHT = 96;
 const QUICKBAR_WIDTH = 92;
 const QUICKBAR_HEIGHT = 38;
-const QUICKBAR_HORIZONTAL_BIAS = 5;
+const QUICKBAR_HORIZONTAL_BIAS = 0;
 const CARE_WIDTH = 292;
 // 照顾面板只保留状态行和照顾入口，避免像系统说明卡一样打断宠物感。
 const CARE_HEIGHT = 236;
@@ -54,6 +55,7 @@ const PAGE_EDGE_PADDING = 12;
 const CHAT_WIDTH = 266;
 const CHAT_HEIGHT = 238;
 const STABLE_PANEL_ANCHOR = PET_ANIMATIONS.idle.anchor;
+const HOVER_MEDIA_QUERY = "(hover: hover) and (pointer: fine)";
 const SLEEP_Z_MARKS = [
   { delay: "0s", left: 0, size: 13, top: 30 },
   { delay: "0.32s", left: 19, size: 18, top: 15 },
@@ -143,6 +145,10 @@ function readViewportSize(): ViewportSize {
   };
 }
 
+function readHoverCapability() {
+  return window.matchMedia(HOVER_MEDIA_QUERY).matches;
+}
+
 export function PetOverlay({
   activitySignal,
   context,
@@ -150,15 +156,18 @@ export function PetOverlay({
   onPositionChange,
   onReadyChange,
   preferences,
+  targetReady,
   targetPosition,
 }: PetOverlayProps) {
   const stageRef = useRef<HTMLDivElement | null>(null);
   const petAnchorRef = useRef<HTMLDivElement | null>(null);
   const petVisualRef = useRef<HTMLDivElement | null>(null);
+  const renderedPositionRef = useRef<PetPosition | null>(null);
   const [careOpen, setCareOpen] = useState(false);
   const [chatDraft, setChatDraft] = useState("");
   const [controlsOpen, setControlsOpen] = useState(false);
   const controlsCloseTimerRef = useRef<number | null>(null);
+  const [supportsHover, setSupportsHover] = useState(() => readHoverCapability());
   const [viewportSize, setViewportSize] = useState<ViewportSize>(() => readViewportSize());
   const pet = useDesktopPet(stageRef, {
     activitySignal,
@@ -166,13 +175,29 @@ export function PetOverlay({
     movementPaused: careOpen || controlsOpen,
     onDragEnd,
     preferences,
+    renderedPositionRef,
+    targetReady,
     targetPosition,
-    visualRef: petVisualRef,
   });
 
   useEffect(() => {
     onReadyChange(pet.isReady);
   }, [onReadyChange, pet.isReady]);
+
+  useEffect(() => {
+    const preloadedImages = PET_FRAME_PRELOAD_URLS.map((frameUrl) => {
+      const image = new Image();
+      image.decoding = "async";
+      image.src = frameUrl;
+      return image;
+    });
+
+    return () => {
+      preloadedImages.forEach((image) => {
+        image.src = "";
+      });
+    };
+  }, []);
 
   useEffect(() => {
     let frame: number | null = null;
@@ -185,10 +210,12 @@ export function PetOverlay({
 
       const rect = anchorNode.getBoundingClientRect();
       // 中文注释：父层只记录稳定锚点的位置；狐狸动作帧在锚点盒子里偏移，不再把外层面板和持久化坐标带抖。
-      onPositionChange({
+      const renderedPosition = {
         bottom: window.innerHeight - rect.bottom + STABLE_PANEL_ANCHOR.footOffset,
         left: rect.left + STABLE_PANEL_ANCHOR.uiCenterX - PET_UI_CENTER_X,
-      });
+      };
+      renderedPositionRef.current = renderedPosition;
+      onPositionChange(renderedPosition);
     };
 
     if (!pet.isWalking) {
@@ -214,6 +241,18 @@ export function PetOverlay({
     pet.position.bottom,
     pet.position.left,
   ]);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia(HOVER_MEDIA_QUERY);
+
+    function handleHoverCapabilityChange() {
+      setSupportsHover(mediaQuery.matches);
+    }
+
+    handleHoverCapabilityChange();
+    mediaQuery.addEventListener("change", handleHoverCapabilityChange);
+    return () => mediaQuery.removeEventListener("change", handleHoverCapabilityChange);
+  }, []);
 
   useEffect(() => {
     function handleResize() {
@@ -260,6 +299,8 @@ export function PetOverlay({
   }
 
   function openCarePanel() {
+    cancelControlsClose();
+    setControlsOpen(false);
     pet.chat.close();
     setCareOpen(true);
   }
@@ -278,11 +319,40 @@ export function PetOverlay({
   }
 
   function openChatPanel() {
+    cancelControlsClose();
+    setControlsOpen(false);
     setCareOpen(false);
     pet.chat.open();
   }
 
   const floatingPanelOpen = careOpen || pet.chat.opened;
+
+  useEffect(() => {
+    if (supportsHover || !controlsOpen) {
+      return;
+    }
+
+    function handleWindowPointerDown(event: PointerEvent) {
+      if (petAnchorRef.current?.contains(event.target as Node)) {
+        return;
+      }
+
+      cancelControlsClose();
+      setControlsOpen(false);
+    }
+
+    // 中文注释：触屏没有 hover，圆按钮打开后要靠点空白处收起，不然会像悬空残留。
+    window.addEventListener("pointerdown", handleWindowPointerDown);
+    return () => window.removeEventListener("pointerdown", handleWindowPointerDown);
+  }, [controlsOpen, supportsHover]);
+
+  const hoverQuickbarHandlers = supportsHover
+    ? {
+        onPointerEnter: openControls,
+        onPointerLeave: closeControlsSoon,
+      }
+    : {};
+
   // 头顶操作改成 hover 才展开；真正点击重新留给狐狸自己的互动动作。
   const quickbarVisible = controlsOpen && !pet.isDragging && !floatingPanelOpen;
   const stablePetRenderedBottom = pet.position.bottom - STABLE_PANEL_ANCHOR.footOffset;
@@ -342,8 +412,7 @@ export function PetOverlay({
       >
         <div
           className={quickbarClassName}
-          onPointerEnter={openControls}
-          onPointerLeave={closeControlsSoon}
+          {...hoverQuickbarHandlers}
           style={{
             height: QUICKBAR_HEIGHT,
             left: quickbarLeft,
@@ -535,14 +604,22 @@ export function PetOverlay({
             className="pointer-events-auto absolute rounded-full bg-transparent focus:outline-none focus-visible:ring-2 focus-visible:ring-app-border-strong"
             onClick={(event) => {
               event.currentTarget.blur();
+              if (!supportsHover) {
+                const handled = pet.handlers.click({ playReaction: false });
+                if (handled) {
+                  cancelControlsClose();
+                  setControlsOpen((current) => !current);
+                }
+                return;
+              }
+
               pet.handlers.click();
             }}
-            onPointerEnter={openControls}
             onPointerCancel={pet.handlers.pointerCancel}
             onPointerDown={pet.handlers.pointerDown}
-            onPointerLeave={closeControlsSoon}
             onPointerMove={pet.handlers.pointerMove}
             onPointerUp={pet.handlers.pointerUp}
+            {...hoverQuickbarHandlers}
             style={{
               height: PET_HITBOX_HEIGHT,
               left: pet.visualCenterX - PET_HITBOX_WIDTH / 2,

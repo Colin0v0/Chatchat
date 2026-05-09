@@ -11,7 +11,6 @@ import {
 import {
   PET_ANIMATIONS,
   PET_MAX_FOOT_OFFSET,
-  PET_UI_CENTER_X,
   resolvePetFrameCenterX,
   resolvePetFrameFootOffset,
   resolvePetFrameScale,
@@ -44,8 +43,9 @@ type DesktopPetOptions = {
   movementPaused: boolean;
   onDragEnd: (position: PetPosition) => void;
   preferences: PetPreferences;
+  renderedPositionRef: RefObject<PetPosition | null>;
+  targetReady: boolean;
   targetPosition: PetPosition;
-  visualRef: RefObject<HTMLDivElement | null>;
 };
 
 type PetMode = "awake" | "sleeping";
@@ -506,6 +506,7 @@ export function useDesktopPet(stageRef: RefObject<HTMLDivElement | null>, option
       stageSize.width === 0
       || stageSize.height === 0
       || !petStateReady
+      || !options.targetReady
       || dragStateRef.current
       || chatOpen
       || options.movementPaused
@@ -563,6 +564,7 @@ export function useDesktopPet(stageRef: RefObject<HTMLDivElement | null>, option
     animation,
     chatOpen,
     options.movementPaused,
+    options.targetReady,
     options.targetPosition.bottom,
     options.targetPosition.left,
     stageSize.height,
@@ -647,9 +649,14 @@ export function useDesktopPet(stageRef: RefObject<HTMLDivElement | null>, option
     // 中文注释：拖拽和走路会频繁改坐标，统一轻微防抖后写库，避免每一帧都打后端。
     petStateSaveTimerRef.current = window.setTimeout(() => {
       petStateSaveTimerRef.current = null;
+      const persistedPosition = wanderTimerRef.current === null
+        ? positionRef.current
+        : clampPosition(options.renderedPositionRef.current ?? positionRef.current, stageSize);
       void savePetState({
         sleeping: modeRef.current === "sleeping",
-        position,
+        // 中文注释：只保存当前真实落点，不提前把未来目标位置写进存档；
+        // 否则刷新时会从“还没真正走到”的点恢复，看起来像突然乱跑或平移。
+        position: persistedPosition,
         stats: {
           energy: stats.energy,
           hunger: stats.hunger,
@@ -667,7 +674,17 @@ export function useDesktopPet(stageRef: RefObject<HTMLDivElement | null>, option
         petStateSaveTimerRef.current = null;
       }
     };
-  }, [mode, petStateReady, position.bottom, position.left, stats.energy, stats.hunger, stats.mood, stats.thirst]);
+  }, [
+    mode,
+    petStateReady,
+    position.bottom,
+    position.left,
+    stageSize,
+    stats.energy,
+    stats.hunger,
+    stats.mood,
+    stats.thirst,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -782,22 +799,13 @@ export function useDesktopPet(stageRef: RefObject<HTMLDivElement | null>, option
       setFrameIndex(0);
     }
 
-    const visualNode = options.visualRef.current;
-    if (!visualNode || stageSize.width === 0 || stageSize.height === 0) {
+    if (stageSize.width === 0 || stageSize.height === 0) {
       return null;
     }
 
-    const rect = visualNode.getBoundingClientRect();
-    const currentCenterX = resolvePetFrameCenterX(animationRef.current, frameIndexRef.current);
-    const currentFootOffset = resolvePetFrameFootOffset(animationRef.current, frameIndexRef.current);
-    const currentPosition = clampPosition(
-      {
-        // 读取浏览器当前渲染位置，动作发生时先把“正在路上”的狐狸钉住。
-        bottom: window.innerHeight - rect.bottom + currentFootOffset,
-        left: rect.left + currentCenterX - PET_UI_CENTER_X,
-      },
-      stageSize,
-    );
+    // 中文注释：这里统一以外层稳定锚点回传的 positionRef 为准；
+    // 不再从当前动作帧反推脚点，避免吃饭/点击/低状态帧的局部偏移被误判成真实位移。
+    const currentPosition = clampPosition(options.renderedPositionRef.current ?? positionRef.current, stageSize);
     positionRef.current = currentPosition;
     setPosition(currentPosition);
     return currentPosition;
@@ -807,6 +815,12 @@ export function useDesktopPet(stageRef: RefObject<HTMLDivElement | null>, option
     stopWalkingAtCurrentPosition();
     clearWanderTimer();
     setMode("awake");
+    // 中文注释：照顾动作一旦触发，就先退出“流泪底姿态”，让喂食/喝水/陪伴动画完整播完；
+    // 等动画结束后，再根据加完后的最新数值决定是否重新回到 sad。
+    if (nextAnimation === "eat" || nextAnimation === "drink" || nextAnimation === "praise") {
+      setLowNeedActive(false);
+      lowNeedActiveRef.current = false;
+    }
     if (hasStatsDelta(statDelta)) {
       setStats((current) => applyStatsDelta(current, statDelta));
     }
