@@ -26,8 +26,6 @@ import { DebateJudgeCard } from "./room/DebateJudgeCard";
 import { DebateTurnCard } from "./room/DebateTurnCard";
 import { ApiError } from "../../../shared/api/http";
 
-const FREE_DEBATE_CLOCK_SKEW_TOLERANCE_MS = 10 * 60 * 1000;
-
 function resolveFreeDebateClockAnchorMs(
   state: DebateSessionDetail["free_debate_state"] | null | undefined,
 ) {
@@ -36,12 +34,7 @@ function resolveFreeDebateClockAnchorMs(
   }
 
   const parsedStartedAt = parseUtcTimestamp(state.active_turn_started_at);
-  const now = Date.now();
-  if (Number.isFinite(parsedStartedAt) && Math.abs(now - parsedStartedAt) <= FREE_DEBATE_CLOCK_SKEW_TOLERANCE_MS) {
-    return parsedStartedAt;
-  }
-
-  return now;
+  return Number.isFinite(parsedStartedAt) ? parsedStartedAt : null;
 }
 
 function stageBudgetMs(session: DebateSessionDetail, stage: DebateStage) {
@@ -415,13 +408,15 @@ export function DebateRoomView({
           : { turnId: null, startedAtMs: null };
       }
 
-      if (current.turnId === state.active_turn_id && current.startedAtMs != null) {
+      const nextStartedAtMs = resolveFreeDebateClockAnchorMs(state);
+      // 中文注释：自由辩只有在正文开始后才进入计时锚点，思考阶段保持未开始状态。
+      if (current.turnId === state.active_turn_id && current.startedAtMs === nextStartedAtMs) {
         return current;
       }
 
       return {
         turnId: state.active_turn_id,
-        startedAtMs: resolveFreeDebateClockAnchorMs(state),
+        startedAtMs: nextStartedAtMs,
       };
     });
   }, [

@@ -58,8 +58,8 @@ const NEED_LABELS: Record<PetNeedKey, string> = {
 };
 const NEED_ACTION_LABELS: Record<PetNeedKey, string> = {
   energy: "哄睡",
-  hunger: "喂一点",
-  mood: "陪一下",
+  hunger: "喂食",
+  mood: "陪伴",
   thirst: "添水",
 };
 const NEED_STATE_LABELS: Record<PetNeedKey, Record<PetNeedTone, string>> = {

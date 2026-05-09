@@ -373,6 +373,7 @@ export function PetLayer({
   );
   const [activityHoldTarget, setActivityHoldTarget] = useState<PetPosition | null>(null);
   const [composerDraftTarget, setComposerDraftTarget] = useState<PetPosition | null>(null);
+  const [petReady, setPetReady] = useState(false);
   const [randomTarget, setRandomTarget] = useState<PetPosition | null>(null);
   const activityHoldSignalIdRef = useRef<number | null>(null);
   const activityHoldReleaseTimerRef = useRef<number | null>(null);
@@ -520,6 +521,10 @@ export function PetLayer({
   }, [activityHoldTarget, draftActive, isStreaming]);
 
   useEffect(() => {
+    if (!petReady) {
+      return;
+    }
+
     if (activityHoldTarget !== null) {
       return;
     }
@@ -555,9 +560,13 @@ export function PetLayer({
       setSelectedAnchor("composerTop");
       return;
     }
-  }, [activeSection, activityHoldTarget, anchors, draftActive, isStreaming, preferences.walkMode]);
+  }, [activeSection, activityHoldTarget, anchors, draftActive, isStreaming, petReady, preferences.walkMode]);
 
   const targetPosition = useMemo(() => {
+    if (!petReady) {
+      return clampPetPosition(petPositionRef.current);
+    }
+
     if (activityHoldTarget) {
       return clampPetPosition(activityHoldTarget);
     }
@@ -598,6 +607,7 @@ export function PetLayer({
     composerDraftTarget,
     draftActive,
     isStreaming,
+    petReady,
     preferences.walkMode,
     randomTarget,
     selectedAnchor,
@@ -606,7 +616,8 @@ export function PetLayer({
   useEffect(() => {
     // 无输入和无回复时才让狐狸自由走动，写作/流式回复会把它拉回锚点。
     if (
-      preferences.walkMode === "off"
+      !petReady
+      || preferences.walkMode === "off"
       || (activeSection === "chats" && preferences.walkMode === "normal")
     ) {
       setRandomTarget(null);
@@ -635,15 +646,31 @@ export function PetLayer({
         randomWalkTimerRef.current = null;
       }
     };
-  }, [activeSection, activityHoldTarget, draftActive, isStreaming, preferences.walkMode, sidebarOpen]);
+  }, [activeSection, activityHoldTarget, draftActive, isStreaming, petReady, preferences.walkMode, sidebarOpen]);
 
   const handleDragEnd = useCallback((position: PetPosition) => {
     petPositionRef.current = position;
     const nextAnchors = collectAnchors(position);
-    setRandomTarget(clampPetPosition(position));
+    const nextPosition = clampPetPosition(position);
+    // 中文注释：普通聊天页拖拽结束后要立刻回到锚点系统；这里如果留下 randomTarget，狐狸会永远把“当前位置”当目标而不再走路。
+    if (preferences.walkMode === "global" || (preferences.walkMode === "normal" && activeSection !== "chats")) {
+      setRandomTarget(nextPosition);
+    } else {
+      setRandomTarget(null);
+    }
     setAnchors(nextAnchors);
-    setSelectedAnchor(preferences.walkMode === "global" ? "homeCorner" : pickNearestAnchor(position, nextAnchors).name);
-  }, [preferences.walkMode]);
+    if (preferences.walkMode === "global") {
+      setSelectedAnchor("homeCorner");
+      return;
+    }
+
+    if (preferences.walkMode === "normal" && activeSection === "chats" && nextAnchors.has("composerTop")) {
+      setSelectedAnchor("composerTop");
+      return;
+    }
+
+    setSelectedAnchor(pickNearestAnchor(position, nextAnchors).name);
+  }, [activeSection, preferences.walkMode]);
 
   const handlePositionChange = useCallback((position: PetPosition) => {
     petPositionRef.current = position;
@@ -655,6 +682,7 @@ export function PetLayer({
         context={context}
         onPositionChange={handlePositionChange}
         onDragEnd={handleDragEnd}
+        onReadyChange={setPetReady}
         preferences={preferences}
         targetPosition={targetPosition}
       />

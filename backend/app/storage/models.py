@@ -85,6 +85,7 @@ class PetState(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    sleeping: Mapped[bool] = mapped_column(Boolean, default=False)
     energy: Mapped[int] = mapped_column(Integer, default=78)
     hunger: Mapped[int] = mapped_column(Integer, default=76)
     mood: Mapped[int] = mapped_column(Integer, default=82)

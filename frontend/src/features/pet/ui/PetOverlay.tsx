@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { useDesktopPet } from "../model/useDesktopPet";
 import type { PetCompanionContext } from "../api/petChat";
 import type { PetNeedKey, PetNeedSnapshot, PetNeedTone } from "../model/petBehavior";
+import { PET_ANIMATIONS, PET_UI_CENTER_X } from "../model/petSprites";
 import type { PetPreferences } from "../model/usePetPreferences";
 import type { PetSignal } from "../model/petSignals";
 
@@ -18,6 +19,7 @@ type PetOverlayProps = {
   context: PetCompanionContext;
   onDragEnd: (position: PetPosition) => void;
   onPositionChange: (position: PetPosition) => void;
+  onReadyChange: (ready: boolean) => void;
   preferences: PetPreferences;
   targetPosition: PetPosition;
 };
@@ -51,6 +53,12 @@ const PAGE_EDGE_PADDING = 12;
 const CHAT_WIDTH = 266;
 const CHAT_HEIGHT = 238;
 const QUICKBAR_AUTO_CLOSE_MS = 5000;
+const STABLE_PANEL_ANCHOR = PET_ANIMATIONS.idle.anchor;
+const SLEEP_Z_MARKS = [
+  { delay: "0s", left: 0, size: 13, top: 30 },
+  { delay: "0.32s", left: 19, size: 18, top: 15 },
+  { delay: "0.64s", left: 42, size: 15, top: 5 },
+] as const;
 const PET_NEED_COLORS: Record<PetNeedKey, string> = {
   energy: "bg-[#6b9fbd]",
   hunger: "bg-[#d98645]",
@@ -140,10 +148,12 @@ export function PetOverlay({
   context,
   onDragEnd,
   onPositionChange,
+  onReadyChange,
   preferences,
   targetPosition,
 }: PetOverlayProps) {
   const stageRef = useRef<HTMLDivElement | null>(null);
+  const petAnchorRef = useRef<HTMLDivElement | null>(null);
   const petVisualRef = useRef<HTMLDivElement | null>(null);
   const [careOpen, setCareOpen] = useState(false);
   const [chatDraft, setChatDraft] = useState("");
@@ -162,19 +172,23 @@ export function PetOverlay({
   });
 
   useEffect(() => {
+    onReadyChange(pet.isReady);
+  }, [onReadyChange, pet.isReady]);
+
+  useEffect(() => {
     let frame: number | null = null;
 
     const notifyRenderedPosition = () => {
-      const visualNode = petVisualRef.current;
-      if (!visualNode) {
+      const anchorNode = petAnchorRef.current;
+      if (!pet.isReady || !anchorNode) {
         return;
       }
 
-      const rect = visualNode.getBoundingClientRect();
-      // 中文注释：父层要拿屏幕上真实显示的位置；走路时 pet.position 已经是终点，直接用会让后续锚点像瞬移。
+      const rect = anchorNode.getBoundingClientRect();
+      // 中文注释：父层只记录稳定锚点的位置；狐狸动作帧在锚点盒子里偏移，不再把外层面板和持久化坐标带抖。
       onPositionChange({
-        bottom: window.innerHeight - rect.bottom + pet.visualFootOffset,
-        left: rect.left,
+        bottom: window.innerHeight - rect.bottom + STABLE_PANEL_ANCHOR.footOffset,
+        left: rect.left + STABLE_PANEL_ANCHOR.uiCenterX - PET_UI_CENTER_X,
       });
     };
 
@@ -196,10 +210,10 @@ export function PetOverlay({
     };
   }, [
     onPositionChange,
+    pet.isReady,
     pet.isWalking,
     pet.position.bottom,
     pet.position.left,
-    pet.visualFootOffset,
   ]);
 
   useEffect(() => {
@@ -274,26 +288,34 @@ export function PetOverlay({
   const floatingPanelOpen = careOpen || pet.chat.opened;
   // 头顶操作改成“点狐狸才展开”，避免 hover 反复抢焦点、遮挡气泡和面板。
   const quickbarVisible = controlsOpen && !pet.isDragging && !floatingPanelOpen;
+  const stablePetRenderedBottom = pet.position.bottom - STABLE_PANEL_ANCHOR.footOffset;
   const petRenderedBottom = pet.position.bottom - pet.visualFootOffset;
+  const petRenderedLeft = pet.position.left + PET_UI_CENTER_X - pet.visualCenterX;
+  const stablePetTop = viewportSize.height - pet.position.bottom + STABLE_PANEL_ANCHOR.footOffset - PET_BOX_SIZE;
+  const stableVisualTop = stablePetTop + STABLE_PANEL_ANCHOR.uiTop;
+  const stablePetRenderedLeft = pet.position.left + PET_UI_CENTER_X - STABLE_PANEL_ANCHOR.uiCenterX;
   const petTop = viewportSize.height - petRenderedBottom - PET_BOX_SIZE;
   const visualTop = petTop + pet.visualTopOffset;
   const quickbarFitsAbove = visualTop >= QUICKBAR_HEIGHT + PANEL_GAP + PAGE_EDGE_PADDING;
-  const quickbarTop = quickbarFitsAbove ? pet.visualTopOffset - QUICKBAR_HEIGHT - PANEL_GAP : PET_BOX_SIZE + PANEL_GAP;
+  const stableQuickbarFitsAbove = stableVisualTop >= QUICKBAR_HEIGHT + PANEL_GAP + PAGE_EDGE_PADDING;
+  const quickbarTop = stableQuickbarFitsAbove
+    ? STABLE_PANEL_ANCHOR.uiTop - QUICKBAR_HEIGHT - PANEL_GAP
+    : PET_BOX_SIZE + PANEL_GAP;
   const quickbarLeft = Math.min(
-    viewportSize.width - QUICKBAR_WIDTH - PAGE_EDGE_PADDING - pet.position.left,
-    Math.max(PAGE_EDGE_PADDING - pet.position.left, pet.visualCenterX - QUICKBAR_WIDTH / 2),
+    viewportSize.width - QUICKBAR_WIDTH - PAGE_EDGE_PADDING - stablePetRenderedLeft,
+    Math.max(PAGE_EDGE_PADDING - stablePetRenderedLeft, STABLE_PANEL_ANCHOR.uiCenterX - QUICKBAR_WIDTH / 2),
   );
-  const careFitsAbove = visualTop >= CARE_HEIGHT + PANEL_GAP + PAGE_EDGE_PADDING;
-  const careTop = careFitsAbove ? pet.visualTopOffset - CARE_HEIGHT - PANEL_GAP : PET_BOX_SIZE + PANEL_GAP;
+  const careFitsAbove = stableVisualTop >= CARE_HEIGHT + PANEL_GAP + PAGE_EDGE_PADDING;
+  const careTop = careFitsAbove ? STABLE_PANEL_ANCHOR.uiTop - CARE_HEIGHT - PANEL_GAP : PET_BOX_SIZE + PANEL_GAP;
   const careLeft = Math.min(
-    viewportSize.width - CARE_WIDTH - PAGE_EDGE_PADDING - pet.position.left,
-    Math.max(PAGE_EDGE_PADDING - pet.position.left, pet.visualCenterX - CARE_WIDTH / 2),
+    viewportSize.width - CARE_WIDTH - PAGE_EDGE_PADDING - stablePetRenderedLeft,
+    Math.max(PAGE_EDGE_PADDING - stablePetRenderedLeft, STABLE_PANEL_ANCHOR.uiCenterX - CARE_WIDTH / 2),
   );
-  const chatFitsAbove = visualTop >= CHAT_HEIGHT + PANEL_GAP + PAGE_EDGE_PADDING;
-  const chatTop = chatFitsAbove ? pet.visualTopOffset - CHAT_HEIGHT - PANEL_GAP : PET_BOX_SIZE + PANEL_GAP;
+  const chatFitsAbove = stableVisualTop >= CHAT_HEIGHT + PANEL_GAP + PAGE_EDGE_PADDING;
+  const chatTop = chatFitsAbove ? STABLE_PANEL_ANCHOR.uiTop - CHAT_HEIGHT - PANEL_GAP : PET_BOX_SIZE + PANEL_GAP;
   const chatLeft = Math.min(
-    viewportSize.width - CHAT_WIDTH - PAGE_EDGE_PADDING - pet.position.left,
-    Math.max(PAGE_EDGE_PADDING - pet.position.left, pet.visualCenterX - CHAT_WIDTH / 2),
+    viewportSize.width - CHAT_WIDTH - PAGE_EDGE_PADDING - stablePetRenderedLeft,
+    Math.max(PAGE_EDGE_PADDING - stablePetRenderedLeft, STABLE_PANEL_ANCHOR.uiCenterX - CHAT_WIDTH / 2),
   );
   const quickbarClassName = `pointer-events-auto absolute z-30 flex items-center justify-center gap-2 transition-all duration-200 ${
     quickbarVisible
@@ -304,15 +326,16 @@ export function PetOverlay({
   return (
     <div ref={stageRef} className="pointer-events-none fixed inset-0 z-20 overflow-visible">
       <div
-        ref={petVisualRef}
+        ref={petAnchorRef}
         className="group pointer-events-none absolute select-none"
         style={{
-          bottom: petRenderedBottom,
+          bottom: stablePetRenderedBottom,
           height: PET_BOX_SIZE,
-          left: pet.position.left,
+          left: stablePetRenderedLeft,
           transition: pet.isDragging
             ? "none"
             : `left ${pet.moveDurationMs}ms linear, bottom ${pet.moveDurationMs}ms linear`,
+          visibility: pet.isReady ? "visible" : "hidden",
           width: PET_BOX_SIZE,
         }}
       >
@@ -362,7 +385,7 @@ export function PetOverlay({
             </div>
 
             <div className="grid h-[58px] shrink-0 grid-cols-4 place-items-center gap-2 border-t border-app-border px-4 py-2">
-              <PetCareActionButton label="喂一点" onClick={pet.actions.feed}>
+              <PetCareActionButton label="喂食" onClick={pet.actions.feed}>
                 <Apple className="size-3.5" />
               </PetCareActionButton>
               <PetCareActionButton label="添水" onClick={pet.actions.drink}>
@@ -381,7 +404,7 @@ export function PetOverlay({
                   }`}
                 />
               </PetCareActionButton>
-              <PetCareActionButton label="夸一下" onClick={pet.actions.praise}>
+              <PetCareActionButton label="陪伴" onClick={pet.actions.praise}>
                 <Heart className="size-3.5" />
               </PetCareActionButton>
             </div>
@@ -459,44 +482,82 @@ export function PetOverlay({
           </div>
         ) : null}
 
-        <img
-          alt=""
-          className={`pointer-events-none h-full w-full object-contain ${
-            pet.facing === -1 ? "scale-x-[-1]" : ""
-          }`}
-          draggable={false}
-          src={pet.framePath}
-        />
-        <button
-          aria-label="桌面宠物"
-          className="pointer-events-auto absolute rounded-full bg-transparent focus:outline-none focus-visible:ring-2 focus-visible:ring-app-border-strong"
-          onClick={(event) => {
-            event.currentTarget.blur();
-            if (pet.handlers.click({ playReaction: false })) {
-              // pointerDown 会先把走路中的狐狸钉住；等一帧再展开，避免首次点击按上一帧位置算浮层。
-              if (controlsToggleFrameRef.current !== null) {
-                window.cancelAnimationFrame(controlsToggleFrameRef.current);
-              }
-              controlsToggleFrameRef.current = window.requestAnimationFrame(() => {
-                controlsToggleFrameRef.current = null;
-                setControlsOpen((current) => !current);
-              });
-            }
-          }}
-          onPointerCancel={pet.handlers.pointerCancel}
-          onPointerDown={pet.handlers.pointerDown}
-          onPointerMove={pet.handlers.pointerMove}
-          onPointerUp={pet.handlers.pointerUp}
+        <div
+          ref={petVisualRef}
+          className="pointer-events-none absolute inset-0"
           style={{
-            height: PET_HITBOX_HEIGHT,
-            left: pet.visualCenterX - PET_HITBOX_WIDTH / 2,
-            // 中文注释：命中区覆盖头和身体主体；透明外框不接管触摸，页面其他地方仍然正常上下滑动。
-            top: pet.visualTopOffset + 8,
-            touchAction: "pan-y",
-            width: PET_HITBOX_WIDTH,
+            left: petRenderedLeft - stablePetRenderedLeft,
+            top: petTop - stablePetTop,
           }}
-          type="button"
-        />
+        >
+          <img
+            alt=""
+            className="pointer-events-none h-full w-full object-contain"
+            draggable={false}
+            src={pet.framePath}
+            style={{
+              // 中文注释：动作帧围绕脚底放大，避免吃喝/放下这类帧看起来忽然变小或往上飘。
+              transform: `scaleX(${pet.facing}) scale(${pet.visualScale})`,
+              transformOrigin: `${pet.visualCenterX}px ${PET_BOX_SIZE - pet.visualFootOffset}px`,
+            }}
+          />
+          {pet.sleepEffectVisible ? (
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute z-10 h-12 w-[58px] select-none font-bold leading-none text-[#456da8] drop-shadow-[0_1px_0_rgba(255,255,255,0.92)]"
+              style={{
+                left: pet.visualCenterX + 18,
+                top: pet.visualTopOffset - 28,
+              }}
+            >
+              {/* 中文注释：睡眠符号固定在独立小盒子里做浮动动画，不参与狐狸素材盒子的尺寸计算。 */}
+              {SLEEP_Z_MARKS.map((mark) => (
+                <span
+                  className="absolute opacity-0"
+                  key={`${mark.left}-${mark.top}`}
+                  style={{
+                    animation: `pet-sleep-z 2.4s ease-in-out ${mark.delay} infinite`,
+                    fontSize: mark.size,
+                    left: mark.left,
+                    top: mark.top,
+                  }}
+                >
+                  Z
+                </span>
+              ))}
+            </div>
+          ) : null}
+          <button
+            aria-label="桌面宠物"
+            className="pointer-events-auto absolute rounded-full bg-transparent focus:outline-none focus-visible:ring-2 focus-visible:ring-app-border-strong"
+            onClick={(event) => {
+              event.currentTarget.blur();
+              if (pet.handlers.click({ playReaction: false })) {
+                // pointerDown 会先把走路中的狐狸钉住；等一帧再展开，避免首次点击按上一帧位置算浮层。
+                if (controlsToggleFrameRef.current !== null) {
+                  window.cancelAnimationFrame(controlsToggleFrameRef.current);
+                }
+                controlsToggleFrameRef.current = window.requestAnimationFrame(() => {
+                  controlsToggleFrameRef.current = null;
+                  setControlsOpen((current) => !current);
+                });
+              }
+            }}
+            onPointerCancel={pet.handlers.pointerCancel}
+            onPointerDown={pet.handlers.pointerDown}
+            onPointerMove={pet.handlers.pointerMove}
+            onPointerUp={pet.handlers.pointerUp}
+            style={{
+              height: PET_HITBOX_HEIGHT,
+              left: pet.visualCenterX - PET_HITBOX_WIDTH / 2,
+              // 中文注释：命中区覆盖头和身体主体；透明外框不接管触摸，页面其他地方仍然正常上下滑动。
+              top: pet.visualTopOffset + 8,
+              touchAction: "pan-y",
+              width: PET_HITBOX_WIDTH,
+            }}
+            type="button"
+          />
+        </div>
       </div>
     </div>
   );

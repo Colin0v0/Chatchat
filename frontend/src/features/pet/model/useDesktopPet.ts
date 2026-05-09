@@ -8,7 +8,15 @@ import {
   type PetBehaviorSnapshot,
   type PetMotiveKey,
 } from "./petBehavior";
-import { PET_ANIMATIONS, PET_MAX_FOOT_OFFSET, type PetAnimationKey } from "./petSprites";
+import {
+  PET_ANIMATIONS,
+  PET_MAX_FOOT_OFFSET,
+  PET_UI_CENTER_X,
+  resolvePetFrameCenterX,
+  resolvePetFrameFootOffset,
+  resolvePetFrameScale,
+  type PetAnimationKey,
+} from "./petSprites";
 import type { PetPreferences, PetProactiveLevel } from "./usePetPreferences";
 import type { PetSignal } from "./petSignals";
 
@@ -43,6 +51,7 @@ type DesktopPetOptions = {
 type PetMode = "awake" | "sleeping";
 
 type PetStateSnapshot = {
+  mode: PetMode;
   position: PetPosition;
   stats: PetStats;
 };
@@ -68,14 +77,15 @@ const DEFAULT_PET_FOOT_OFFSET = PET_ANIMATIONS.idle.anchor.footOffset;
 const PAGE_EDGE_PADDING = 12;
 const PET_MIN_BOTTOM = DEFAULT_PET_FOOT_OFFSET + PAGE_EDGE_PADDING;
 const MIN_WALK_DISTANCE = 36;
-const MIN_WALK_MOVE_MS = 1200;
-const MAX_WALK_MOVE_MS = 5200;
 const WALK_SPEED_PX_PER_MS = 0.095;
 const AWAKE_STATS_TICK_MS = 60000;
 const SLEEP_STATS_TICK_MS = 5000;
 const LOW_STAT_ENTER_THRESHOLD = 20;
 const LOW_STAT_RECOVER_THRESHOLD = 25;
+// 中文注释：精力进入“困到发软”这档后就应该自己睡，不要让文案阈值和行为阈值分家。
+const AUTO_SLEEP_THRESHOLD = LOW_STAT_ENTER_THRESHOLD;
 const PET_CHAT_HISTORY_LIMIT = 8;
+const DRAG_EXIT_PADDING = 8;
 const REPEATED_CLICK_WINDOW_MS = 1800;
 const REPEATED_CLICK_LIMIT = 4;
 const LONG_DRAG_REACTION_MS = 6500;
@@ -106,6 +116,7 @@ const INITIAL_STATS: PetStats = {
   thirst: 74,
   updatedAt: Date.now(),
 };
+const INITIAL_MODE: PetMode = "awake";
 const INITIAL_CHAT_MESSAGES: PetChatMessage[] = [
   { id: 1, role: "pet", text: "我是小狐～有话要跟你说呢！" },
 ];
@@ -144,6 +155,7 @@ function applyOfflineDecay(stats: PetStats): PetStats {
 
 function toPetStateSnapshot(payload: PetStateApiResponse): PetStateSnapshot {
   return {
+    mode: payload.sleeping ? "sleeping" : "awake",
     position: payload.position,
     // 中文注释：后端只保存真实数值和服务端更新时间，前端拿到后再结算离线衰减。
     stats: applyOfflineDecay({
@@ -151,10 +163,6 @@ function toPetStateSnapshot(payload: PetStateApiResponse): PetStateSnapshot {
       updatedAt: payload.updatedAt,
     }),
   };
-}
-
-function resolveInitialMode(stats: PetStats): PetMode {
-  return stats.energy <= 20 ? "sleeping" : "awake";
 }
 
 function resolveBaseAnimation(mode: PetMode, lowNeedActive: boolean): PetAnimationKey {
@@ -289,12 +297,8 @@ function clampPosition(position: PetPosition, stageSize: StageSize): PetPosition
 }
 
 function resolveWalkMoveMs(distancePx: number) {
-  // 走路时长跟距离绑定：短距离不要拖成“原地踏步”，长距离也别跑得太急。
-  return clamp(
-    Math.round(distancePx / WALK_SPEED_PX_PER_MS),
-    MIN_WALK_MOVE_MS,
-    MAX_WALK_MOVE_MS,
-  );
+  // 中文注释：走路速度固定为同一套 px/ms，不再按距离夹上下限，否则短距离和长距离看起来快慢不一致。
+  return Math.max(1, Math.round(distancePx / WALK_SPEED_PX_PER_MS));
 }
 
 function resolveAmbientBehaviorDelayMs(level: PetProactiveLevel) {
@@ -305,25 +309,25 @@ function resolveAmbientBehaviorDelayMs(level: PetProactiveLevel) {
 
 function isPointerOutsideViewport(event: PointerEvent<HTMLButtonElement>) {
   return (
-    event.clientX < 0
-    || event.clientY < 0
-    || event.clientX >= window.innerWidth
-    || event.clientY >= window.innerHeight
+    event.clientX < -DRAG_EXIT_PADDING
+    || event.clientY < -DRAG_EXIT_PADDING
+    || event.clientX > window.innerWidth + DRAG_EXIT_PADDING
+    || event.clientY > window.innerHeight + DRAG_EXIT_PADDING
   );
 }
 
 export function useDesktopPet(stageRef: RefObject<HTMLDivElement | null>, options: DesktopPetOptions) {
   const initialStateRef = useRef<PetStateSnapshot | null>(null);
   if (initialStateRef.current === null) {
-    initialStateRef.current = { position: options.targetPosition, stats: INITIAL_STATS };
+    initialStateRef.current = { mode: INITIAL_MODE, position: options.targetPosition, stats: INITIAL_STATS };
   }
 
   const [stageSize, setStageSize] = useState<StageSize>({ height: 0, width: 0 });
-  const [mode, setMode] = useState<PetMode>(() => resolveInitialMode(initialStateRef.current!.stats));
+  const [mode, setMode] = useState<PetMode>(() => initialStateRef.current!.mode);
   const [animation, setAnimation] = useState<PetAnimationKey>(() =>
     resolveBaseAnimation(
-      resolveInitialMode(initialStateRef.current!.stats),
-      resolveInitialMode(initialStateRef.current!.stats) === "awake" && shouldEnterLowNeedPose(initialStateRef.current!.stats),
+      initialStateRef.current!.mode,
+      initialStateRef.current!.mode === "awake" && shouldEnterLowNeedPose(initialStateRef.current!.stats),
     ),
   );
   const [frameIndex, setFrameIndex] = useState(0);
@@ -335,7 +339,10 @@ export function useDesktopPet(stageRef: RefObject<HTMLDivElement | null>, option
   const [chatOpen, setChatOpen] = useState(false);
   const [chatPending, setChatPending] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
-  const [lowNeedActive, setLowNeedActive] = useState(() => shouldEnterLowNeedPose(initialStateRef.current!.stats));
+  const [petStateReady, setPetStateReady] = useState(false);
+  const [lowNeedActive, setLowNeedActive] = useState(() =>
+    initialStateRef.current!.mode === "awake" && shouldEnterLowNeedPose(initialStateRef.current!.stats),
+  );
   const [moveDurationMs, setMoveDurationMs] = useState(0);
   const behavior = resolvePetBehaviorSnapshot({
     context: options.context,
@@ -360,6 +367,7 @@ export function useDesktopPet(stageRef: RefObject<HTMLDivElement | null>, option
   const clickBurstRef = useRef({ count: 0, lastAt: 0 });
   const lastLowStatReactionAtRef = useRef(0);
   const animationRef = useRef(animation);
+  const frameIndexRef = useRef(frameIndex);
   const lowNeedActiveRef = useRef(lowNeedActive);
   const modeRef = useRef(mode);
   const petStateLoadedRef = useRef(false);
@@ -369,13 +377,22 @@ export function useDesktopPet(stageRef: RefObject<HTMLDivElement | null>, option
   const onDragEndRef = useRef(options.onDragEnd);
 
   const animationDefinition = PET_ANIMATIONS[animation];
-  const activeAnchor = animationDefinition.anchor;
-  const framePath = animationDefinition.frames[Math.min(frameIndex, animationDefinition.frames.length - 1)];
+  const activeFrameIndex = Math.min(frameIndex, animationDefinition.frames.length - 1);
+  const activeAnchor = {
+    ...animationDefinition.anchor,
+    footOffset: resolvePetFrameFootOffset(animation, activeFrameIndex),
+    uiCenterX: resolvePetFrameCenterX(animation, activeFrameIndex),
+  };
+  const framePath = animationDefinition.frames[activeFrameIndex];
   behaviorRef.current = behavior;
 
   useEffect(() => {
     animationRef.current = animation;
   }, [animation]);
+
+  useEffect(() => {
+    frameIndexRef.current = frameIndex;
+  }, [frameIndex]);
 
   useEffect(() => {
     lowNeedActiveRef.current = lowNeedActive;
@@ -461,7 +478,7 @@ export function useDesktopPet(stageRef: RefObject<HTMLDivElement | null>, option
       }
 
       const nextPosition = clampPosition(snapshot.position, stageSize);
-      const nextMode = resolveInitialMode(snapshot.stats);
+      const nextMode = snapshot.mode;
       const nextLowNeedActive = nextMode === "awake" && shouldEnterLowNeedPose(snapshot.stats);
       petStateLoadedRef.current = true;
       positionRef.current = nextPosition;
@@ -475,6 +492,7 @@ export function useDesktopPet(stageRef: RefObject<HTMLDivElement | null>, option
       setLowNeedActive(nextLowNeedActive);
       setFrameIndex(0);
       setAnimation(resolveBaseAnimation(nextMode, nextLowNeedActive));
+      setPetStateReady(true);
     }
 
     void loadPetState().catch((error: unknown) => {
@@ -490,6 +508,7 @@ export function useDesktopPet(stageRef: RefObject<HTMLDivElement | null>, option
     if (
       stageSize.width === 0
       || stageSize.height === 0
+      || !petStateReady
       || dragStateRef.current
       || chatOpen
       || options.movementPaused
@@ -551,6 +570,7 @@ export function useDesktopPet(stageRef: RefObject<HTMLDivElement | null>, option
     options.targetPosition.left,
     stageSize.height,
     stageSize.width,
+    petStateReady,
     lowNeedActive,
   ]);
 
@@ -619,7 +639,7 @@ export function useDesktopPet(stageRef: RefObject<HTMLDivElement | null>, option
   }, []);
 
   useEffect(() => {
-    if (!petStateLoadedRef.current) {
+    if (!petStateReady) {
       return;
     }
 
@@ -631,6 +651,7 @@ export function useDesktopPet(stageRef: RefObject<HTMLDivElement | null>, option
     petStateSaveTimerRef.current = window.setTimeout(() => {
       petStateSaveTimerRef.current = null;
       void savePetState({
+        sleeping: modeRef.current === "sleeping",
         position,
         stats: {
           energy: stats.energy,
@@ -649,7 +670,7 @@ export function useDesktopPet(stageRef: RefObject<HTMLDivElement | null>, option
         petStateSaveTimerRef.current = null;
       }
     };
-  }, [position.bottom, position.left, stats.energy, stats.hunger, stats.mood, stats.thirst]);
+  }, [mode, petStateReady, position.bottom, position.left, stats.energy, stats.hunger, stats.mood, stats.thirst]);
 
   useEffect(() => {
     return () => {
@@ -770,11 +791,13 @@ export function useDesktopPet(stageRef: RefObject<HTMLDivElement | null>, option
     }
 
     const rect = visualNode.getBoundingClientRect();
+    const currentCenterX = resolvePetFrameCenterX(animationRef.current, frameIndexRef.current);
+    const currentFootOffset = resolvePetFrameFootOffset(animationRef.current, frameIndexRef.current);
     const currentPosition = clampPosition(
       {
         // 读取浏览器当前渲染位置，动作发生时先把“正在路上”的狐狸钉住。
-        bottom: window.innerHeight - rect.bottom + PET_ANIMATIONS[animationRef.current].anchor.footOffset,
-        left: rect.left,
+        bottom: window.innerHeight - rect.bottom + currentFootOffset,
+        left: rect.left + currentCenterX - PET_UI_CENTER_X,
       },
       stageSize,
     );
@@ -924,7 +947,8 @@ export function useDesktopPet(stageRef: RefObject<HTMLDivElement | null>, option
       return;
     }
 
-    if (stats.energy === 0) {
+    // 中文注释：这里和状态栏保持同一套阈值，看到“困到发软”时狐狸就会主动睡下。
+    if (stats.energy <= AUTO_SLEEP_THRESHOLD) {
       speak("困到不行了");
       startSleeping();
       return;
@@ -1018,7 +1042,8 @@ export function useDesktopPet(stageRef: RefObject<HTMLDivElement | null>, option
     if (clickBurst.count >= REPEATED_CLICK_LIMIT) {
       clickBurst.count = 0;
       speak("别戳啦");
-      playAnimation("surprised", { mood: -2 });
+      // 中文注释：新素材里有专门的生气帧，连续乱点就给它更贴切的反应。
+      playAnimation("angry", { mood: -2 });
       return true;
     }
 
@@ -1152,12 +1177,16 @@ export function useDesktopPet(stageRef: RefObject<HTMLDivElement | null>, option
       pointerUp: handlePointerUp,
     },
     isDragging,
+    isReady: petStateReady,
+    lowNeedActive,
+    sleepEffectVisible: animation === "sleep",
     isSleeping: mode === "sleeping",
     isWalking: animation === "walk" && !isDragging,
     position,
     stats,
     visualCenterX: activeAnchor.uiCenterX,
     visualFootOffset: activeAnchor.footOffset,
+    visualScale: resolvePetFrameScale(animation, activeFrameIndex),
     visualTopOffset: activeAnchor.uiTop,
     moveDurationMs,
   };

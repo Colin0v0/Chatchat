@@ -63,11 +63,13 @@ class PetStateStats(BaseModel):
 
 
 class PetStateUpdate(BaseModel):
+    sleeping: bool
     position: PetStatePosition
     stats: PetStateStats
 
 
 class PetStateResponse(BaseModel):
+    sleeping: bool
     position: PetStatePosition
     stats: PetStateStats
     updatedAt: int
@@ -116,6 +118,7 @@ def _updated_at_ms(state: PetState) -> int:
 
 def _pet_state_response(state: PetState) -> PetStateResponse:
     return PetStateResponse(
+        sleeping=state.sleeping,
         position=PetStatePosition(
             bottom=state.position_bottom,
             left=state.position_left,
@@ -138,6 +141,7 @@ def _ensure_pet_state(db: Session, user_id: int) -> PetState:
     # 中文注释：首次登录时创建一份服务器端初始状态，之后同一用户所有设备都读写这一行。
     state = PetState(
         user_id=user_id,
+        sleeping=False,
         energy=DEFAULT_PET_STATS["energy"],
         hunger=DEFAULT_PET_STATS["hunger"],
         mood=DEFAULT_PET_STATS["mood"],
@@ -274,6 +278,7 @@ def save_pet_state(
 ) -> PetStateResponse:
     state = _ensure_pet_state(db, current_user.id)
     # 中文注释：前端已经按当前窗口裁剪坐标，后端负责保存用户维度的最终状态。
+    state.sleeping = payload.sleeping
     state.energy = payload.stats.energy
     state.hunger = payload.stats.hunger
     state.mood = payload.stats.mood

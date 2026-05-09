@@ -868,17 +868,20 @@ def _build_turn_messages(
         state = _free_debate_state(session)
         if state is not None:
             remaining_ms = state["pro_remaining_ms"] if side == "pro" else state["con_remaining_ms"]
+            # 中文注释：自由辩只按正文输出扣时，思考阶段不进入计时口径。
             time_hint = (
-                f"你当前剩余总时长约 {remaining_ms / 1000:.1f} 秒，包含思考和输出。"
-                "这不是单次发言时长上限，而是本方自由辩论总时长；你可以自行分配每次发言长短，系统只会持续扣减总时间。"
+                f"你当前剩余总时长约 {remaining_ms / 1000:.1f} 秒。"
+                "系统只在你输出正文时扣减时长，思考阶段不计时。"
+                "这不是单次发言时长上限，而是本方自由辩论总时长；你可以自行分配每次发言长短，系统只会持续扣减正文输出时间。"
             )
         opponent_reference = _recent_opponent_turns_text(session, side, limit=1)
     else:
         limit_ms = _stage_turn_budget_ms(session, stage)
         target_seconds = _stage_target_seconds(session, stage)
         if limit_ms is not None and target_seconds is not None:
+            # 中文注释：非自由辩阶段也只按正文开始计算，提示词要和后端计时起点保持一致。
             time_hint = (
-                f"本轮从开始思考到输出结束，最晚必须在 {limit_ms / 1000:.0f} 秒内结束。"
+                f"本轮从正文开始输出到结束，最晚必须在 {limit_ms / 1000:.0f} 秒内结束。"
                 f"你最好在 {target_seconds} 秒内完成主要输出，给网络和流式传输留出缓冲。"
                 "如果感觉说不完，就立刻收束，不要拖到最后。超时会被系统直接截断。"
             )
