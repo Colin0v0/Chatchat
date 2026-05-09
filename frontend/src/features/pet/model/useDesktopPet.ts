@@ -86,8 +86,6 @@ const LOW_STAT_RECOVER_THRESHOLD = 25;
 const AUTO_SLEEP_THRESHOLD = LOW_STAT_ENTER_THRESHOLD;
 const PET_CHAT_HISTORY_LIMIT = 8;
 const DRAG_EXIT_PADDING = 8;
-const REPEATED_CLICK_WINDOW_MS = 1800;
-const REPEATED_CLICK_LIMIT = 4;
 const LONG_DRAG_REACTION_MS = 6500;
 const LOW_STAT_REACTION_INTERVALS: Record<PetProactiveLevel, number> = {
   high: 60000,
@@ -364,7 +362,6 @@ export function useDesktopPet(stageRef: RefObject<HTMLDivElement | null>, option
   const preferencesRef = useRef(options.preferences);
   const awakeTickCountRef = useRef(0);
   const sleepTickCountRef = useRef(0);
-  const clickBurstRef = useRef({ count: 0, lastAt: 0 });
   const lastLowStatReactionAtRef = useRef(0);
   const animationRef = useRef(animation);
   const frameIndexRef = useRef(frameIndex);
@@ -829,12 +826,8 @@ export function useDesktopPet(stageRef: RefObject<HTMLDivElement | null>, option
       return;
     }
 
-    // 业务事件只挑三种最明确的反馈：发送、完成、出错。
-    // 这里不要再复用“手动点击”的 click 动画，不然视觉上会像宠物把两类事件混在一起了。
+    // 业务事件里，发送保持安静；只在完成和出错时给明确反馈，避免用户每次发消息都被动作打断。
     if (signal.type === "send") {
-      speak("我盯着呢");
-      // 中文注释：主聊天发送只在当前位置停脚做表情，不再先跑回输入框或固定点。
-      playAnimation("emotion", { mood: 1 });
       return;
     }
 
@@ -1033,18 +1026,9 @@ export function useDesktopPet(stageRef: RefObject<HTMLDivElement | null>, option
       return true;
     }
 
-    const now = Date.now();
-    const clickBurst = clickBurstRef.current;
-    // 连续点太快就不再当成普通互动，而是让狐狸给一次“被打扰”的反应。
-    clickBurst.count = now - clickBurst.lastAt <= REPEATED_CLICK_WINDOW_MS ? clickBurst.count + 1 : 1;
-    clickBurst.lastAt = now;
-
-    if (clickBurst.count >= REPEATED_CLICK_LIMIT) {
-      clickBurst.count = 0;
-      speak("别戳啦");
-      // 中文注释：新素材里有专门的生气帧，连续乱点就给它更贴切的反应。
-      playAnimation("angry", { mood: -2 });
-      return true;
+    if (!canReturnToBaseAnimation(animationRef.current)) {
+      // 中文注释：点击反应属于一次性动作，播完前不接受新的点击打断，避免刚点一下就被后续点击截断。
+      return false;
     }
 
     speak("嗯？");

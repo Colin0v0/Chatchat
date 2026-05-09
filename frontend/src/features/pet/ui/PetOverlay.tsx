@@ -45,6 +45,7 @@ const PET_HITBOX_WIDTH = 104;
 const PET_HITBOX_HEIGHT = 96;
 const QUICKBAR_WIDTH = 92;
 const QUICKBAR_HEIGHT = 38;
+const QUICKBAR_HORIZONTAL_BIAS = 5;
 const CARE_WIDTH = 292;
 // 照顾面板只保留状态行和照顾入口，避免像系统说明卡一样打断宠物感。
 const CARE_HEIGHT = 236;
@@ -52,7 +53,6 @@ const PANEL_GAP = 8;
 const PAGE_EDGE_PADDING = 12;
 const CHAT_WIDTH = 266;
 const CHAT_HEIGHT = 238;
-const QUICKBAR_AUTO_CLOSE_MS = 5000;
 const STABLE_PANEL_ANCHOR = PET_ANIMATIONS.idle.anchor;
 const SLEEP_Z_MARKS = [
   { delay: "0s", left: 0, size: 13, top: 30 },
@@ -73,9 +73,9 @@ const PET_NEED_TONE_CLASSES: Record<PetNeedTone, string> = {
 };
 
 function PetActionButton({ active = false, children, label, onClick }: PetActionButtonProps) {
-  const buttonClassName = `group/action flex h-8 w-8 items-center justify-center rounded-full border shadow-[0_5px_14px_rgba(34,24,16,0.12)] backdrop-blur transition focus:outline-none focus-visible:ring-2 focus-visible:ring-app-border-strong ${
+  const buttonClassName = `group/action flex h-8 w-8 items-center justify-center rounded-full border backdrop-blur transition focus:outline-none focus-visible:ring-2 focus-visible:ring-app-border-strong ${
     active
-      ? "border-[#f0c45f] bg-[#fff2c2] text-[#9a6315] ring-2 ring-[#f0c45f]/35 hover:-translate-y-1 hover:bg-[#ffe5a3] hover:shadow-[0_8px_18px_rgba(171,111,28,0.22)]"
+      ? "border-[#f0c45f] bg-[#fff2c2] text-[#9a6315] ring-2 ring-[#f0c45f]/35 hover:-translate-y-1 hover:bg-[#ffe5a3]"
       : "border-app-border bg-app-panel-strong/95 text-app-accent-strong hover:-translate-y-0.5 hover:bg-app-panel-soft"
   }`;
 
@@ -158,8 +158,7 @@ export function PetOverlay({
   const [careOpen, setCareOpen] = useState(false);
   const [chatDraft, setChatDraft] = useState("");
   const [controlsOpen, setControlsOpen] = useState(false);
-  const controlsAutoCloseTimerRef = useRef<number | null>(null);
-  const controlsToggleFrameRef = useRef<number | null>(null);
+  const controlsCloseTimerRef = useRef<number | null>(null);
   const [viewportSize, setViewportSize] = useState<ViewportSize>(() => readViewportSize());
   const pet = useDesktopPet(stageRef, {
     activitySignal,
@@ -227,32 +226,32 @@ export function PetOverlay({
 
   useEffect(() => {
     return () => {
-      if (controlsAutoCloseTimerRef.current !== null) {
-        window.clearTimeout(controlsAutoCloseTimerRef.current);
-      }
-
-      if (controlsToggleFrameRef.current !== null) {
-        window.cancelAnimationFrame(controlsToggleFrameRef.current);
+      if (controlsCloseTimerRef.current !== null) {
+        window.clearTimeout(controlsCloseTimerRef.current);
       }
     };
   }, []);
 
-  useEffect(() => {
-    if (controlsAutoCloseTimerRef.current !== null) {
-      window.clearTimeout(controlsAutoCloseTimerRef.current);
-      controlsAutoCloseTimerRef.current = null;
+  function cancelControlsClose() {
+    if (controlsCloseTimerRef.current !== null) {
+      window.clearTimeout(controlsCloseTimerRef.current);
+      controlsCloseTimerRef.current = null;
     }
+  }
 
-    if (!controlsOpen || careOpen || pet.chat.opened) {
-      return;
-    }
+  function openControls() {
+    cancelControlsClose();
+    setControlsOpen(true);
+  }
 
-    // 头顶入口只是临时操作区；不操作时自动收起，狐狸也能继续自己散步。
-    controlsAutoCloseTimerRef.current = window.setTimeout(() => {
-      controlsAutoCloseTimerRef.current = null;
+  function closeControlsSoon() {
+    cancelControlsClose();
+    // 中文注释：给鼠标从狐狸身体挪到上方圆形按钮留一小段缓冲，避免穿过缝隙时闪关。
+    controlsCloseTimerRef.current = window.setTimeout(() => {
+      controlsCloseTimerRef.current = null;
       setControlsOpen(false);
-    }, QUICKBAR_AUTO_CLOSE_MS);
-  }, [careOpen, controlsOpen, pet.chat.opened]);
+    }, 120);
+  }
 
   function handleChatSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -262,7 +261,6 @@ export function PetOverlay({
 
   function openCarePanel() {
     pet.chat.close();
-    setControlsOpen(false);
     setCareOpen(true);
   }
 
@@ -281,12 +279,11 @@ export function PetOverlay({
 
   function openChatPanel() {
     setCareOpen(false);
-    setControlsOpen(false);
     pet.chat.open();
   }
 
   const floatingPanelOpen = careOpen || pet.chat.opened;
-  // 头顶操作改成“点狐狸才展开”，避免 hover 反复抢焦点、遮挡气泡和面板。
+  // 头顶操作改成 hover 才展开；真正点击重新留给狐狸自己的互动动作。
   const quickbarVisible = controlsOpen && !pet.isDragging && !floatingPanelOpen;
   const stablePetRenderedBottom = pet.position.bottom - STABLE_PANEL_ANCHOR.footOffset;
   const petRenderedBottom = pet.position.bottom - pet.visualFootOffset;
@@ -303,7 +300,11 @@ export function PetOverlay({
     : PET_BOX_SIZE + PANEL_GAP;
   const quickbarLeft = Math.min(
     viewportSize.width - QUICKBAR_WIDTH - PAGE_EDGE_PADDING - stablePetRenderedLeft,
-    Math.max(PAGE_EDGE_PADDING - stablePetRenderedLeft, STABLE_PANEL_ANCHOR.uiCenterX - QUICKBAR_WIDTH / 2),
+    // 中文注释：hover 圆按钮故意偏到狐狸一侧，不压在正中间，看起来更像悬浮入口。
+    Math.max(
+      PAGE_EDGE_PADDING - stablePetRenderedLeft,
+      STABLE_PANEL_ANCHOR.uiCenterX - QUICKBAR_WIDTH / 2 + QUICKBAR_HORIZONTAL_BIAS,
+    ),
   );
   const careFitsAbove = stableVisualTop >= CARE_HEIGHT + PANEL_GAP + PAGE_EDGE_PADDING;
   const careTop = careFitsAbove ? STABLE_PANEL_ANCHOR.uiTop - CARE_HEIGHT - PANEL_GAP : PET_BOX_SIZE + PANEL_GAP;
@@ -341,6 +342,8 @@ export function PetOverlay({
       >
         <div
           className={quickbarClassName}
+          onPointerEnter={openControls}
+          onPointerLeave={closeControlsSoon}
           style={{
             height: QUICKBAR_HEIGHT,
             left: quickbarLeft,
@@ -532,19 +535,12 @@ export function PetOverlay({
             className="pointer-events-auto absolute rounded-full bg-transparent focus:outline-none focus-visible:ring-2 focus-visible:ring-app-border-strong"
             onClick={(event) => {
               event.currentTarget.blur();
-              if (pet.handlers.click({ playReaction: false })) {
-                // pointerDown 会先把走路中的狐狸钉住；等一帧再展开，避免首次点击按上一帧位置算浮层。
-                if (controlsToggleFrameRef.current !== null) {
-                  window.cancelAnimationFrame(controlsToggleFrameRef.current);
-                }
-                controlsToggleFrameRef.current = window.requestAnimationFrame(() => {
-                  controlsToggleFrameRef.current = null;
-                  setControlsOpen((current) => !current);
-                });
-              }
+              pet.handlers.click();
             }}
+            onPointerEnter={openControls}
             onPointerCancel={pet.handlers.pointerCancel}
             onPointerDown={pet.handlers.pointerDown}
+            onPointerLeave={closeControlsSoon}
             onPointerMove={pet.handlers.pointerMove}
             onPointerUp={pet.handlers.pointerUp}
             style={{
