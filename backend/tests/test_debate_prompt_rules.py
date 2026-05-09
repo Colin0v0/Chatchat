@@ -80,6 +80,7 @@ class DebatePromptRuleTests(unittest.TestCase):
         self.assertIn("只针对对方上一轮最关键的一击或问题", messages[0].content)
         self.assertIn("观点、逻辑、类比/例子/数字、追问", messages[0].content)
         self.assertIn("必须先正面回答，再顺势抛出新的追问", messages[0].content)
+        self.assertIn("系统只在你输出正文时扣减时长，思考阶段不计时。", messages[0].content)
         self.assertIn("先直接回答对方或裁判刚刚抛出的攻击/问题", messages[1].content)
 
         user_prefix = messages[1].content.split("裁判最新追问：")[0]
@@ -133,6 +134,8 @@ class DebatePromptRuleTests(unittest.TestCase):
         self.assertIn("归纳我方已经打成的优势", messages[0].content)
         self.assertIn("不要再抛新的追问", messages[1].content)
         self.assertIn("把我方已经打成的 2 到 3 个核心胜点归纳清楚", messages[1].content)
+        self.assertIn("本轮从正文开始输出到结束", messages[0].content)
+        self.assertNotIn("从开始思考到输出结束", messages[0].content)
         self.assertNotIn("每一段都尽量做到：有观点、有逻辑、有类比/例子/数字、有追问。", messages[1].content)
 
     def test_summary_prompt_requires_grounded_lift(self):

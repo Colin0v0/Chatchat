@@ -13,12 +13,14 @@ export type PetStateStats = {
 };
 
 export type PetStateApiResponse = {
+  sleeping: boolean;
   position: PetStatePosition;
   stats: PetStateStats;
   updatedAt: number;
 };
 
 export type PetStateApiUpdate = {
+  sleeping: boolean;
   position: PetStatePosition;
   stats: PetStateStats;
 };

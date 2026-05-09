@@ -96,14 +96,15 @@ function FreeDebateClockCard({
     : isWarning
       ? "text-[#8b673d]"
       : "text-app-text";
+  // 中文注释：自由辩面板要明确告诉用户，只有正文输出阶段才会真实扣时。
   const statusLabel = isImminent
     ? "即将截断"
     : isWarning
       ? "即将到时"
       : active
         ? counting
-          ? "当前正在消耗时间"
-          : "正在思考"
+          ? "正文输出计时中"
+          : "思考中，不计时"
         : "等待发言";
   const statusClass = isImminent
     ? "text-[#b44131]"
@@ -179,14 +180,14 @@ export function DebateStageHeader({
             <FreeDebateClockCard
               active={proActive}
               counting={proCounting}
-              label="正方计时"
+              label="正方剩余总时长"
               remainingMs={proRemainingMs}
               side="pro"
             />
             <FreeDebateClockCard
               active={conActive}
               counting={conCounting}
-              label="反方计时"
+              label="反方剩余总时长"
               remainingMs={conRemainingMs}
               side="con"
             />
