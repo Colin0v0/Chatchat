@@ -7,6 +7,7 @@ import type {
   DebateSessionDetail,
   DebateStage,
   DebateStreamEvent,
+  DebateTurn,
   DebateWinner,
 } from "../../../types";
 import { FLOW_STEPS, STAGE_LABEL, WINNER_LABEL } from "../lib/debateRoomConstants";
@@ -172,6 +173,8 @@ export function DebateRoomView({
   onTransientStateChange,
   onStreamEvent,
   onSessionChange,
+  onModelLoveScoreChange,
+  onModelUsageCountChange,
 }: {
   session: DebateSessionDetail;
   isSessionRunning?: boolean;
@@ -195,6 +198,8 @@ export function DebateRoomView({
   ) => void;
   onStreamEvent?: (sessionId: number, event: DebateStreamEvent) => void;
   onSessionChange: (session: DebateSessionDetail) => void;
+  onModelLoveScoreChange?: (modelId: string, delta: number) => void;
+  onModelUsageCountChange?: (modelId: string, delta: number) => void;
 }) {
   const [roomSession, setRoomSession] = useState(() => normalizeRoomSession(session));
   const [askTarget, setAskTarget] = useState<DebateAskTarget>("all");
@@ -238,6 +243,7 @@ export function DebateRoomView({
   const requestControllersRef = useRef<Set<AbortController>>(new Set());
   const attachedRunKeyRef = useRef<string | null>(null);
   const pendingReplayResetRunKeyRef = useRef<string | null>(null);
+  const countedUsageTurnIdsRef = useRef<Set<number | string>>(new Set());
   const streamEpochRef = useRef(0);
   const applySessionStreamEvent = useCallback(
     (event: DebateStreamEvent) => {
@@ -490,6 +496,25 @@ export function DebateRoomView({
   const stageFixedBudgetMs = stageBudgetMs(roomSession, roomSession.stage);
   const showStageTimer = roomSession.stage !== "judge_decision";
 
+  const markDebateTurnUsageCounted = useCallback(
+    (turn: DebateTurn) => {
+      if (turn.kind !== "speaker_turn" || turn.speaker_participant_id == null) {
+        return;
+      }
+      if (countedUsageTurnIdsRef.current.has(turn.id)) {
+        return;
+      }
+      const modelId = participantMap.get(turn.speaker_participant_id)?.model_id.trim();
+      if (!modelId) {
+        return;
+      }
+      countedUsageTurnIdsRef.current.add(turn.id);
+      // 中文注释：辩论每个 speaker_turn 都对应一次参赛模型调用，turn_done 时同步模型榜调用数。
+      onModelUsageCountChange?.(modelId, 1);
+    },
+    [onModelUsageCountChange, participantMap],
+  );
+
   useEffect(() => {
     const hasFreeDebateTicker =
       !!freeDebateState?.active_side && !!freeDebateState.active_turn_started_at;
@@ -735,6 +760,7 @@ export function DebateRoomView({
         pendingReplayResetRunKeyRef.current = null;
         setActiveStreamingTurnId(null);
         setActiveStreamingTurnStartedAtMs(null);
+        updateSidebarRunning(false);
         setActionError(event.message);
         applySessionStreamEvent(event);
         return;
@@ -751,9 +777,14 @@ export function DebateRoomView({
         }
       }
       if (event.type === "turn_done" || event.type === "done") {
+        if (event.type === "turn_done") {
+          markDebateTurnUsageCounted(event.turn);
+        }
         if (event.type === "done") {
           attachedRunKeyRef.current = null;
           pendingReplayResetRunKeyRef.current = null;
+          // 中文注释：done 是服务端运行结束信号，侧边栏必须立刻停掉转圈状态。
+          updateSidebarRunning(false);
         }
         setActiveStreamingTurnId(null);
         setActiveStreamingTurnStartedAtMs(null);
@@ -762,6 +793,8 @@ export function DebateRoomView({
         setAiSuggestion(null);
         setJudgeAnalysisStream("");
         onTransientStateChange?.(session.id, null);
+        // 中文注释：裁决一保存，用户视角里的辩论已经完成；后续摘要流不再占用侧边栏运行态。
+        updateSidebarRunning(false);
       }
       if (event.type === "judge_analysis_token") {
         options?.onJudgeAnalysis?.();
@@ -819,7 +852,16 @@ export function DebateRoomView({
 
       applySessionStreamEvent(event);
     },
-    [applySessionStreamEvent, onTransientStateChange, session.id, syncActiveRunProgress, transientState?.lastSeq, transientState?.runKey],
+    [
+      applySessionStreamEvent,
+      markDebateTurnUsageCounted,
+      onTransientStateChange,
+      session.id,
+      syncActiveRunProgress,
+      transientState?.lastSeq,
+      transientState?.runKey,
+      updateSidebarRunning,
+    ],
   );
 
   useEffect(() => {
@@ -1119,6 +1161,10 @@ export function DebateRoomView({
     setRunningAction("decision");
     updateSidebarRunning(true);
     const { controller, epoch } = beginStreamScope();
+    const previousWinner =
+      roomSession.judge_decision?.winner_side === "pro" || roomSession.judge_decision?.winner_side === "con"
+        ? roomSession.judge_decision.winner_side
+        : null;
 
     try {
       await streamDebateDecision(
@@ -1152,6 +1198,26 @@ export function DebateRoomView({
       if (!isCurrentStreamScope(epoch)) {
         return;
       }
+      const nextWinner =
+        refreshed.judge_decision?.winner_side === "pro" || refreshed.judge_decision?.winner_side === "con"
+          ? refreshed.judge_decision.winner_side
+          : null;
+      const modelIdForSide = (side: "pro" | "con") =>
+        refreshed.participants.find((participant) => participant.side === side)?.model_id.trim() ?? "";
+      if (previousWinner && previousWinner !== nextWinner) {
+        const previousModelId = modelIdForSide(previousWinner);
+        if (previousModelId) {
+          // 中文注释：重新裁决时，旧胜方要把之前加过的全局喜爱数退回。
+          onModelLoveScoreChange?.(previousModelId, -1);
+        }
+      }
+      if (nextWinner && previousWinner !== nextWinner) {
+        const nextModelId = modelIdForSide(nextWinner);
+        if (nextModelId) {
+          // 中文注释：辩论胜方和普通点赞、Battle 胜方一样，立即同步到模型榜。
+          onModelLoveScoreChange?.(nextModelId, 1);
+        }
+      }
       onSessionChange(normalizeRoomSession(refreshed));
     } catch (error) {
       if (controller.signal.aborted || !isCurrentStreamScope(epoch)) {
@@ -1182,10 +1248,12 @@ export function DebateRoomView({
     judgeComment,
     markLocalActiveRun,
     onSessionChange,
+    onModelLoveScoreChange,
     applySessionStreamEvent,
     onTransientStateChange,
     proScore,
     releaseRequestController,
+    roomSession.judge_decision,
     roomSession.id,
     runningAction,
     syncFromServer,

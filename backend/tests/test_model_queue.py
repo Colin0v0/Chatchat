@@ -132,6 +132,35 @@ class ModelExecutionCoordinatorTests(unittest.IsolatedAsyncioTestCase):
         await third.release()
         await fourth_task
 
+    async def test_release_fills_all_available_slots_for_waiters(self):
+        coordinator = ModelExecutionCoordinator(max_concurrency_per_model=3)
+
+        active = [
+            await coordinator.reserve("openai:deepseek-chat"),
+            await coordinator.reserve("openai:deepseek-chat"),
+            await coordinator.reserve("openai:deepseek-chat"),
+        ]
+        waiters = [
+            await coordinator.reserve("openai:deepseek-chat"),
+            await coordinator.reserve("openai:deepseek-chat"),
+            await coordinator.reserve("openai:deepseek-chat"),
+        ]
+
+        started = [asyncio.Event() for _ in waiters]
+
+        async def run_waiter(index: int) -> None:
+            await waiters[index].wait()
+            started[index].set()
+
+        tasks = [asyncio.create_task(run_waiter(index)) for index in range(len(waiters))]
+        await asyncio.sleep(0)
+        self.assertTrue(all(not event.is_set() for event in started))
+
+        await asyncio.gather(*(reservation.release() for reservation in active))
+        await asyncio.gather(*(asyncio.wait_for(event.wait(), timeout=1) for event in started))
+        await asyncio.gather(*(reservation.release() for reservation in waiters))
+        await asyncio.gather(*tasks)
+
 
 if __name__ == "__main__":
     unittest.main()

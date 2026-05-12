@@ -43,6 +43,8 @@ interface DebateCreatePayload {
 interface UseDebateModeOptions {
   query: string;
   setError: (message: string | null) => void;
+  onModelLoveScoreChange?: (modelId: string, delta: number) => void;
+  onModelUsageCountChange?: (modelId: string, delta: number) => void;
 }
 
 const DEBATE_TRANSIENT_STATE_STORAGE_KEY = "chatchat.debate-transient-states";
@@ -161,7 +163,12 @@ function mergeDebateSessionWithCache(
   };
 }
 
-export function useDebateMode({ query, setError }: UseDebateModeOptions) {
+export function useDebateMode({
+  query,
+  setError,
+  onModelLoveScoreChange,
+  onModelUsageCountChange,
+}: UseDebateModeOptions) {
   const [initialDebateSummariesCache] = useState(() => loadStoredDebateSummariesCache());
   const [sessions, setSessions] = useState<DebateSessionSummary[]>(() => initialDebateSummariesCache ?? []);
   const [sessionsLoaded, setSessionsLoaded] = useState(() => initialDebateSummariesCache !== null);
@@ -540,6 +547,17 @@ export function useDebateMode({ query, setError }: UseDebateModeOptions) {
     setActiveSession((current) => (current && current.id === session.id ? session : current));
   }, []);
 
+  const clearRunningOverride = useCallback((sessionId: number) => {
+    setActivityOverrides((current) => {
+      if (!current[sessionId]) {
+        return current;
+      }
+
+      const { [sessionId]: _removed, ...rest } = current;
+      return rest;
+    });
+  }, []);
+
   const handleStreamEvent = useCallback(
     (sessionId: number, event: DebateStreamEvent) => {
       const baseSession =
@@ -570,9 +588,13 @@ export function useDebateMode({ query, setError }: UseDebateModeOptions) {
         };
       }
       sessionCacheRef.current.set(sessionId, nextSession);
+      if (event.type === "done" || event.type === "error" || event.type === "decision_saved") {
+        // 中文注释：流事件自己就是运行态边界，父级列表也要同步清掉转圈覆盖态。
+        clearRunningOverride(sessionId);
+      }
       setActiveSession((current) => (current && current.id === sessionId ? nextSession : current));
     },
-    [activeSession],
+    [activeSession, clearRunningOverride],
   );
 
   const handleActivityChange = useCallback((sessionId: number, nextActivity: { running: boolean; unread: boolean }) => {
@@ -619,6 +641,8 @@ export function useDebateMode({ query, setError }: UseDebateModeOptions) {
         onTransientStateChange: updateTransientState,
         onStreamEvent: handleStreamEvent,
         onSessionChange: syncSession,
+        onModelLoveScoreChange,
+        onModelUsageCountChange,
       }
     : null;
 

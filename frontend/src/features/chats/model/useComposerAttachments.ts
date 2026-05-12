@@ -61,7 +61,9 @@ function toDraft(file: File): ComposerAttachmentDraft {
 
 function revokePreviewUrl(attachment: ComposerAttachmentDraft) {
   if (attachment.previewUrl) {
-    URL.revokeObjectURL(attachment.previewUrl);
+    const { previewUrl } = attachment;
+    // 中文注释：等 React 提交卸载后再释放 blob URL，避免图片节点还在旧帧里引用它。
+    window.setTimeout(() => URL.revokeObjectURL(previewUrl), 0);
   }
 }
 

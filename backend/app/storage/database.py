@@ -69,5 +69,9 @@ def get_db():
     db = SessionLocal()
     try:
         yield db
+    except Exception:
+        # 中文注释：请求中途抛错时先回滚，避免同一个 Session 挂着未完成事务进入 close。
+        db.rollback()
+        raise
     finally:
         db.close()

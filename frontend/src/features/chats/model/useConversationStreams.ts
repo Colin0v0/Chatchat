@@ -756,6 +756,14 @@ export function useConversationStreams({
 
   useEffect(() => {
     return () => {
+      Object.values(streamSessionsRef.current).forEach((session) => {
+        if (session.status === "running" && session.conversation.id > 0) {
+          // 中文注释：组件卸载时也要通知后端取消，否则仅 abort fetch 会让后台模型流继续占并发槽。
+          void cancelActiveChat(session.conversation.id).catch((error: unknown) => {
+            console.error("Failed to cancel active chat on unmount", error);
+          });
+        }
+      });
       Object.values(sessionControllersRef.current).forEach((controller) => controller.abort());
       Object.values(pendingStageTimeoutsRef.current).forEach((timeoutId) => {
         window.clearTimeout(timeoutId);

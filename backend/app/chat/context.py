@@ -24,6 +24,7 @@ def save_assistant_message(
     reasoning: str | None = None,
     sources: list[dict[str, str | float | None]],
     context_payload: dict[str, object] | None = None,
+    commit: bool = True,
 ) -> Message:
     source_user = next((message for message in conversation.messages if message.role == "user"), None)
     if source_user is not None and should_refresh_title(
@@ -49,8 +50,13 @@ def save_assistant_message(
     conversation.updated_at = datetime.now(timezone.utc)
     db.add(assistant_message)
     db.add(conversation)
-    db.commit()
-    db.refresh(assistant_message)
+    if commit:
+        db.commit()
+        db.refresh(assistant_message)
+    else:
+        # 中文注释：流式 run 完成时，assistant 消息和 Run 状态要在同一个事务里落库。
+        # 这样不会出现消息已提交、Run 仍卡在 running 的半完成状态。
+        db.flush()
     return assistant_message
 
 

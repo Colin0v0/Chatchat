@@ -83,6 +83,9 @@ class ProviderPreset:
     api_key: str | None
 
 
+_MODEL_PROFILES_CACHE: dict[tuple[str, bool, int | None, int | None], list[ModelProfile]] = {}
+
+
 def _provider_family(provider_name: str) -> str:
     if provider_name in {"openai", "codex", "trio"}:
         return "openai"
@@ -516,11 +519,22 @@ def _parse_profiles(payload: dict[str, object]) -> list[ModelProfile]:
 def _load_model_profiles(*, strict: bool | None = None) -> list[ModelProfile]:
     strict_mode = settings.model_catalog_strict if strict is None else strict
     path = _resolve_catalog_path()
+    try:
+        stat = path.stat()
+        cache_key = (str(path), strict_mode, stat.st_mtime_ns, stat.st_size)
+    except FileNotFoundError:
+        cache_key = (str(path), strict_mode, None, None)
+
+    cached_profiles = _MODEL_PROFILES_CACHE.get(cache_key)
+    if cached_profiles is not None:
+        return list(cached_profiles)
+
     if not path.exists():
         message = f"Model catalog file does not exist: {path}"
         if strict_mode:
             raise ModelCatalogError(message)
         logger.warning(message)
+        _MODEL_PROFILES_CACHE[cache_key] = []
         return []
 
     try:
@@ -540,13 +554,21 @@ def _load_model_profiles(*, strict: bool | None = None) -> list[ModelProfile]:
         return []
 
     try:
-        return _parse_profiles(payload)
+        profiles = _parse_profiles(payload)
     except ModelCatalogError as exc:
         message = f"Invalid model catalog at {path}: {exc}"
         if strict_mode:
             raise ModelCatalogError(message) from exc
         logger.warning(message)
-        return []
+        profiles = []
+
+    # 中文注释：模型目录是进程级配置，按文件指纹缓存，避免每次请求重复读盘和解析 JSON。
+    _MODEL_PROFILES_CACHE[cache_key] = profiles
+    return list(profiles)
+
+
+def clear_model_catalog_cache() -> None:
+    _MODEL_PROFILES_CACHE.clear()
 
 
 def list_model_profiles() -> list[ModelProfile]:

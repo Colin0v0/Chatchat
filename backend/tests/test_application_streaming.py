@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import pytest
+from fastapi import HTTPException
+
 from app.application import streaming
+from app.application.chat import stream_active_chat_response
 from app.runtime import streaming as runtime_streaming
 
 
@@ -60,3 +64,18 @@ def test_runtime_stream_mode_response_wraps_mode_stream(monkeypatch):
     assert captured["mode_name"] == "chat"
     assert captured["action"] == "run"
     assert captured["request"] is request
+
+
+@pytest.mark.anyio
+async def test_stream_active_chat_response_returns_404_when_run_is_gone(monkeypatch):
+    class FakeRegistry:
+        async def attach_existing(self, conversation_id: int, *, after_seq=None):
+            return None
+
+    request = type("Request", (), {"app": type("App", (), {"state": type("State", (), {})()})()})()
+    request.app.state.chat_run_registry = FakeRegistry()
+
+    with pytest.raises(HTTPException) as exc:
+        await stream_active_chat_response(request=request, conversation_id=7)
+
+    assert exc.value.status_code == 404

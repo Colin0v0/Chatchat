@@ -1,4 +1,4 @@
-import { Check, Copy } from "lucide-react";
+import { Check, Copy, Heart, MessagesSquare } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { providerBadgeLabel, reasoningDisplayLabel } from "../lib/modelCapabilities";
@@ -6,7 +6,7 @@ import type { ModelOption } from "../../../types";
 import { ModelProviderIcon } from "./model-icons/ModelProviderIcon";
 import { WorkspacePage } from "../../../shared/ui/WorkspacePage";
 
-const MODEL_TABLE_COLUMNS = "grid-cols-[minmax(210px,2.8fr)_150px_220px_150px_120px]";
+const MODEL_TABLE_COLUMNS = "grid-cols-[minmax(220px,1.8fr)_110px_220px_130px_100px_90px_90px]";
 
 function providerLabel(model: ModelOption): string {
   return providerBadgeLabel(model) || model.provider_name || model.provider_family || "未知";
@@ -46,6 +46,14 @@ function supportsTools(model: ModelOption): boolean {
   return Boolean(model.capabilities?.tools.function_calling);
 }
 
+function loveScore(model: ModelOption): number {
+  return Math.max(0, model.love_score ?? 0);
+}
+
+function usageCount(model: ModelOption): number {
+  return Math.max(0, model.usage_count ?? 0);
+}
+
 function inputLabel(model: ModelOption): string {
   const labels = ["文本"];
   if (supportsImage(model)) {
@@ -82,7 +90,17 @@ export function ModelsPage({
   selectedModel: string;
 }) {
   const [copiedModelId, setCopiedModelId] = useState<string | null>(null);
-  const sortedModels = [...models].sort((left, right) => left.label.localeCompare(right.label));
+  const sortedModels = [...models].sort((left, right) => {
+    const loveScoreDiff = loveScore(right) - loveScore(left);
+    if (loveScoreDiff !== 0) {
+      return loveScoreDiff;
+    }
+    const usageCountDiff = usageCount(right) - usageCount(left);
+    if (usageCountDiff !== 0) {
+      return usageCountDiff;
+    }
+    return left.label.localeCompare(right.label);
+  });
 
   useEffect(() => {
     if (!copiedModelId) {
@@ -104,13 +122,15 @@ export function ModelsPage({
       {sortedModels.length > 0 ? (
         <section>
           <div className="app-scrollbar overflow-x-auto">
-            <div className="min-w-[900px]">
+            <div className="min-w-[1120px]">
               <div className={`grid ${MODEL_TABLE_COLUMNS} gap-4 border-b border-app-border pb-3 text-[14px] text-app-muted`}>
                 <div>模型</div>
                 <div>厂商</div>
                 <div>输入</div>
                 <div>推理</div>
                 <div>工具调用</div>
+                <div>喜爱数</div>
+                <div>调用数</div>
               </div>
 
               <div className="divide-y divide-app-border">
@@ -162,9 +182,17 @@ export function ModelsPage({
                       </div>
 
                       <div className="text-app-text">{providerLabel(model)}</div>
-                      <div className="text-app-text">{inputLabel(model)}</div>
+                      <div className="whitespace-nowrap text-app-text">{inputLabel(model)}</div>
                       <div className="text-app-text">{reasoningLabel(model)}</div>
                       <div className="text-app-text">{supportsTools(model) ? "支持" : "关闭"}</div>
+                      <div className="flex items-center gap-1.5 text-app-text">
+                        <Heart className="size-4 text-[#d96c81]" />
+                        <span className="font-medium">{loveScore(model)}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 text-app-text">
+                        <MessagesSquare className="size-4 text-app-muted" />
+                        <span className="font-medium">{usageCount(model)}</span>
+                      </div>
                     </div>
                   );
                 })}

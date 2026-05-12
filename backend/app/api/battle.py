@@ -18,6 +18,10 @@ from ..chat.state import get_chat_services
 from ..multimodal.file_types import resolve_attachment_type
 from ..runtime.model_runner import stream_model_response
 from ..schemas import (
+    BattlePreferenceDatasetRowOut,
+    BattlePreferenceModelStatOut,
+    BattlePreferenceSummaryOut,
+    BattleRoundPayload,
     BattleSessionCreateIn,
     BattleSessionDetailOut,
     BattleSessionRenameIn,
@@ -122,6 +126,91 @@ def _battle_session_detail_payload(session: BattleSession) -> BattleSessionDetai
     )
 
 
+def _side_model_value(round_payload: BattleRoundPayload, side_id: str, key: str) -> str:
+    side = round_payload.sides.a if side_id == "a" else round_payload.sides.b
+    value = side.model.get(key)
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"Battle side {side_id} model.{key} must be a non-empty string")
+    return value.strip()
+
+
+def _battle_preference_rows(sessions: list[BattleSession]) -> list[BattlePreferenceDatasetRowOut]:
+    rows: list[BattlePreferenceDatasetRowOut] = []
+    for session in sessions:
+        for raw_round in session.rounds:
+            round_payload = BattleRoundPayload.model_validate(raw_round)
+            if round_payload.vote is None:
+                continue
+
+            model_a_id = _side_model_value(round_payload, "a", "id")
+            model_a_label = _side_model_value(round_payload, "a", "label")
+            model_b_id = _side_model_value(round_payload, "b", "id")
+            model_b_label = _side_model_value(round_payload, "b", "label")
+            preferred_side = round_payload.vote if round_payload.vote in {"a", "b"} else None
+            preferred_model_id = model_a_id if preferred_side == "a" else model_b_id if preferred_side == "b" else None
+            rejected_model_id = model_b_id if preferred_side == "a" else model_a_id if preferred_side == "b" else None
+            rows.append(
+                BattlePreferenceDatasetRowOut(
+                    session_id=session.id,
+                    session_title=session.title,
+                    round_id=round_payload.id,
+                    prompt=round_payload.prompt,
+                    vote=round_payload.vote,
+                    preferred_side=preferred_side,
+                    preferred_model_id=preferred_model_id,
+                    rejected_model_id=rejected_model_id,
+                    model_a_id=model_a_id,
+                    model_a_label=model_a_label,
+                    model_b_id=model_b_id,
+                    model_b_label=model_b_label,
+                    answer_a=round_payload.sides.a.content,
+                    answer_b=round_payload.sides.b.content,
+                    created_at=round_payload.createdAt,
+                )
+            )
+    return rows
+
+
+def _battle_preference_summary(rows: list[BattlePreferenceDatasetRowOut]) -> BattlePreferenceSummaryOut:
+    stats: dict[str, BattlePreferenceModelStatOut] = {}
+
+    def ensure_model(model_id: str, label: str) -> BattlePreferenceModelStatOut:
+        current = stats.get(model_id)
+        if current is not None:
+            return current
+        current = BattlePreferenceModelStatOut(model_id=model_id, label=label)
+        stats[model_id] = current
+        return current
+
+    for row in rows:
+        a_stat = ensure_model(row.model_a_id, row.model_a_label)
+        b_stat = ensure_model(row.model_b_id, row.model_b_label)
+        a_stat.appearances += 1
+        b_stat.appearances += 1
+        if row.vote == "a":
+            a_stat.wins += 1
+            b_stat.losses += 1
+        elif row.vote == "b":
+            b_stat.wins += 1
+            a_stat.losses += 1
+        elif row.vote == "both_good":
+            a_stat.both_good += 1
+            b_stat.both_good += 1
+        elif row.vote == "both_bad":
+            a_stat.both_bad += 1
+            b_stat.both_bad += 1
+
+    # 中文注释：这里输出的是用户真实投票沉淀，后续可以直接导出做模型偏好评估集。
+    return BattlePreferenceSummaryOut(
+        voted_rounds=len(rows),
+        a_wins=sum(1 for row in rows if row.vote == "a"),
+        b_wins=sum(1 for row in rows if row.vote == "b"),
+        both_good=sum(1 for row in rows if row.vote == "both_good"),
+        both_bad=sum(1 for row in rows if row.vote == "both_bad"),
+        model_stats=sorted(stats.values(), key=lambda item: (-item.wins, -item.appearances, item.label)),
+    )
+
+
 def _extract_battle_media_paths(rounds: list[dict[str, object]]) -> list[str]:
     paths: list[str] = []
     for round_item in rounds:
@@ -149,6 +238,33 @@ def list_battle_sessions(
         .order_by(desc(BattleSession.updated_at), desc(BattleSession.id))
     ).all()
     return [_battle_session_summary_payload(session) for session in sessions]
+
+
+def _load_user_battle_sessions(db: Session, user_id: int) -> list[BattleSession]:
+    return list(
+        db.scalars(
+            select(BattleSession)
+            .where(BattleSession.user_id == user_id)
+            .order_by(desc(BattleSession.updated_at), desc(BattleSession.id))
+        ).all()
+    )
+
+
+@router.get("/preferences/summary", response_model=BattlePreferenceSummaryOut)
+def get_battle_preference_summary(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
+    rows = _battle_preference_rows(_load_user_battle_sessions(db, current_user.id))
+    return _battle_preference_summary(rows)
+
+
+@router.get("/preferences/dataset", response_model=list[BattlePreferenceDatasetRowOut])
+def get_battle_preference_dataset(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
+    return _battle_preference_rows(_load_user_battle_sessions(db, current_user.id))
 
 
 @router.post("/sessions", response_model=BattleSessionDetailOut)

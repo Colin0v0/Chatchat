@@ -145,6 +145,43 @@ class BattleSessionDetailOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class BattlePreferenceModelStatOut(BaseModel):
+    model_id: str
+    label: str
+    wins: int = 0
+    losses: int = 0
+    both_good: int = 0
+    both_bad: int = 0
+    appearances: int = 0
+
+
+class BattlePreferenceSummaryOut(BaseModel):
+    voted_rounds: int = 0
+    a_wins: int = 0
+    b_wins: int = 0
+    both_good: int = 0
+    both_bad: int = 0
+    model_stats: list[BattlePreferenceModelStatOut] = Field(default_factory=list)
+
+
+class BattlePreferenceDatasetRowOut(BaseModel):
+    session_id: int
+    session_title: str
+    round_id: str
+    prompt: str
+    vote: BattleVote
+    preferred_side: Optional[BattleSideId] = None
+    preferred_model_id: Optional[str] = None
+    rejected_model_id: Optional[str] = None
+    model_a_id: str
+    model_a_label: str
+    model_b_id: str
+    model_b_label: str
+    answer_a: str
+    answer_b: str
+    created_at: str
+
+
 class BattleSessionCreateIn(BaseModel):
     title: str = Field(min_length=1, max_length=255)
     rounds: list[BattleRoundPayload] = Field(default_factory=list)

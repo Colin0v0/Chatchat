@@ -214,6 +214,7 @@ async def stream_chat_run(
                 content=prompt_context.refusal_message,
                 sources=[],
                 context_payload=None,
+                commit=False,
             )
             terminal_lines = trace.persist_completion(
                 response_message_id=assistant_message.id,
@@ -302,12 +303,7 @@ async def stream_chat_run(
             reasoning=full_reasoning or None,
             sources=prompt_context.sources,
             context_payload=prompt_composition.inspection,
-        )
-        services.memory_service.schedule_refresh(
-            conversation_id=conversation.id,
-            user_message_id=message_id,
-            assistant_message_id=assistant_message.id,
-            response_model=model,
+            commit=False,
         )
 
         done_event = completed_event(
@@ -316,22 +312,19 @@ async def stream_chat_run(
             content=full_response,
             run_id=trace.run_id,
         )
+        trace.persist_completion_state(
+            response_message_id=assistant_message.id,
+            terminal_events=[done_event],
+        )
+        services.memory_service.schedule_refresh(
+            conversation_id=conversation.id,
+            user_message_id=message_id,
+            assistant_message_id=assistant_message.id,
+            response_model=model,
+        )
         done_line = encode_ndjson_event(done_event)
         if done_line:
             yield done_line
-        try:
-            trace.persist_completion_state(
-                response_message_id=assistant_message.id,
-                terminal_events=[done_event],
-            )
-        except Exception:
-            run_db.rollback()
-            logger.exception(
-                "runtime chat completion trace persist failed | conversation_id=%s | message_id=%s | model=%s",
-                conversation_id,
-                message_id,
-                model,
-            )
     except httpx.HTTPError as exc:
         run_db.rollback()
         details = str(exc).strip() or exc.__class__.__name__

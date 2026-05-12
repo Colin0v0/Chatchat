@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
@@ -48,6 +49,7 @@ class ChatRunRegistry:
     def __init__(self) -> None:
         self._runs: dict[int, ChatActiveRunState] = {}
         self._lock = asyncio.Lock()
+        self._submission_locks: dict[int, asyncio.Lock] = {}
 
     async def describe(self, conversation_id: int) -> dict[str, object] | None:
         async with self._lock:
@@ -55,6 +57,19 @@ class ChatRunRegistry:
             if state is None or state.completed:
                 return None
             return self._describe_state(state)
+
+    @asynccontextmanager
+    async def guard_submission(self, conversation_id: int):
+        async with self._lock:
+            lock = self._submission_locks.setdefault(conversation_id, asyncio.Lock())
+
+        await lock.acquire()
+        try:
+            # 中文注释：同一会话的“检查 active run -> 写入用户消息 -> 登记后台 run”
+            # 必须串行，否则第二个请求可能先写入 user message，再在 start_or_attach 撞 409。
+            yield
+        finally:
+            lock.release()
 
     def _describe_state(self, state: ChatActiveRunState) -> dict[str, object]:
         return {

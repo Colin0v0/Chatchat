@@ -82,6 +82,8 @@ interface UseChatMessageActionsOptions {
   isRecording: boolean;
   isStreaming: boolean;
   isTranscribing: boolean;
+  onModelLoveScoreChange?: (modelId: string, delta: number) => void;
+  onModelUsageCountChange?: (modelId: string, delta: number) => void;
   onPetEvent?: (type: PetSignalType) => void;
   refreshConversations: () => Promise<void>;
   replaceAttachments: (files: File[]) => void;
@@ -117,6 +119,8 @@ export function useChatMessageActions({
   isRecording,
   isStreaming,
   isTranscribing,
+  onModelLoveScoreChange,
+  onModelUsageCountChange,
   onPetEvent,
   refreshConversations,
   replaceAttachments,
@@ -279,6 +283,7 @@ export function useChatMessageActions({
     });
 
     if (result === "completed") {
+      onModelUsageCountChange?.(effectiveModel, 1);
       onPetEvent?.("complete");
       await refreshConversations();
     }
@@ -298,6 +303,7 @@ export function useChatMessageActions({
     isRecording,
     isStreaming,
     isTranscribing,
+    onModelUsageCountChange,
     onPetEvent,
     refreshConversations,
     restoreChatComposerMode,
@@ -410,6 +416,7 @@ export function useChatMessageActions({
       });
 
       if (result === "completed") {
+        onModelUsageCountChange?.(effectiveModel, 1);
         await refreshConversations();
       }
     },
@@ -418,6 +425,7 @@ export function useChatMessageActions({
       activeKnowledgeFolders,
       activeReasoningRequest,
       isStreaming,
+      onModelUsageCountChange,
       refreshConversations,
       runStream,
       selectedModel,
@@ -525,8 +533,25 @@ export function useChatMessageActions({
   );
 
   const handleMessageFeedback = useCallback(async (messageId: number, value: "up" | "down" | null) => {
+    const targetMessage = activeConversation?.messages.find((message) => message.id === messageId);
+    const previousValue = targetMessage?.feedback ?? null;
+    const modelId = (targetMessage?.model || activeConversation?.model || "").trim();
+    const feedbackWeight = (feedback: "up" | "down" | null) => {
+      if (feedback === "up") {
+        return 1;
+      }
+      if (feedback === "down") {
+        return -1;
+      }
+      return 0;
+    };
+
     try {
       await updateMessageFeedback(messageId, value);
+      const delta = feedbackWeight(value) - feedbackWeight(previousValue);
+      if (modelId && delta !== 0) {
+        onModelLoveScoreChange?.(modelId, delta);
+      }
       setActiveConversation((current) =>
         current
           ? {
@@ -540,7 +565,7 @@ export function useChatMessageActions({
     } catch (feedbackError) {
       setError(feedbackError instanceof Error ? feedbackError.message : "Failed to save feedback.");
     }
-  }, [setActiveConversation, setError]);
+  }, [activeConversation, onModelLoveScoreChange, setActiveConversation, setError]);
 
   return {
     handleCancelEditingUserMessage,

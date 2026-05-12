@@ -94,7 +94,6 @@ class ModelExecutionCoordinator:
                     next_entry.active = True
                     queue.active_count += 1
                     next_entry.ready.set()
-                    break
             else:
                 try:
                     queue.waiters.remove(entry)

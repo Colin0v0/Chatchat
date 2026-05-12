@@ -24,6 +24,8 @@ interface UseBattleModeOptions {
   draftFiles: File[];
   knowledgeFolders: string[];
   onDraftAccepted?: () => void;
+  onModelLoveScoreChange?: (modelId: string, delta: number) => void;
+  onModelUsageCountChange?: (modelId: string, delta: number) => void;
   onPetEvent?: (type: PetSignalType) => void;
   query: string;
   setError: (message: string | null) => void;
@@ -208,6 +210,8 @@ export function useBattleMode({
   draftFiles,
   knowledgeFolders,
   onDraftAccepted,
+  onModelLoveScoreChange,
+  onModelUsageCountChange,
   onPetEvent,
   query,
   setError,
@@ -307,26 +311,28 @@ export function useBattleMode({
     [commitSession, getKnownSession],
   );
 
-  const enqueuePersist = useCallback((task: () => Promise<void>) => {
-    const nextTask = persistQueueRef.current.then(task, task);
-    persistQueueRef.current = nextTask.catch(() => undefined);
+  const enqueuePersist = useCallback(<T,>(task: () => Promise<T>) => {
+    const nextTask = persistQueueRef.current.then(() => task(), () => task());
+    persistQueueRef.current = nextTask.then(() => undefined, () => undefined);
     return nextTask;
   }, []);
 
   const persistSessionSnapshot = useCallback(
     (session: BattleSessionDetail, revision: number) => {
-      void enqueuePersist(async () => {
+      return enqueuePersist(async () => {
         try {
           const savedSession = await updateBattleSession(session.id, {
             title: session.title,
             rounds: session.rounds,
           });
           if ((sessionRevisionRef.current.get(session.id) ?? 0) !== revision) {
-            return;
+            return false;
           }
           commitSession(savedSession);
+          return true;
         } catch (persistError) {
           setError(persistError instanceof Error ? persistError.message : "Battle 保存失败。");
+          return false;
         }
       });
     },
@@ -516,6 +522,7 @@ export function useBattleMode({
         return;
       }
 
+      const currentRound = getKnownSession(activeId)?.rounds.find((round) => round.id === roundId);
       const updated = updateRound(activeId, roundId, (round) => ({
         ...round,
         revealed: true,
@@ -525,9 +532,15 @@ export function useBattleMode({
         return;
       }
 
-      persistSessionSnapshot(updated.session, updated.revision);
+      void persistSessionSnapshot(updated.session, updated.revision);
+      if (nextVote === "a" || nextVote === "b") {
+        const winningModelId = currentRound?.sides[nextVote].model.id;
+        if (winningModelId) {
+          onModelLoveScoreChange?.(winningModelId, 1);
+        }
+      }
     },
-    [activeId, persistSessionSnapshot, updateRound],
+    [activeId, getKnownSession, onModelLoveScoreChange, persistSessionSnapshot, updateRound],
   );
 
   const stop = useCallback(() => {
@@ -562,10 +575,14 @@ export function useBattleMode({
     }
 
     const [firstModel, secondModel] = pair;
-    let baseSession = activeId === null ? null : getKnownSession(activeId);
-    if (activeId !== null && !baseSession) {
+    const targetActiveId = activeId;
+    let baseSession = targetActiveId === null ? null : getKnownSession(targetActiveId);
+    if (targetActiveId !== null && !baseSession) {
       try {
-        const loadedSession = await fetchBattleSession(activeId);
+        const loadedSession = await fetchBattleSession(targetActiveId);
+        if (activeIdRef.current !== targetActiveId) {
+          return;
+        }
         commitSession(loadedSession);
         baseSession = loadedSession;
       } catch (loadError) {
@@ -637,6 +654,15 @@ export function useBattleMode({
 
       async function runSide(sideId: "a" | "b", modelOption: ModelOption, controller: AbortController) {
         const startedAt = Date.now();
+        let usageCounted = false;
+        const markUsageCounted = () => {
+          if (usageCounted) {
+            return;
+          }
+          usageCounted = true;
+          // 中文注释：Battle 两侧各是一次独立模型调用，完成或报错时都即时同步调用数。
+          onModelUsageCountChange?.(modelOption.id, 1);
+        };
 
         try {
           await streamBattleResponse(
@@ -705,6 +731,7 @@ export function useBattleMode({
                 }
 
                 if (event.type === "done") {
+                  markUsageCounted();
                   const updated = updateRound(session.id, round.id, (currentRound) => ({
                     ...currentRound,
                     sides: {
@@ -732,6 +759,7 @@ export function useBattleMode({
                 }
 
                 if (event.type === "error") {
+                  markUsageCounted();
                   const updated = updateRound(session.id, round.id, (currentRound) => ({
                     ...currentRound,
                     sides: {
@@ -757,6 +785,7 @@ export function useBattleMode({
             return;
           }
 
+          markUsageCounted();
           const updated = updateRound(session.id, round.id, (currentRound) => ({
             ...currentRound,
             sides: {
@@ -797,6 +826,7 @@ export function useBattleMode({
     isStreaming,
     knowledgeFolders,
     onDraftAccepted,
+    onModelUsageCountChange,
     onPetEvent,
     setError,
     toolMode,

@@ -10,6 +10,8 @@ from app.api.battle import (
     _battle_event_stream,
     create_battle_session,
     delete_battle_session,
+    get_battle_preference_dataset,
+    get_battle_preference_summary,
     get_battle_session,
     list_battle_sessions,
     rename_battle_session,
@@ -220,3 +222,29 @@ class BattleSessionCrudTests(unittest.TestCase):
 
         remove_media_files.assert_called_once_with(["files/2026/demo.txt"])
         self.assertEqual(list_battle_sessions(db=self.db, current_user=self.user), [])
+
+    def test_battle_preferences_build_dataset_and_summary(self):
+        create_battle_session(
+            payload=BattleSessionCreateIn(
+                title="偏好沉淀 Battle",
+                rounds=[
+                    self._round_payload(prompt="第一题"),
+                    self._round_payload(prompt="第二题"),
+                ],
+            ),
+            db=self.db,
+            current_user=self.user,
+        )
+
+        dataset = get_battle_preference_dataset(db=self.db, current_user=self.user)
+        summary = get_battle_preference_summary(db=self.db, current_user=self.user)
+
+        self.assertEqual(len(dataset), 2)
+        self.assertEqual(dataset[0].prompt, "第一题")
+        self.assertEqual(dataset[0].preferred_model_id, "openai:gpt-5.4")
+        self.assertEqual(dataset[0].rejected_model_id, "claude:sonnet")
+        self.assertEqual(summary.voted_rounds, 2)
+        self.assertEqual(summary.a_wins, 2)
+        self.assertEqual(summary.b_wins, 0)
+        self.assertEqual(summary.model_stats[0].model_id, "openai:gpt-5.4")
+        self.assertEqual(summary.model_stats[0].wins, 2)

@@ -187,6 +187,32 @@ export function useChatApp({
     () => ensureSelectedModel(models, selectedModel),
     [models, selectedModel],
   );
+  const adjustModelLoveScore = useCallback((modelId: string, delta: number) => {
+    setModels((current) =>
+      current.map((model) =>
+        model.id === modelId
+          ? {
+              ...model,
+              // 中文注释：模型页展示的是喜爱数，点踩只能扣回 0，不能出现负数。
+              love_score: Math.max(0, (model.love_score ?? 0) + delta),
+            }
+          : model,
+      ),
+    );
+  }, []);
+  const adjustModelUsageCount = useCallback((modelId: string, delta: number) => {
+    setModels((current) =>
+      current.map((model) =>
+        model.id === modelId
+          ? {
+              ...model,
+              // 中文注释：调用数来自全局统计，本地即时同步时同样保证不会显示负数。
+              usage_count: Math.max(0, (model.usage_count ?? 0) + delta),
+            }
+          : model,
+      ),
+    );
+  }, []);
   const emitPetSignal = useCallback((type: PetSignalType) => {
     petSignalIdRef.current += 1;
     setPetSignal({
@@ -213,6 +239,8 @@ export function useChatApp({
   } = useDebateMode({
     query: deferredQuery,
     setError,
+    onModelLoveScoreChange: adjustModelLoveScore,
+    onModelUsageCountChange: adjustModelUsageCount,
   });
   const {
     activeId: activeBattleId,
@@ -237,6 +265,8 @@ export function useChatApp({
     draftFiles: draftAttachments.map((attachment) => attachment.file),
     knowledgeFolders: activeKnowledgeFolders,
     onDraftAccepted: clearAttachments,
+    onModelLoveScoreChange: adjustModelLoveScore,
+    onModelUsageCountChange: adjustModelUsageCount,
     onPetEvent: emitPetSignal,
     query: deferredQuery,
     setError,
@@ -560,6 +590,8 @@ export function useChatApp({
     isRecording,
     isStreaming,
     isTranscribing,
+    onModelLoveScoreChange: adjustModelLoveScore,
+    onModelUsageCountChange: adjustModelUsageCount,
     onPetEvent: emitPetSignal,
     refreshConversations,
     replaceAttachments,

@@ -128,13 +128,20 @@ export async function assertApiResponse(response: Response): Promise<Response> {
 }
 
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const method = (init?.method ?? "GET").toUpperCase();
+  const shouldSendJsonContentType =
+    init?.body !== undefined &&
+    init?.body !== null &&
+    method !== "GET" &&
+    method !== "DELETE" &&
+    !(init.body instanceof FormData);
   const response = await fetch(toApiUrl(path), {
     credentials: "include",
+    ...init,
     headers: {
-      "Content-Type": "application/json",
+      ...(shouldSendJsonContentType ? { "Content-Type": "application/json" } : {}),
       ...(init?.headers ?? {}),
     },
-    ...init,
   });
 
   await assertApiResponse(response);

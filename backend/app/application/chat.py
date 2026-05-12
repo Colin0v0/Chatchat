@@ -34,20 +34,22 @@ async def regenerate_chat_response(
     request: Request,
     db: Session,
 ) -> StreamingResponse:
-    run_request = await prepare_regeneration_run_request(
-        current_user=current_user,
-        services=services,
-        payload=payload,
-        request=request,
-        db=db,
-    )
-    try:
-        stream = await get_chat_run_registry(request).start_or_attach(
-            app=request.app,
-            run_request=run_request,
+    registry = get_chat_run_registry(request)
+    async with registry.guard_submission(payload.conversation_id):
+        run_request = await prepare_regeneration_run_request(
+            current_user=current_user,
+            services=services,
+            payload=payload,
+            request=request,
+            db=db,
         )
-    except ActiveChatRunConflict as exc:
-        _raise_active_run_conflict(exc)
+        try:
+            stream = await registry.start_or_attach(
+                app=request.app,
+                run_request=run_request,
+            )
+        except ActiveChatRunConflict as exc:
+            _raise_active_run_conflict(exc)
     return ndjson_stream_response(stream)
 
 
@@ -65,27 +67,36 @@ async def chat_stream_response(
     reasoning_profile: ReasoningProfileValue | None,
     files: list[UploadFile] | None,
 ) -> StreamingResponse:
-    run_request = await prepare_chat_stream_run_request(
-        current_user=current_user,
-        services=services,
-        request=request,
-        db=db,
-        conversation_id=conversation_id,
-        message=message,
-        model=model,
-        tool_mode=tool_mode,
-        knowledge_folders=knowledge_folders,
-        reasoning_profile=reasoning_profile,
-        files=files,
-    )
-    try:
-        stream = await get_chat_run_registry(request).start_or_attach(
-            app=request.app,
-            run_request=run_request,
+    registry = get_chat_run_registry(request)
+
+    async def _prepare_and_start() -> StreamingResponse:
+        run_request = await prepare_chat_stream_run_request(
+            current_user=current_user,
+            services=services,
+            request=request,
+            db=db,
+            conversation_id=conversation_id,
+            message=message,
+            model=model,
+            tool_mode=tool_mode,
+            knowledge_folders=knowledge_folders,
+            reasoning_profile=reasoning_profile,
+            files=files,
         )
-    except ActiveChatRunConflict as exc:
-        _raise_active_run_conflict(exc)
-    return ndjson_stream_response(stream)
+        try:
+            stream = await registry.start_or_attach(
+                app=request.app,
+                run_request=run_request,
+            )
+        except ActiveChatRunConflict as exc:
+            _raise_active_run_conflict(exc)
+        return ndjson_stream_response(stream)
+
+    if conversation_id is None:
+        return await _prepare_and_start()
+
+    async with registry.guard_submission(conversation_id):
+        return await _prepare_and_start()
 
 
 async def stream_active_chat_response(
@@ -99,5 +110,5 @@ async def stream_active_chat_response(
         after_seq=after_seq,
     )
     if stream is None:
-        raise RuntimeError("No active chat run.")
+        raise HTTPException(status_code=404, detail="No active chat run.")
     return ndjson_stream_response(stream)

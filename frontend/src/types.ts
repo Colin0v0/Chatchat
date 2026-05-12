@@ -237,6 +237,8 @@ export interface ModelOption {
   native_multimodal_mode?: NativeMultimodalMode;
   reasoning_control?: ReasoningControl;
   default_reasoning_profile?: ReasoningProfileValue;
+  love_score?: number;
+  usage_count?: number;
   capabilities?: {
     input: {
       text: boolean;

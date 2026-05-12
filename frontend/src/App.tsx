@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 
 import { useChatApp } from "./features/workspace/model/useChatApp";
@@ -167,6 +167,7 @@ function WorkspaceApp({
 
 export default function App() {
   const navigate = useNavigate();
+  const unauthorizedRedirectingRef = useRef(false);
   const {
     authError,
     clearAuthError,
@@ -181,12 +182,22 @@ export default function App() {
 
   useEffect(() => {
     setUnauthorizedHandler(() => {
+      if (unauthorizedRedirectingRef.current) {
+        return;
+      }
+      unauthorizedRedirectingRef.current = true;
       clearSession();
       navigate("/login", { replace: true });
     });
 
     return () => setUnauthorizedHandler(null);
   }, [clearSession, navigate]);
+
+  useEffect(() => {
+    if (user) {
+      unauthorizedRedirectingRef.current = false;
+    }
+  }, [user]);
 
   const handleLogin = useCallback(
     async (username: string, password: string) => {

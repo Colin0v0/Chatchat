@@ -1,4 +1,7 @@
 from app.core.config import settings
+from pathlib import Path
+
+from app.providers import catalog
 from app.providers.catalog import build_model_options, resolve_model_profile, resolve_reasoning_profile
 
 
@@ -72,3 +75,27 @@ def test_reasoning_profile_rejects_unsupported_off_profile_by_falling_back_to_de
     )
 
     assert profile == "auto"
+
+
+def test_model_catalog_profiles_are_cached_by_file_fingerprint(tmp_path, monkeypatch):
+    catalog_path = tmp_path / "models.json"
+    source_catalog_path = Path(__file__).resolve().parents[1] / "model_catalog.json"
+    catalog_path.write_text(source_catalog_path.read_text(encoding="utf-8"), encoding="utf-8")
+    read_count = 0
+    original_read_text = Path.read_text
+
+    def counting_read_text(self, *args, **kwargs):
+        nonlocal read_count
+        if self == catalog_path:
+            read_count += 1
+        return original_read_text(self, *args, **kwargs)
+
+    catalog.clear_model_catalog_cache()
+    monkeypatch.setattr(catalog.settings, "model_catalog_path", str(catalog_path))
+    monkeypatch.setattr(Path, "read_text", counting_read_text)
+
+    assert catalog.resolve_model_profile("codex:gpt-5.2") is not None
+    assert catalog.resolve_model_profile("codex:gpt-5.2") is not None
+    assert read_count == 1
+
+    catalog.clear_model_catalog_cache()

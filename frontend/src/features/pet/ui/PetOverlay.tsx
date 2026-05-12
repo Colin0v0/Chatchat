@@ -348,7 +348,9 @@ export function PetOverlay({
 
   const hoverQuickbarHandlers = supportsHover
     ? {
-        onPointerEnter: openControls,
+        onPointerEnter: () => {
+          openControls();
+        },
         onPointerLeave: closeControlsSoon,
       }
     : {};

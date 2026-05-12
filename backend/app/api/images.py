@@ -30,6 +30,7 @@ from ..storage.models import Conversation, ImageGenerationJob, Message, User
 
 router = APIRouter(prefix="/api/images", tags=["images"])
 logger = logging.getLogger("chatchat.images")
+_image_generation_tasks: set[asyncio.Task[None]] = set()
 
 
 @dataclass(frozen=True)
@@ -325,47 +326,60 @@ async def _stream_image_generation(
 async def _execute_image_generation_job(job_id: int) -> None:
     db = SessionLocal()
     try:
-        job = db.get(ImageGenerationJob, job_id)
-        if job is None:
-            return
-
-        job.status = "running"
-        job.started_at = datetime.now(timezone.utc)
-        job.updated_at = datetime.now(timezone.utc)
-        db.add(job)
-        db.commit()
-
         try:
-            generated = await generate_openai_image(
-                prompt=job.prompt,
-                size=job.size,
-                quality=job.quality,
-                output_format=job.output_format,
-            )
-            conversation = db.get(Conversation, job.conversation_id)
-            if conversation is None:
-                raise RuntimeError("Conversation not found for image generation job.")
-            assistant_message = await _persist_generated_image_response(
-                db=db,
-                conversation=conversation,
-                prompt=job.prompt,
-                b64_json=generated.b64_json,
-                image_url=generated.url,
-                output_format=generated.output_format,
-                target_size=None,
-            )
             job = db.get(ImageGenerationJob, job_id)
             if job is None:
                 return
-            job.status = "succeeded"
-            job.assistant_message_id = assistant_message.id
-            job.error_message = None
-            job.finished_at = datetime.now(timezone.utc)
+
+            job.status = "running"
+            job.started_at = datetime.now(timezone.utc)
             job.updated_at = datetime.now(timezone.utc)
             db.add(job)
             db.commit()
+
+            try:
+                generated = await generate_openai_image(
+                    prompt=job.prompt,
+                    size=job.size,
+                    quality=job.quality,
+                    output_format=job.output_format,
+                )
+                conversation = db.get(Conversation, job.conversation_id)
+                if conversation is None:
+                    raise RuntimeError("Conversation not found for image generation job.")
+                assistant_message = await _persist_generated_image_response(
+                    db=db,
+                    conversation=conversation,
+                    prompt=job.prompt,
+                    b64_json=generated.b64_json,
+                    image_url=generated.url,
+                    output_format=generated.output_format,
+                    target_size=None,
+                )
+                job = db.get(ImageGenerationJob, job_id)
+                if job is None:
+                    return
+                job.status = "succeeded"
+                job.assistant_message_id = assistant_message.id
+                job.error_message = None
+                job.finished_at = datetime.now(timezone.utc)
+                job.updated_at = datetime.now(timezone.utc)
+                db.add(job)
+                db.commit()
+            except Exception as exc:
+                logger.exception("image generation job failed | job_id=%s", job_id)
+                db.rollback()
+                job = db.get(ImageGenerationJob, job_id)
+                if job is None:
+                    return
+                job.status = "failed"
+                job.error_message = _image_error_message(exc)
+                job.finished_at = datetime.now(timezone.utc)
+                job.updated_at = datetime.now(timezone.utc)
+                db.add(job)
+                db.commit()
         except Exception as exc:
-            logger.exception("image generation job failed | job_id=%s", job_id)
+            logger.exception("image generation job crashed before completion | job_id=%s", job_id)
             db.rollback()
             job = db.get(ImageGenerationJob, job_id)
             if job is None:
@@ -382,7 +396,23 @@ async def _execute_image_generation_job(job_id: int) -> None:
 
 def _start_image_generation_task(job_id: int) -> None:
     # 图片任务在后台跑，前端通过短轮询读取状态，避免长连接被代理层切断。
-    asyncio.create_task(_execute_image_generation_job(job_id), name=f"image-generation-job-{job_id}")
+    task = asyncio.create_task(_execute_image_generation_job(job_id), name=f"image-generation-job-{job_id}")
+    _image_generation_tasks.add(task)
+
+    def _on_done(completed_task: asyncio.Task[None]) -> None:
+        _image_generation_tasks.discard(completed_task)
+        if completed_task.cancelled():
+            logger.warning("image generation task cancelled | job_id=%s", job_id)
+            return
+        error = completed_task.exception()
+        if error is not None:
+            logger.error(
+                "image generation task crashed | job_id=%s",
+                job_id,
+                exc_info=(type(error), error, error.__traceback__),
+            )
+
+    task.add_done_callback(_on_done)
 
 
 @router.post("/jobs", response_model=ImageGenerationJobOut)

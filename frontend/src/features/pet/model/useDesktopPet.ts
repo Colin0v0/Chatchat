@@ -1030,6 +1030,11 @@ export function useDesktopPet(stageRef: RefObject<HTMLDivElement | null>, option
   }
 
   function handlePetClick(options: { playReaction?: boolean } = {}) {
+    if (modeRef.current === "sleeping") {
+      // 中文注释：睡着时身体点击不播放互动、不叫醒；但触屏仍要允许打开照顾入口。
+      return options.playReaction === false;
+    }
+
     if (suppressClickRef.current) {
       suppressClickRef.current = false;
       return false;
@@ -1079,6 +1084,10 @@ export function useDesktopPet(stageRef: RefObject<HTMLDivElement | null>, option
   }
 
   function handlePointerDown(event: PointerEvent<HTMLButtonElement>) {
+    if (modeRef.current === "sleeping") {
+      return;
+    }
+
     // 中文注释：鼠标和触摸共用 Pointer Events；真正限制滚动的区域只有狐狸的小 hitbox。
     const pinnedPosition = stopWalkingAtCurrentPosition();
     if (pinnedPosition === null) {
