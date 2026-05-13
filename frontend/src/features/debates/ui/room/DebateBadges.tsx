@@ -138,6 +138,7 @@ export function DebateStageHeader({
   conActive,
   proCounting,
   conCounting,
+  timerScopeLabel,
 }: {
   showStageHeader: boolean;
   showStageTimer: boolean;
@@ -151,6 +152,7 @@ export function DebateStageHeader({
   conActive: boolean;
   proCounting: boolean;
   conCounting: boolean;
+  timerScopeLabel: "总时长" | "本阶段时长";
 }) {
   if (!showStageHeader) {
     return null;
@@ -180,14 +182,14 @@ export function DebateStageHeader({
             <FreeDebateClockCard
               active={proActive}
               counting={proCounting}
-              label="正方剩余总时长"
+              label={`正方剩余${timerScopeLabel}`}
               remainingMs={proRemainingMs}
               side="pro"
             />
             <FreeDebateClockCard
               active={conActive}
               counting={conCounting}
-              label="反方剩余总时长"
+              label={`反方剩余${timerScopeLabel}`}
               remainingMs={conRemainingMs}
               side="con"
             />

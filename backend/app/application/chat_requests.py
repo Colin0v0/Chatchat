@@ -112,6 +112,7 @@ def build_chat_run_request(
     user_message: Message,
     history_messages: list[Message],
     query: str,
+    temperature: float | None,
     tool_mode: ToolMode,
     knowledge_folders: list[str],
     reasoning_profile: ReasoningProfileValue | None,
@@ -124,6 +125,7 @@ def build_chat_run_request(
         model=conversation.model,
         history_message_ids=history_message_ids(history_messages),
         query=query,
+        temperature=temperature,
         tool_policy=build_tool_policy(tool_mode, knowledge_folders=knowledge_folders),
         requested_reasoning_profile=reasoning_profile,
     )

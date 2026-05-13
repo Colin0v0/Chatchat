@@ -10,9 +10,9 @@ class ModelExecutionCoordinatorTests(unittest.IsolatedAsyncioTestCase):
     async def test_same_model_waiters_run_one_by_one(self):
         coordinator = ModelExecutionCoordinator(max_concurrency_per_model=1)
 
-        first = await coordinator.reserve("openai:deepseek-chat")
-        second = await coordinator.reserve("openai:deepseek-chat")
-        third = await coordinator.reserve("openai:deepseek-chat")
+        first = await coordinator.reserve("openai:deepseek-v4-flash")
+        second = await coordinator.reserve("openai:deepseek-v4-flash")
+        third = await coordinator.reserve("openai:deepseek-v4-flash")
 
         self.assertFalse(first.queued)
         self.assertTrue(second.queued)
@@ -53,8 +53,8 @@ class ModelExecutionCoordinatorTests(unittest.IsolatedAsyncioTestCase):
     async def test_different_models_can_run_in_parallel(self):
         coordinator = ModelExecutionCoordinator(max_concurrency_per_model=1)
 
-        first = await coordinator.reserve("openai:deepseek-chat")
-        second = await coordinator.reserve("openai:deepseek-reasoner")
+        first = await coordinator.reserve("openai:deepseek-v4-flash")
+        second = await coordinator.reserve("openai:deepseek-v4-pro")
 
         self.assertFalse(first.queued)
         self.assertFalse(second.queued)
@@ -68,8 +68,8 @@ class ModelExecutionCoordinatorTests(unittest.IsolatedAsyncioTestCase):
     async def test_cancelled_waiter_leaves_queue_clean(self):
         coordinator = ModelExecutionCoordinator(max_concurrency_per_model=1)
 
-        first = await coordinator.reserve("openai:deepseek-chat")
-        second = await coordinator.reserve("openai:deepseek-chat")
+        first = await coordinator.reserve("openai:deepseek-v4-flash")
+        second = await coordinator.reserve("openai:deepseek-v4-flash")
 
         wait_task = asyncio.create_task(second.wait())
         await asyncio.sleep(0)
@@ -77,7 +77,7 @@ class ModelExecutionCoordinatorTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(asyncio.CancelledError):
             await wait_task
 
-        third = await coordinator.reserve("openai:deepseek-chat")
+        third = await coordinator.reserve("openai:deepseek-v4-flash")
         self.assertTrue(third.queued)
         self.assertEqual(third.position, 1)
 
@@ -99,10 +99,10 @@ class ModelExecutionCoordinatorTests(unittest.IsolatedAsyncioTestCase):
     async def test_first_three_requests_for_same_model_start_immediately(self):
         coordinator = ModelExecutionCoordinator(max_concurrency_per_model=3)
 
-        first = await coordinator.reserve("openai:deepseek-chat")
-        second = await coordinator.reserve("openai:deepseek-chat")
-        third = await coordinator.reserve("openai:deepseek-chat")
-        fourth = await coordinator.reserve("openai:deepseek-chat")
+        first = await coordinator.reserve("openai:deepseek-v4-flash")
+        second = await coordinator.reserve("openai:deepseek-v4-flash")
+        third = await coordinator.reserve("openai:deepseek-v4-flash")
+        fourth = await coordinator.reserve("openai:deepseek-v4-flash")
 
         self.assertFalse(first.queued)
         self.assertFalse(second.queued)
@@ -136,14 +136,14 @@ class ModelExecutionCoordinatorTests(unittest.IsolatedAsyncioTestCase):
         coordinator = ModelExecutionCoordinator(max_concurrency_per_model=3)
 
         active = [
-            await coordinator.reserve("openai:deepseek-chat"),
-            await coordinator.reserve("openai:deepseek-chat"),
-            await coordinator.reserve("openai:deepseek-chat"),
+            await coordinator.reserve("openai:deepseek-v4-flash"),
+            await coordinator.reserve("openai:deepseek-v4-flash"),
+            await coordinator.reserve("openai:deepseek-v4-flash"),
         ]
         waiters = [
-            await coordinator.reserve("openai:deepseek-chat"),
-            await coordinator.reserve("openai:deepseek-chat"),
-            await coordinator.reserve("openai:deepseek-chat"),
+            await coordinator.reserve("openai:deepseek-v4-flash"),
+            await coordinator.reserve("openai:deepseek-v4-flash"),
+            await coordinator.reserve("openai:deepseek-v4-flash"),
         ]
 
         started = [asyncio.Event() for _ in waiters]

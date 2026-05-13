@@ -11,6 +11,7 @@ import { WorkspaceMainView } from "./features/workspace/ui/WorkspaceMainView";
 import type { WorkspaceSection } from "./features/workspace/model/workspaceSections";
 import { useAuthSession } from "./features/auth/model/useAuthSession";
 import { LoginView } from "./features/auth/ui/LoginView";
+import { useGeneralPreferences } from "./features/settings/model/useGeneralPreferences";
 import { SettingsDialog } from "./features/settings/ui/SettingsDialog";
 import { setUnauthorizedHandler } from "./shared/api/http";
 import { LoaderCircle } from "lucide-react";
@@ -74,6 +75,7 @@ function WorkspaceApp({
   const navigate = useNavigate();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const sidebar = useResponsiveSidebar();
+  const generalPreferences = useGeneralPreferences();
   const petPreferences = usePetPreferences();
   const routeSection = sectionFromPathname(location.pathname) ?? "chats";
   const routeKnown = sectionFromPathname(location.pathname) !== null;
@@ -91,7 +93,10 @@ function WorkspaceApp({
   );
   const app = useChatApp({
     closeMobileSidebar: sidebar.closeMobileSidebar,
+    generalPreferences: generalPreferences.preferences,
     isDesktop: sidebar.isDesktop,
+    memorySettingsOpen: settingsOpen,
+    onGeneralPreferencesChange: generalPreferences.updatePreferences,
     onSectionRouteChange: handleSectionRouteChange,
     routeSection,
     sidebarOpen: sidebar.sidebarOpen,
@@ -152,10 +157,16 @@ function WorkspaceApp({
       </main>
 
       <SettingsDialog
+        {...app.generalSettingsProps}
         {...app.imageSettingsProps}
+        memorySettings={app.memorySettingsProps.settings}
+        memorySettingsSaving={app.memorySettingsProps.isSaving}
         onClose={() => setSettingsOpen(false)}
         onPetEnabledChange={petPreferences.setEnabled}
         onPetPreferencesChange={petPreferences.updatePreferences}
+        onMemoryChangeSettings={app.memorySettingsProps.onChangeSettings}
+        onMemoryClearChatHistoryIndex={app.memorySettingsProps.onClearChatHistoryIndex}
+        onMemoryClearSavedMemories={app.memorySettingsProps.onClearSavedMemories}
         open={settingsOpen}
         petEnabled={petPreferences.preferences.enabled}
         petPreferences={petPreferences.preferences}

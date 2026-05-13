@@ -35,6 +35,7 @@ def persist_chat_turn(
     profile: ModelProfile,
     content: str,
     uploaded_attachments: list[StoredAttachment],
+    temporary_chat: bool = False,
 ) -> PersistedChatTurn:
     try:
         if conversation is None:
@@ -42,9 +43,12 @@ def persist_chat_turn(
                 user_id=current_user.id,
                 title=conversation_title(content, len(uploaded_attachments)),
                 model=profile.id,
+                temporary_chat=temporary_chat,
             )
             db.add(conversation)
             db.flush()
+        elif temporary_chat and not conversation.temporary_chat:
+            conversation.temporary_chat = True
 
         if conversation.model != profile.id:
             conversation.model = profile.id

@@ -28,6 +28,7 @@ def test_tool_context_build_request_carries_runtime_inputs():
         query="hello",
         plan=SimpleNamespace(mode="none", query="", requested_tools=(), strategy=SimpleNamespace(name="direct")),
         retrieval_messages=[{"role": "user", "content": "hello"}],
+        memory_query_hints=[],
         conversation_messages=[],
         include_file_context=False,
         include_image_context=False,
@@ -49,7 +50,7 @@ def test_build_context_payload_does_not_refuse_when_attachment_context_is_empty(
     service._file_context_service = _FileContextService()
     service._context_top_k = 4
 
-    async def _fake_rewrite(*, plan, retrieval_messages):
+    async def _fake_rewrite(*, plan, retrieval_messages, memory_query_hints):
         return QueryRewriteResult(
             original_query=plan.query,
             effective_query=plan.query,
@@ -69,6 +70,7 @@ def test_build_context_payload_does_not_refuse_when_attachment_context_is_empty(
                 query="这是什么游戏",
                 plan=plan,
                 retrieval_messages=[{"role": "user", "content": "这是什么游戏"}],
+                memory_query_hints=[],
                 conversation_messages=[],
                 include_file_context=True,
                 include_image_context=False,

@@ -3,6 +3,7 @@ import type {
   MemoryDocument,
   MemoryItem,
   MemoryLayerCollection,
+  MemorySettings,
   MemoryUpsertPayload,
 } from "../../../types";
 import { apiFetch, assertApiResponse, toApiUrl } from "../../../shared/api/http";
@@ -40,6 +41,13 @@ function normalizeMemoryItem(value: unknown): MemoryItem | null {
     payload.status === "active" || payload.status === "archived"
       ? payload.status
       : "active";
+  const confidenceState =
+    payload.confidence_state === "pending" ||
+    payload.confidence_state === "inferred" ||
+    payload.confidence_state === "confirmed" ||
+    payload.confidence_state === "rejected"
+      ? payload.confidence_state
+      : "inferred";
   const tags = ensureArray<unknown>(payload.tags)
     .map((tag) => (typeof tag === "string" ? tag.trim() : ""))
     .filter(Boolean);
@@ -55,6 +63,12 @@ function normalizeMemoryItem(value: unknown): MemoryItem | null {
       typeof payload.confidence === "number" && Number.isFinite(payload.confidence)
         ? payload.confidence
         : 0.7,
+    confidence_state: confidenceState,
+    evidence_count:
+      typeof payload.evidence_count === "number" && Number.isFinite(payload.evidence_count)
+        ? payload.evidence_count
+        : 1,
+    evidence: ensureArray<Record<string, unknown>>(payload.evidence),
     status,
     source_type: typeof payload.source_type === "string" && payload.source_type.trim() ? payload.source_type : "manual",
     modality: typeof payload.modality === "string" && payload.modality.trim() ? payload.modality : "text",
@@ -124,4 +138,27 @@ export async function deleteMemory(memoryId: number) {
     method: "DELETE",
   });
   await assertApiResponse(response);
+}
+
+export function fetchMemorySettings() {
+  return apiFetch<MemorySettings>("/api/memories/settings");
+}
+
+export function updateMemorySettings(payload: Partial<MemorySettings>) {
+  return apiFetch<MemorySettings>("/api/memories/settings", {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function clearSavedMemories() {
+  return apiFetch<{ deleted_count: number }>("/api/memories/clear-saved", {
+    method: "POST",
+  });
+}
+
+export function clearChatHistoryIndex() {
+  return apiFetch<{ deleted_count: number }>("/api/memories/clear-history-index", {
+    method: "POST",
+  });
 }

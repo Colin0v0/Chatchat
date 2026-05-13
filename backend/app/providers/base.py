@@ -14,6 +14,7 @@ class ProviderStreamRequest:
     profile: ModelProfile
     messages: list[ChatMessagePayload]
     reasoning_profile: ReasoningProfile
+    temperature: float | None = None
 
 
 class ProviderAdapter(ABC):

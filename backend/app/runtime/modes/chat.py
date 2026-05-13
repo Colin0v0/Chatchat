@@ -20,6 +20,7 @@ class ChatRuntimeMode(RuntimeMode):
             model=chat_request.model,
             history_message_ids=chat_request.history_message_ids,
             query=chat_request.query,
+            temperature=chat_request.temperature,
             tool_policy=chat_request.tool_policy,
             requested_reasoning=chat_request.requested_reasoning,
             requested_reasoning_profile=chat_request.requested_reasoning_profile,

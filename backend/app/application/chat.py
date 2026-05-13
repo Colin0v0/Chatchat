@@ -62,10 +62,12 @@ async def chat_stream_response(
     conversation_id: Optional[int],
     message: str,
     model: Optional[str],
+    temperature: float | None,
     tool_mode: ToolMode,
     knowledge_folders: list[str],
     reasoning_profile: ReasoningProfileValue | None,
     files: list[UploadFile] | None,
+    temporary_chat: bool = False,
 ) -> StreamingResponse:
     registry = get_chat_run_registry(request)
 
@@ -78,10 +80,12 @@ async def chat_stream_response(
             conversation_id=conversation_id,
             message=message,
             model=model,
+            temperature=temperature,
             tool_mode=tool_mode,
             knowledge_folders=knowledge_folders,
             reasoning_profile=reasoning_profile,
             files=files,
+            temporary_chat=temporary_chat,
         )
         try:
             stream = await registry.start_or_attach(

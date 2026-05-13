@@ -39,6 +39,16 @@ class User(Base):
         cascade="all, delete-orphan",
         order_by="MemoryDocument.updated_at",
     )
+    memory_settings: Mapped[Optional["UserMemorySettings"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
+    chat_history_entries: Mapped[list["ChatHistoryEntry"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+        order_by="desc(ChatHistoryEntry.updated_at)",
+    )
     knowledge_documents: Mapped[list["KnowledgeDocument"]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
@@ -109,6 +119,7 @@ class Conversation(Base):
     user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
     title: Mapped[str] = mapped_column(String(255), default="New chat")
     model: Mapped[str] = mapped_column(String(128))
+    temporary_chat: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -131,6 +142,11 @@ class Conversation(Base):
         back_populates="conversation",
         cascade="all, delete-orphan",
         order_by="MemoryDocument.updated_at",
+    )
+    chat_history_entries: Mapped[list["ChatHistoryEntry"]] = relationship(
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+        order_by="desc(ChatHistoryEntry.updated_at)",
     )
 
 
@@ -235,6 +251,11 @@ class Message(Base):
             return None
 
         return payload if isinstance(payload, dict) else None
+
+    @property
+    def pending_memories(self) -> list[object]:
+        value = getattr(self, "_pending_memories", None)
+        return value if isinstance(value, list) else []
 
     @property
     def responseMode(self) -> str:
@@ -406,6 +427,9 @@ class MemoryItem(Base):
     detail: Mapped[str] = mapped_column(Text(), default="")
     tags_json: Mapped[str] = mapped_column(Text(), default="[]")
     confidence: Mapped[float] = mapped_column(Float, default=0.7)
+    confidence_state: Mapped[str] = mapped_column(String(24), default="inferred")
+    evidence_count: Mapped[int] = mapped_column(Integer, default=1)
+    evidence_json: Mapped[str] = mapped_column(Text(), default="[]")
     status: Mapped[str] = mapped_column(String(24), default="active")
     source_type: Mapped[str] = mapped_column(String(24), default="manual")
     modality: Mapped[str] = mapped_column(String(24), default="text")
@@ -465,6 +489,22 @@ class MemoryItem(Base):
                 normalized.append(value)
         return normalized
 
+    @property
+    def evidence(self) -> list[dict[str, object]]:
+        try:
+            payload = json.loads(self.evidence_json or "[]")
+        except json.JSONDecodeError:
+            return []
+
+        if not isinstance(payload, list):
+            return []
+
+        normalized: list[dict[str, object]] = []
+        for item in payload:
+            if isinstance(item, dict):
+                normalized.append(item)
+        return normalized
+
 
 class MemoryDocument(Base):
     __tablename__ = "memory_documents"
@@ -505,6 +545,66 @@ class MemoryDocument(Base):
             if isinstance(item, int) and item not in normalized:
                 normalized.append(item)
         return normalized
+
+
+class UserMemorySettings(Base):
+    __tablename__ = "user_memory_settings"
+    __table_args__ = (UniqueConstraint("user_id", name="uq_user_memory_settings_user_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    saved_memories_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    reference_chat_history_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    memory_learning_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    sensitive_memory_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    user: Mapped[User] = relationship(back_populates="memory_settings")
+
+
+class ChatHistoryEntry(Base):
+    __tablename__ = "chat_history_entries"
+    __table_args__ = (
+        UniqueConstraint(
+            "assistant_message_id",
+            name="uq_chat_history_entries_assistant_message_id",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    conversation_id: Mapped[int] = mapped_column(ForeignKey("conversations.id", ondelete="CASCADE"), index=True)
+    user_message_id: Mapped[int] = mapped_column(ForeignKey("messages.id", ondelete="CASCADE"), index=True)
+    assistant_message_id: Mapped[int] = mapped_column(ForeignKey("messages.id", ondelete="CASCADE"), index=True)
+    conversation_title: Mapped[str] = mapped_column(String(255), default="")
+    user_text: Mapped[str] = mapped_column(Text(), default="")
+    assistant_text: Mapped[str] = mapped_column(Text(), default="")
+    summary: Mapped[str] = mapped_column(Text(), default="")
+    embedding: Mapped[Optional[list[float]]] = mapped_column(
+        Vector(settings.knowledge_embedding_dimensions), nullable=True
+    )
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+    last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    user: Mapped[User] = relationship(back_populates="chat_history_entries")
+    conversation: Mapped[Conversation] = relationship(back_populates="chat_history_entries")
 
 
 class KnowledgeDocument(Base):

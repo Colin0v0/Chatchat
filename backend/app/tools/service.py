@@ -46,13 +46,18 @@ class ToolRuntimeService:
         *,
         request: ToolContextBuildRequest,
     ) -> PromptContextPayload:
-        rewrite_result = await self._rewrite_query(plan=request.plan, retrieval_messages=request.retrieval_messages)
+        rewrite_result = await self._rewrite_query(
+            plan=request.plan,
+            retrieval_messages=request.retrieval_messages,
+            memory_query_hints=request.memory_query_hints,
+        )
         debug = self._base_debug(
             plan=request.plan,
             rewrite_result=rewrite_result,
             include_file_context=request.include_file_context,
+            memory_query_hints=request.memory_query_hints,
         )
-        configuration_refusal = self._resolve_configuration_refusal(query=request.query, plan=request.plan)
+        configuration_refusal = self._resolve_configuration_refusal(query=rewrite_result.effective_query, plan=request.plan)
         if configuration_refusal:
             return PromptContextPayload(
                 context_message=None,
@@ -75,7 +80,7 @@ class ToolRuntimeService:
                 )
             )
         if "search" in request.plan.requested_tools:
-            tasks.append(self._web_search_service.retrieve_context(request.plan.query))
+            tasks.append(self._web_search_service.retrieve_context(rewrite_result.effective_query))
         if request.include_file_context:
             tasks.append(
                 self._file_context_service.retrieve_context(
@@ -89,19 +94,19 @@ class ToolRuntimeService:
         results = await asyncio.gather(*tasks) if tasks else []
         merged_sources = self._merge_sources(results)
         merged_entries = self._merge_entries(results, strategy=request.plan.strategy)
-        refusal_message = self._resolve_refusal_message(results, query=request.query)
+        refusal_message = self._resolve_refusal_message(results, query=rewrite_result.effective_query)
         merged_debug = self._merge_debug(
             results,
             plan=request.plan,
             rewrite_result=rewrite_result,
             include_file_context=request.include_file_context,
+            memory_query_hints=request.memory_query_hints,
         )
         merged_instructions = self._merge_instructions(results)
 
         if not merged_entries:
             if request.include_file_context:
-                # Native multimodal requests may not need synthetic retrieval context.
-                # In that case we should fall back to direct model reasoning instead of refusing.
+                # 中文注释：原生多模态请求可能不需要额外拼接文本上下文，直接让模型处理附件。
                 return PromptContextPayload(
                     context_message=None,
                     sources=[],
@@ -167,19 +172,32 @@ class ToolRuntimeService:
         *,
         plan: ToolContextPlan,
         retrieval_messages: list[dict[str, str]],
+        memory_query_hints: list[str],
     ) -> QueryRewriteResult:
-        if "knowledge" not in plan.requested_tools:
+        if "knowledge" not in plan.requested_tools and "search" not in plan.requested_tools:
             return QueryRewriteResult(
                 original_query=plan.query,
                 effective_query=plan.query,
                 applied=False,
                 model=None,
                 context_message_count=0,
+                memory_hint_count=0,
             )
         return await self._rag_query_rewriter.rewrite(
             query=plan.query,
             history_messages=retrieval_messages,
+            memory_query_hints=memory_query_hints,
         )
+
+    def _selected_memory_query_hints(self, memory_query_hints: list[str]) -> list[str]:
+        hints: list[str] = []
+        for value in memory_query_hints:
+            normalized = str(value).strip()
+            if normalized and normalized not in hints:
+                hints.append(normalized[:180])
+            if len(hints) >= 5:
+                break
+        return hints
 
     def _base_debug(
         self,
@@ -187,6 +205,7 @@ class ToolRuntimeService:
         plan: ToolContextPlan,
         rewrite_result: QueryRewriteResult,
         include_file_context: bool,
+        memory_query_hints: list[str],
     ) -> dict[str, object]:
         requested_tools = list(plan.requested_tools)
         if include_file_context:
@@ -199,6 +218,8 @@ class ToolRuntimeService:
             "knowledge_query_rewrite_applied": rewrite_result.applied,
             "knowledge_query_rewrite_model": rewrite_result.model,
             "knowledge_query_rewrite_context_messages": rewrite_result.context_message_count,
+            "memory_query_hint_count": rewrite_result.memory_hint_count,
+            "memory_query_hints": self._selected_memory_query_hints(memory_query_hints),
             "knowledge_executed": False,
             "search_executed": False,
             "file_executed": False,
@@ -207,6 +228,7 @@ class ToolRuntimeService:
         debug_payload["tool_plan"] = requested_tools
         return debug_payload
 
+
     def _merge_debug(
         self,
         results: list[ContextPayload],
@@ -214,11 +236,13 @@ class ToolRuntimeService:
         plan: ToolContextPlan,
         rewrite_result: QueryRewriteResult,
         include_file_context: bool,
+        memory_query_hints: list[str],
     ) -> dict[str, object]:
         merged = self._base_debug(
             plan=plan,
             rewrite_result=rewrite_result,
             include_file_context=include_file_context,
+            memory_query_hints=memory_query_hints,
         )
         merged["knowledge_executed"] = "knowledge" in plan.requested_tools
         merged["search_executed"] = "search" in plan.requested_tools

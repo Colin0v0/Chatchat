@@ -16,6 +16,7 @@ class OpenAIProviderAdapter(ProviderAdapter):
             messages=request.messages,
             provider=request.profile.provider_name,  # type: ignore[arg-type]
             reasoning_profile=request.reasoning_profile,
+            temperature=request.temperature,
             base_url_override=request.profile.chat_base_url,
             api_key_override=request.profile.api_key,
         ):

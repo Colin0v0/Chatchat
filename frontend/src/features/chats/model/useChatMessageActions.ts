@@ -7,14 +7,21 @@ import {
 
 import { pollImageGenerationJob } from "../api/generateImage";
 import { regenerateChat, streamChat } from "../api/streamChat";
-import { updateMessageFeedback } from "../api/conversations";
-import { ASSISTANT_DRAFT_ID, deriveConversationTitle, INITIAL_CHAT_MODEL } from "../lib/constants";
+import {
+  confirmPendingMemory,
+  fetchMessagePendingMemories,
+  rejectPendingMemory,
+  updateMessageFeedback,
+} from "../api/conversations";
+import { ASSISTANT_DRAFT_ID, deriveConversationTitle } from "../lib/constants";
 import {
   appendRetryDraft,
   createAssistantDraftMessageForModel,
   createTransientAttachments,
   createUserDraftMessage,
+  removePendingMemory,
   restoreAttachmentFiles,
+  setMessagePendingMemories,
   stageForToolMode,
   type RunStreamOptions,
 } from "../lib/chatSessionUtils";
@@ -29,6 +36,7 @@ import type {
   ChatMessage,
   ComposerMode,
   ConversationDetail,
+  MemoryCandidateUpdatePayload,
   ReasoningProfileValue,
   ToolMode,
 } from "../../../types";
@@ -98,6 +106,7 @@ interface UseChatMessageActionsOptions {
   setEditingUserMessageId: Dispatch<SetStateAction<number | string | null>>;
   setError: Dispatch<SetStateAction<string | null>>;
   stopStream: StopStream;
+  temperature: number;
   toolMode: ToolMode;
   transientAttachmentUrlsRef: MutableRefObject<string[]>;
 }
@@ -135,6 +144,7 @@ export function useChatMessageActions({
   setEditingUserMessageId,
   setError,
   stopStream,
+  temperature,
   toolMode,
   transientAttachmentUrlsRef,
 }: UseChatMessageActionsOptions) {
@@ -150,11 +160,11 @@ export function useChatMessageActions({
       return;
     }
     if (effectiveComposerMode === "image") {
-      if (!message || pendingFiles.length > 0) {
+      if (!message || pendingFiles.length > 0 || !selectedModel) {
         return;
       }
 
-      const conversationModel = activeConversation?.model ?? chatModelBeforeImageRef.current;
+      const conversationModel = activeConversation?.model ?? selectedModel;
       const imageGenerationSize = resolveImageGenerationSize(imageSize);
       const imageGenerationQuality = resolveImageGenerationQuality(imageQuality);
       const imageGenerationOutputFormat = resolveImageGenerationOutputFormat(imageOutputFormat);
@@ -274,6 +284,7 @@ export function useChatMessageActions({
             message,
             files: pendingFiles,
             model: effectiveModel,
+            temperature,
             reasoning_profile: effectiveReasoningProfile,
             tool_mode: toolMode,
             knowledge_folders: activeKnowledgeFolders,
@@ -313,6 +324,7 @@ export function useChatMessageActions({
     setActiveConversationId,
     setDraft,
     setError,
+    temperature,
     toolMode,
     transientAttachmentUrlsRef,
   ]);
@@ -391,6 +403,7 @@ export function useChatMessageActions({
                 assistant_message_id: sourceAssistantId,
                 edited_content: nextContent,
                 model: effectiveModel,
+                temperature,
                 reasoning_profile: effectiveReasoningProfile,
                 tool_mode: toolMode,
                 knowledge_folders: activeKnowledgeFolders,
@@ -406,6 +419,7 @@ export function useChatMessageActions({
               message: nextContent,
               files: restoredFiles,
               model: effectiveModel,
+              temperature,
               reasoning_profile: effectiveReasoningProfile,
               tool_mode: toolMode,
               knowledge_folders: activeKnowledgeFolders,
@@ -431,6 +445,7 @@ export function useChatMessageActions({
       selectedModel,
       setActiveConversation,
       setCollapsedMessageIds,
+      temperature,
       toolMode,
     ],
   );
@@ -567,9 +582,47 @@ export function useChatMessageActions({
     }
   }, [activeConversation, onModelLoveScoreChange, setActiveConversation, setError]);
 
+  const handleRefreshMessagePendingMemories = useCallback(async (messageId: number) => {
+    try {
+      const pendingMemories = await fetchMessagePendingMemories(messageId);
+      setActiveConversation((current) =>
+        current ? setMessagePendingMemories(current, messageId, pendingMemories) : current,
+      );
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Failed to load pending memories.");
+    }
+  }, [setActiveConversation, setError]);
+
+  const handleConfirmPendingMemory = useCallback(
+    async (memoryId: number, payload?: MemoryCandidateUpdatePayload) => {
+      try {
+        await confirmPendingMemory(memoryId, payload);
+        setActiveConversation((current) => (current ? removePendingMemory(current, memoryId) : current));
+      } catch (saveError) {
+        setError(saveError instanceof Error ? saveError.message : "Failed to confirm pending memory.");
+      }
+    },
+    [setActiveConversation, setError],
+  );
+
+  const handleRejectPendingMemory = useCallback(
+    async (memoryId: number) => {
+      try {
+        await rejectPendingMemory(memoryId);
+        setActiveConversation((current) => (current ? removePendingMemory(current, memoryId) : current));
+      } catch (saveError) {
+        setError(saveError instanceof Error ? saveError.message : "Failed to reject pending memory.");
+      }
+    },
+    [setActiveConversation, setError],
+  );
+
   return {
     handleCancelEditingUserMessage,
+    handleConfirmPendingMemory,
     handleMessageFeedback,
+    handleRefreshMessagePendingMemories,
+    handleRejectPendingMemory,
     handleRetryAssistant,
     handleSend,
     handleStartEditingUserMessage,

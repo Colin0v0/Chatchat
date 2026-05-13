@@ -15,7 +15,7 @@ interface ComposerMobileToolbarProps {
   onNewBattle: () => void;
   onReasoningProfileChange: (value: ReasoningProfileValue) => void;
   reasoningProfile: ReasoningProfileValue;
-  selectedModelOption: ModelOption;
+  selectedModelOption: ModelOption | null;
   showImageModeOption: boolean;
   showNewDebateOption: boolean;
   showNewBattleOption: boolean;
@@ -190,7 +190,7 @@ export function ComposerMobileToolbar({
             </div>
           ) : null}
         </div>
-        {!imageMode && showReasoningProfile ? (
+        {!imageMode && showReasoningProfile && selectedModelOption ? (
           <div className="min-w-0">
             <ReasoningProfileSelect
               compact

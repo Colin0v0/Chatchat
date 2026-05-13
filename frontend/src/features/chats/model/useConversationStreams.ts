@@ -394,14 +394,19 @@ export function useConversationStreams({
 
       if (event.type === "token") {
         const cleanContent = sanitizeTokenContent(event.content);
-        updateStreamSession(conversationId, (session) =>
-          shouldCloseReasoningStream(session, event.content, cleanContent)
-            ? {
-                ...session,
-                reasoningStreaming: false,
-              }
-            : session,
-        );
+        updateStreamSession(conversationId, (session) => {
+          if (!session.reasoningStreaming) {
+            return session;
+          }
+          if (!cleanContent && !shouldCloseReasoningStream(session, event.content, cleanContent)) {
+            return session;
+          }
+          // 中文注释：只要正文 token 开始，前端就把“思考中”收束成已完成态；推理摘要仍保留在草稿消息上。
+          return {
+            ...session,
+            reasoningStreaming: false,
+          };
+        });
         if (!cleanContent) {
           return;
         }
@@ -535,6 +540,7 @@ export function useConversationStreams({
                     ...previousSession.conversation,
                     id: nextConversationId,
                     model: event.model,
+                    temporary_chat: previousSession.conversation.temporary_chat,
                   },
                   tempUserMessageId,
                   event.message_id,

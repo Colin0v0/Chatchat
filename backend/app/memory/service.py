@@ -2,91 +2,45 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import re
-from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
 
-from ..chat.types import ChatMessagePayload
 from ..core.config import Settings
 from ..storage.database import SessionLocal
-from ..storage.models import Conversation, MemoryDocument, MemoryItem, Message
+from ..storage.models import Conversation, MemoryItem, Message
 from .embedder import MemoryEmbedder
 from .extractor import MemoryExtractor
+from .governance import filter_sensitive_candidates, is_sensitive_text
+from .history_store import ChatHistoryRecallStore
+from .history_summary import PastChatSummarizer, build_turn_index_text
 from .normalizer import normalize_candidate, normalize_memory_fields
-from .store import MemoryCollection, MemoryStore, utcnow
-from .types import MemoryCandidate, MemoryPromptPayload, MemoryStatus, MemoryTurnPolicy, MemoryWorkspaceCollection, MemoryWritePolicy
+from .policy import MemoryPolicyMixin
+from .prompt_payload import MemoryPromptPayloadMixin
+from .settings_store import MemorySettingsStore
+from .store import MemoryCollection, MemoryStore
+from .types import (
+    MemoryPromptPayload,
+    MemorySettingsState,
+    MemoryWorkspaceCollection,
+)
 
 logger = logging.getLogger("chatchat.memory")
 
-EXPLICIT_MEMORY_MARKERS = (
-    "记住",
-    "记下来",
-    "加入记忆",
-    "加入全局记忆",
-    "以后都",
-    "以后默认",
-    "长期记住",
-    "remember this",
-    "save this memory",
-)
-GLOBAL_MEMORY_MARKERS = (
-    "全局",
-    "长期",
-    "以后都",
-    "以后默认",
-    "跨会话",
-    "一直",
-    "always",
-    "across chats",
-)
-TRANSIENT_MARKERS = (
-    "这次",
-    "本次",
-    "当前",
-    "先",
-    "暂时",
-    "目前",
-    "this time",
-    "for now",
-    "current",
-    "temporary",
-)
-GROOMING_MARKERS = (
-    "谢谢",
-    "感谢",
-    "明白了",
-    "好的",
-    "知道了",
-    "没问题",
-    "ok",
-    "okay",
-    "thx",
-    "thanks",
-    "got it",
-    "明白",
-    "收到",
-    "嗯",
-    "哦",
-    "啊",
-    "好",
-    "行",
-    "可以",
-)
-TOKEN_PATTERN = re.compile(r"[0-9A-Za-z_\u4e00-\u9fff]{2,}")
 
-
-class MemoryService:
+class MemoryService(MemoryPromptPayloadMixin, MemoryPolicyMixin):
     def __init__(self, settings: Settings):
         self._extractor = MemoryExtractor(extract_limit=settings.memory_extract_max_items)
         self._memory_model = settings.memory_model.strip()
         self._recall_limit = max(1, settings.memory_recall_top_k)
         self._refresh_semaphore = asyncio.Semaphore(max(1, settings.memory_refresh_max_concurrency))
         self._refresh_tasks: dict[int, asyncio.Task[None]] = {}
+        self._refresh_locks: dict[int, asyncio.Lock] = {}
         self._embedding_enabled = bool(settings.memory_embedding_enabled)
         self._vector_weight = max(0.0, min(1.0, float(settings.memory_vector_weight)))
         self._keyword_weight = max(0.0, min(1.0, float(settings.memory_keyword_weight)))
         self._auto_memory_min_confidence = max(0.0, min(1.0, float(settings.memory_auto_promote_min_confidence)))
+        self._past_chat_recall_limit = max(1, int(getattr(settings, "memory_past_chat_recall_top_k", 4)))
+        self._summarizer = PastChatSummarizer(model=self._memory_model)
         self._embedder: MemoryEmbedder | None = None
         if self._embedding_enabled:
             try:
@@ -106,36 +60,75 @@ class MemoryService:
         if user_id <= 0:
             return MemoryPromptPayload()
 
+        settings_state = MemorySettingsStore(db).get_state(user_id=user_id)
+        conversation = db.get(Conversation, conversation_id)
+        if conversation is not None and conversation.temporary_chat:
+            return MemoryPromptPayload(debug={"memory_disabled": True, "temporary_chat": True})
+        if not settings_state.saved_memories_enabled and not settings_state.reference_chat_history_enabled:
+            return MemoryPromptPayload(debug={"memory_disabled": True})
+
         store = MemoryStore(db)
-        store.expire_stale_working_memory(user_id=user_id)
-        documents = store.list_documents(user_id=user_id, conversation_id=conversation_id)
+        documents = []
+        hit_items: list[MemoryItem] = []
+        if settings_state.saved_memories_enabled:
+            store.expire_stale_working_memory(user_id=user_id)
+            documents = store.list_documents(user_id=user_id, conversation_id=conversation_id)
+        else:
+            store.expire_stale_working_memory(user_id=user_id)
 
         query_embedding: list[float] | None = None
         if self._embedding_enabled and self._embedder is not None and query.strip():
             try:
                 query_embedding = await self._embedder.embed_query(query)
             except Exception:
-                logger.exception("memory query embedding failed, falling back to keyword recall")
+                logger.exception("memory query embedding failed")
 
-        hits = store.recall(
-            query=query,
-            user_id=user_id,
-            conversation_id=conversation_id,
-            limit=self._recall_limit,
-            query_embedding=query_embedding,
-            vector_weight=self._vector_weight,
-            keyword_weight=self._keyword_weight,
-        )
+        if settings_state.saved_memories_enabled:
+            hits = store.recall(
+                query=query,
+                user_id=user_id,
+                conversation_id=conversation_id,
+                limit=self._recall_limit,
+                query_embedding=query_embedding,
+                vector_weight=self._vector_weight,
+                keyword_weight=self._keyword_weight,
+            )
 
-        hit_items: list[MemoryItem] = []
-        for hit in hits:
-            item = store.get_by_id(hit.memory_id, user_id=user_id)
-            if item is None or item.status != "active" or not item.active:
-                continue
-            hit_items.append(item)
+            for hit in hits:
+                item = store.get_by_id(hit.memory_id, user_id=user_id)
+                if item is None or item.status != "active" or not item.active:
+                    continue
+                if item.confidence_state not in {"inferred", "confirmed"}:
+                    continue
+                hit_items.append(item)
 
-        if not documents and not hit_items:
-            return MemoryPromptPayload(debug={"memory_documents": 0, "memory_hits": 0})
+        past_chat_refs = []
+        dynamic_recap = ""
+        if settings_state.reference_chat_history_enabled:
+            past_chat_refs = ChatHistoryRecallStore(db).recall(
+                query=query,
+                user_id=user_id,
+                conversation_id=conversation_id,
+                limit=self._past_chat_recall_limit,
+                query_embedding=query_embedding,
+                vector_weight=self._vector_weight,
+                keyword_weight=self._keyword_weight,
+            )
+            if past_chat_refs:
+                dynamic_recap = await self._summarizer.synthesize_dynamic_recap(
+                    query=query,
+                    snippets=[reference.summary or reference.excerpt for reference in past_chat_refs],
+                )
+
+        if not documents and not hit_items and not past_chat_refs:
+            return MemoryPromptPayload(
+                debug={
+                    "memory_documents": 0,
+                    "memory_hits": 0,
+                    "past_chat_hits": 0,
+                    "memory_settings": self._settings_debug(settings_state),
+                }
+            )
 
         # Treat as fresh conversation if there are very few messages.
         from ..storage.models import Message
@@ -146,16 +139,44 @@ class MemoryService:
         is_fresh = message_count <= 2
 
         payload_message = self._build_prompt_message(
-            documents=documents, hit_items=hit_items, is_fresh_conversation=is_fresh
+            documents=documents,
+            hit_items=hit_items,
+            past_chat_refs=past_chat_refs,
+            dynamic_recap=dynamic_recap,
+            is_fresh_conversation=is_fresh,
         )
         if hit_items:
             store.touch([item.id for item in hit_items], user_id=user_id)
+        if past_chat_refs:
+            ChatHistoryRecallStore(db).touch(
+                user_id=user_id,
+                entry_ids=[reference.id for reference in past_chat_refs],
+            )
+        if hit_items or past_chat_refs:
             db.commit()
+        query_hints = self._build_query_hints(hit_items=hit_items, past_chat_refs=past_chat_refs)
         return MemoryPromptPayload(
             messages=(payload_message,),
+            query_hints=tuple(query_hints),
             debug={
                 "memory_documents": len(documents),
+                "memory_document_references": [
+                    self._prompt_memory_document_payload(document)
+                    for document in documents
+                ],
                 "memory_hits": len(hit_items),
+                "memory_items": [
+                    self._prompt_memory_item_payload(item)
+                    for item in sorted(hit_items, key=self._prompt_item_sort_key)
+                ],
+                "past_chat_hits": len(past_chat_refs),
+                "past_chat_references": [
+                    self._prompt_past_chat_payload(reference)
+                    for reference in past_chat_refs
+                ],
+                "past_chat_dynamic_recap": dynamic_recap,
+                "memory_query_hints": query_hints,
+                "memory_settings": self._settings_debug(settings_state),
             },
         )
 
@@ -167,7 +188,6 @@ class MemoryService:
         assistant_message_id: int,
         response_model: str,
     ) -> None:
-        previous_task = self._refresh_tasks.get(conversation_id)
         task = asyncio.create_task(
             self._run_scheduled_refresh(
                 conversation_id=conversation_id,
@@ -183,8 +203,11 @@ class MemoryService:
                 task=completed_task,
             )
         )
-        if previous_task is not None and previous_task is not task:
-            previous_task.cancel()
+
+    async def wait_for_refresh_idle(self, *, conversation_id: int) -> None:
+        task = self._refresh_tasks.get(conversation_id)
+        if task is not None:
+            await task
 
     def _finalize_refresh_task(
         self,
@@ -201,6 +224,7 @@ class MemoryService:
         finally:
             if self._refresh_tasks.get(conversation_id) is task:
                 self._refresh_tasks.pop(conversation_id, None)
+                self._refresh_locks.pop(conversation_id, None)
 
     async def _run_scheduled_refresh(
         self,
@@ -210,13 +234,16 @@ class MemoryService:
         assistant_message_id: int,
         response_model: str,
     ) -> None:
-        async with self._refresh_semaphore:
-            await self.refresh_from_turn(
-                conversation_id=conversation_id,
-                user_message_id=user_message_id,
-                assistant_message_id=assistant_message_id,
-                response_model=response_model,
-            )
+        lock = self._refresh_locks.setdefault(conversation_id, asyncio.Lock())
+        # 中文注释：同一会话的记忆刷新按完成顺序排队，避免后一轮刷新取消前一轮导致记忆丢失。
+        async with lock:
+            async with self._refresh_semaphore:
+                await self.refresh_from_turn(
+                    conversation_id=conversation_id,
+                    user_message_id=user_message_id,
+                    assistant_message_id=assistant_message_id,
+                    response_model=response_model,
+                )
 
     async def refresh_from_turn(
         self,
@@ -234,6 +261,47 @@ class MemoryService:
             if conversation is None or user_message is None or assistant_message is None:
                 return
             if conversation.user_id is None:
+                return
+            if conversation.temporary_chat:
+                return
+
+            settings_state = MemorySettingsStore(db).get_state(user_id=conversation.user_id)
+            turn_index_text = build_turn_index_text(
+                conversation_title=conversation.title,
+                user_message=user_message.content,
+                assistant_message=assistant_message.content,
+            )
+            if not settings_state.sensitive_memory_enabled and is_sensitive_text(turn_index_text):
+                # 中文注释：敏感内容默认不进入历史索引，也不送给记忆抽取模型。
+                MemoryStore(db).rebuild_documents(user_id=conversation.user_id, conversation_id=conversation_id)
+                db.commit()
+                return
+
+            history_embedding: list[float] | None = None
+            if settings_state.reference_chat_history_enabled and settings_state.memory_learning_enabled:
+                summary = await self._summarizer.summarize_turn(
+                    conversation_title=conversation.title,
+                    user_message=user_message.content,
+                    assistant_message=assistant_message.content,
+                )
+                embedding_text = summary.strip() if summary.strip() else turn_index_text
+                if self._embedder is not None and embedding_text.strip():
+                    try:
+                        history_embedding = await self._embedder.embed_query(embedding_text)
+                    except Exception:
+                        logger.exception("past chat embedding failed during refresh")
+                ChatHistoryRecallStore(db).upsert_turn(
+                    user_id=conversation.user_id,
+                    conversation=conversation,
+                    user_message=user_message,
+                    assistant_message=assistant_message,
+                    summary=summary,
+                    embedding=history_embedding,
+                )
+
+            if not settings_state.memory_learning_enabled:
+                MemoryStore(db).rebuild_documents(user_id=conversation.user_id, conversation_id=conversation_id)
+                db.commit()
                 return
 
             policy = self._build_turn_policy(user_message=user_message)
@@ -275,6 +343,21 @@ class MemoryService:
                 MemoryStore(db).rebuild_documents(user_id=conversation.user_id, conversation_id=conversation_id)
                 db.commit()
                 return
+            candidates, skipped_sensitive_count = filter_sensitive_candidates(
+                candidates=candidates,
+                allow_sensitive=settings_state.sensitive_memory_enabled,
+            )
+            if not candidates:
+                MemoryStore(db).rebuild_documents(user_id=conversation.user_id, conversation_id=conversation_id)
+                db.commit()
+                if skipped_sensitive_count:
+                    logger.info(
+                        "memory extraction skipped sensitive candidates | user_id=%s | conversation_id=%s | count=%s",
+                        conversation.user_id,
+                        conversation_id,
+                        skipped_sensitive_count,
+                    )
+                return
 
             store = MemoryStore(db)
             wrote_any = False
@@ -288,7 +371,7 @@ class MemoryService:
                 )
                 if resolved is None:
                     continue
-                resolved_candidate, status, expires_at, write_policy = resolved
+                resolved_candidate, status, confidence_state, expires_at, write_policy = resolved
 
                 embedding: list[float] | None = None
                 if self._embedder is not None:
@@ -306,6 +389,7 @@ class MemoryService:
                     user_id=conversation.user_id,
                     conversation_id=conversation_id,
                     status=status,
+                    confidence_state=confidence_state,
                     source_type="auto" if not policy.explicit_request else "promoted",
                     modality=policy.modality,
                     write_policy=write_policy,
@@ -419,6 +503,86 @@ class MemoryService:
         MemoryStore(db).delete_memory(memory)
         db.commit()
 
+    def get_settings(self, *, db: Session, user_id: int):
+        settings = MemorySettingsStore(db).get_or_create(user_id=user_id)
+        db.commit()
+        db.refresh(settings)
+        return settings
+
+    def update_settings(
+        self,
+        *,
+        db: Session,
+        user_id: int,
+        saved_memories_enabled: bool | None = None,
+        reference_chat_history_enabled: bool | None = None,
+        memory_learning_enabled: bool | None = None,
+        sensitive_memory_enabled: bool | None = None,
+    ):
+        settings = MemorySettingsStore(db).update(
+            user_id=user_id,
+            saved_memories_enabled=saved_memories_enabled,
+            reference_chat_history_enabled=reference_chat_history_enabled,
+            memory_learning_enabled=memory_learning_enabled,
+            sensitive_memory_enabled=sensitive_memory_enabled,
+        )
+        db.commit()
+        db.refresh(settings)
+        return settings
+
+    def clear_saved_memories(self, *, db: Session, user_id: int) -> int:
+        deleted_count = MemorySettingsStore(db).clear_saved_memories(user_id=user_id)
+        db.commit()
+        return deleted_count
+
+    def clear_chat_history_index(self, *, db: Session, user_id: int) -> int:
+        deleted_count = MemorySettingsStore(db).clear_chat_history_index(user_id=user_id)
+        db.commit()
+        return deleted_count
+
+    def list_pending_for_assistant_message(
+        self,
+        *,
+        db: Session,
+        user_id: int,
+        assistant_message_id: int,
+    ) -> list[MemoryItem]:
+        return MemoryStore(db).list_pending_for_assistant_message(
+            user_id=user_id,
+            assistant_message_id=assistant_message_id,
+        )
+
+    def confirm_pending_memory(
+        self,
+        *,
+        db: Session,
+        memory: MemoryItem,
+        user_id: int,
+        scope: str | None = None,
+        kind: str | None = None,
+        title: str | None = None,
+        detail: str | None = None,
+        tags: list[str] | None = None,
+    ) -> MemoryItem:
+        updated = MemoryStore(db).confirm_pending_memory(
+            memory,
+            user_id=user_id,
+            scope=scope,
+            kind=kind,
+            title=title,
+            detail=detail,
+            tags=tags,
+        )
+        db.commit()
+        db.refresh(updated)
+        return updated
+
+    def reject_pending_memory(self, *, db: Session, memory: MemoryItem, user_id: int) -> MemoryItem:
+        updated = MemoryStore(db).reject_pending_memory(memory, user_id=user_id)
+        db.commit()
+        db.refresh(updated)
+        return updated
+
     def normalize_existing_memories(self, *, db: Session) -> tuple[int, int]:
         items = db.query(MemoryItem).all()
         updated = 0
@@ -463,154 +627,26 @@ class MemoryService:
         db.commit()
         return updated, deleted
 
-    def _build_prompt_message(
-        self,
-        *,
-        documents: list[MemoryDocument],
-        hit_items: list[MemoryItem],
-        is_fresh_conversation: bool = False,
-    ) -> ChatMessagePayload:
-        lines = [
-            "The following is what you know about the user from past conversations.",
-            "Use this naturally—do not mention that you \"remember\" it unless it genuinely improves the response.",
-            "Prefer the current conversation over this background if they conflict.",
-        ]
-        if is_fresh_conversation:
-            lines.append(
-                "If this is the very first exchange, greet the user briefly using what you know about them."
-            )
+    def _settings_debug(self, settings_state: MemorySettingsState) -> dict[str, bool]:
+        return {
+            "saved_memories_enabled": settings_state.saved_memories_enabled,
+            "reference_chat_history_enabled": settings_state.reference_chat_history_enabled,
+            "memory_learning_enabled": settings_state.memory_learning_enabled,
+            "sensitive_memory_enabled": settings_state.sensitive_memory_enabled,
+        }
 
-        # Render documents (curated summaries like user_profile, workspace_profile, conversation_brief)
-        if documents:
-            for document in documents:
-                lines.append("")
-                lines.append(f"{document.title}:")
-                lines.append(document.content)
-
-        # Render hit_items as natural context (skip technical labels like [global/Profile])
-        if hit_items:
-            lines.append("")
-            lines.append("Related context:")
-            for item in hit_items:
-                line = f"- {item.title}"
-                if item.detail:
-                    line += f": {item.detail}"
-                time_hint = self._relative_time_hint(item.updated_at or item.created_at)
-                if time_hint:
-                    line += f" ({time_hint})"
-                lines.append(line)
-
-        return ChatMessagePayload(role="system", content="\n".join(lines).strip())
-
-    def _relative_time_hint(self, dt: datetime | None) -> str:
-        if dt is None:
-            return ""
-        now = utcnow()
-        delta = now - dt
-        if delta.days < 1:
-            return "今天"
-        if delta.days < 2:
-            return "昨天"
-        if delta.days < 7:
-            return f"{delta.days} 天前"
-        if delta.days < 30:
-            weeks = delta.days // 7
-            return f"{weeks} 周前"
-        if delta.days < 365:
-            months = delta.days // 30
-            return f"{months} 个月前"
-        years = delta.days // 365
-        return f"{years} 年前"
-
-    def _build_turn_policy(self, *, user_message: Message) -> MemoryTurnPolicy:
-        content = (user_message.content or "").strip().casefold()
-        explicit_request = any(marker in content for marker in EXPLICIT_MEMORY_MARKERS)
-        has_attachments = bool(user_message.attachments)
-        target_scope = None
-        if explicit_request:
-            target_scope = "global" if any(marker in content for marker in GLOBAL_MEMORY_MARKERS) else "conversation"
-        return MemoryTurnPolicy(
-            explicit_request=explicit_request,
-            target_scope=target_scope,
-            allow_automatic_storage=not explicit_request and not has_attachments,
-            skip_due_to_attachments=has_attachments and not explicit_request,
-            modality="attachment" if has_attachments else "text",
-        )
-
-    def _should_attempt_auto_memory(self, *, user_message: Message) -> bool:
-        content = (user_message.content or "").strip()
-        if len(content) < 8:
-            return False
-        tokens = TOKEN_PATTERN.findall(content)
-        if len(tokens) < 2:
-            return False
-        # Skip grooming / low-information responses
-        content_lower = content.casefold()
-        if any(marker in content_lower for marker in GROOMING_MARKERS):
-            # If the message is very short and only contains grooming words, skip
-            if len(content) < 30:
-                return False
-        return True
-
-    def _resolve_auto_memory(
-        self,
-        *,
-        candidate,
-        policy: MemoryTurnPolicy,
-    ) -> tuple[MemoryCandidate, MemoryStatus, datetime | None, MemoryWritePolicy] | None:
-        if policy.explicit_request:
-            return (
-                MemoryCandidate(
-                    scope=policy.target_scope or "conversation",
-                    kind=candidate.kind,
-                    title=candidate.title,
-                    detail=candidate.detail,
-                    tags=candidate.tags,
-                    confidence=candidate.confidence,
-                ),
-                "active",
-                None,
-                "explicit",
-            )
-
-        if not policy.allow_automatic_storage:
-            return None
-
-        if self._looks_transient(candidate):
-            return (
-                MemoryCandidate(
-                    scope="working",
-                    kind=candidate.kind,
-                    title=candidate.title,
-                    detail=candidate.detail,
-                    tags=candidate.tags,
-                    confidence=candidate.confidence,
-                ),
-                "active",
-                utcnow() + timedelta(days=2),
-                "session",
-            )
-
-        if candidate.confidence < self._auto_memory_min_confidence:
-            return None
-
-        # 中文注释：长期信息达到阈值后直接写入全局长期记忆，不再经过额外确认层。
-        return (
-            MemoryCandidate(
-                scope="global",
-                kind=candidate.kind,
-                title=candidate.title,
-                detail=candidate.detail,
-                tags=candidate.tags,
-                confidence=candidate.confidence,
-            ),
-            "active",
-            None,
-            "explicit",
-        )
-
-    def _looks_transient(self, candidate) -> bool:
-        combined = " ".join([candidate.title, candidate.detail]).casefold()
-        if any(marker in combined for marker in TRANSIENT_MARKERS):
-            return True
-        return candidate.kind in {"goal", "project", "constraint"}
+    def _build_query_hints(self, *, hit_items: list[MemoryItem], past_chat_refs) -> list[str]:
+        hints: list[str] = []
+        for item in sorted(hit_items, key=self._prompt_item_sort_key):
+            text = " ".join([item.title or "", item.detail or ""]).strip()
+            if text and text not in hints:
+                hints.append(text[:180])
+            if len(hints) >= 5:
+                return hints
+        for reference in past_chat_refs:
+            text = (reference.summary or reference.excerpt or "").strip()
+            if text and text not in hints:
+                hints.append(text[:180])
+            if len(hints) >= 5:
+                return hints
+        return hints

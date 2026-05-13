@@ -40,6 +40,36 @@ export interface MessageContextSection {
   item_count: number;
 }
 
+export interface MessageMemoryReference {
+  id: number;
+  scope: MemoryScope;
+  kind: MemoryKind;
+  title: string;
+  detail: string;
+  tags: string[];
+  confidence_state: MemoryConfidenceState;
+  evidence_count: number;
+}
+
+export interface MessageMemoryDocumentReference {
+  id: number;
+  doc_type: MemoryDocumentType;
+  title: string;
+  content: string;
+  source_memory_ids: number[];
+}
+
+export interface MessagePastChatReference {
+  id: number;
+  conversation_id: number;
+  conversation_title: string;
+  user_message_id: number;
+  assistant_message_id: number;
+  summary: string;
+  excerpt: string;
+  score: number;
+}
+
 export interface MessageContext {
   query: string;
   strategy: string;
@@ -48,6 +78,10 @@ export interface MessageContext {
   older_message_count: number;
   recent_message_count: number;
   memory_count: number;
+  memory_items?: MessageMemoryReference[];
+  memory_documents?: MessageMemoryDocumentReference[];
+  past_chats?: MessagePastChatReference[];
+  memory_query_hints?: string[];
   source_count: number;
   sections: MessageContextSection[];
 }
@@ -61,6 +95,7 @@ export interface ConversationSummary {
   id: number;
   title: string;
   model: string;
+  temporary_chat?: boolean;
   updated_at: string | null;
   last_message_preview: string;
 }
@@ -92,6 +127,7 @@ export interface ChatMessage {
   sources?: MessageSource[];
   search_trace?: SearchTrace | null;
   context?: MessageContext | null;
+  pending_memories?: MemoryItem[];
   feedback?: FeedbackValue | null;
   created_at?: string | null;
   localStatus?: "stopped" | "error";
@@ -101,6 +137,7 @@ export interface ConversationDetail {
   id: number;
   title: string;
   model: string;
+  temporary_chat?: boolean;
   messages: ChatMessage[];
   total_message_count: number;
   loaded_message_count: number;
@@ -289,9 +326,11 @@ export interface ChatStreamRequest {
   message: string;
   files?: File[];
   model?: string | null;
+  temperature?: number | null;
   tool_mode: ToolMode;
   knowledge_folders?: string[];
   reasoning_profile?: ReasoningProfileValue | null;
+  temporary_chat?: boolean;
 }
 
 export interface BattleStreamRequest {
@@ -344,6 +383,7 @@ export interface RegenerateChatRequest {
   assistant_message_id: number;
   edited_content?: string | null;
   model?: string | null;
+  temperature?: number | null;
   tool_mode: ToolMode;
   knowledge_folders?: string[];
   reasoning_profile?: ReasoningProfileValue | null;
@@ -411,6 +451,7 @@ export interface KnowledgeFolderDeleteResult {
 export type MemoryScope = "working" | "global" | "conversation";
 export type MemoryKind = "profile" | "preference" | "goal" | "project" | "fact" | "constraint";
 export type MemoryStatus = "active" | "archived";
+export type MemoryConfidenceState = "pending" | "inferred" | "confirmed" | "rejected";
 export type MemoryDocumentType = "user_profile" | "workspace_profile" | "conversation_brief";
 
 export interface MemoryItem {
@@ -421,6 +462,9 @@ export interface MemoryItem {
   detail: string;
   tags: string[];
   confidence: number;
+  confidence_state: MemoryConfidenceState;
+  evidence_count: number;
+  evidence: Array<Record<string, unknown>>;
   status: MemoryStatus;
   source_type: string;
   modality: string;
@@ -461,6 +505,13 @@ export interface MemoryCollection {
   active_items: MemoryLayerCollection;
 }
 
+export interface MemorySettings {
+  saved_memories_enabled: boolean;
+  reference_chat_history_enabled: boolean;
+  memory_learning_enabled: boolean;
+  sensitive_memory_enabled: boolean;
+}
+
 export interface MemoryUpsertPayload {
   scope: Exclude<MemoryScope, "working">;
   kind: MemoryKind;
@@ -471,6 +522,14 @@ export interface MemoryUpsertPayload {
   pinned: boolean;
   active: boolean;
   conversation_id: number | null;
+}
+
+export interface MemoryCandidateUpdatePayload {
+  scope: Exclude<MemoryScope, "working">;
+  kind: MemoryKind;
+  title: string;
+  detail: string;
+  tags: string[];
 }
 
 export interface AudioTranscriptionResult {
@@ -498,6 +557,7 @@ export interface ImageGenerationJob {
   status: ImageGenerationJobStatus;
   conversation_id: number;
   user_message_id: number;
+  conversation_model: string;
   assistant_message_id?: number | null;
   conversation_title: string;
   content: string;

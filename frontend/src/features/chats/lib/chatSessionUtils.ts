@@ -4,6 +4,7 @@ import type {
   ChatStreamEvent,
   ConversationDetail,
   ConversationSummary,
+  MemoryItem,
   MessageContext,
   MessageAttachment,
   SearchTrace,
@@ -187,6 +188,7 @@ function mergeMessageWithCache(serverMessage: ChatMessage, cachedMessage: ChatMe
         : cachedMessage.sources,
     search_trace: serverMessage.search_trace ?? cachedMessage.search_trace,
     context: serverMessage.context ?? cachedMessage.context,
+    pending_memories: serverMessage.pending_memories ?? cachedMessage.pending_memories,
     feedback: serverMessage.feedback ?? cachedMessage.feedback,
     created_at: serverMessage.created_at ?? cachedMessage.created_at,
     localStatus: serverMessage.localStatus ?? cachedMessage.localStatus,
@@ -260,6 +262,7 @@ export function toConversationSummary(conversation: ConversationDetail): Convers
     id: conversation.id,
     title: conversation.title,
     model: conversation.model,
+    temporary_chat: conversation.temporary_chat,
     updated_at: new Date().toISOString(),
     last_message_preview: conversationPreview(conversation),
   };
@@ -438,6 +441,43 @@ export function replaceConversationMessageId(
     messages: conversation.messages.map((item) =>
       item.id === fromId ? { ...item, id: toId } : item,
     ),
+  };
+}
+
+export function setMessagePendingMemories(
+  conversation: ConversationDetail,
+  messageId: number | string,
+  pendingMemories: MemoryItem[],
+): ConversationDetail {
+  return {
+    ...conversation,
+    messages: conversation.messages.map((item) =>
+      item.id === messageId
+        ? {
+            ...item,
+            pending_memories: pendingMemories,
+          }
+        : item,
+    ),
+  };
+}
+
+export function removePendingMemory(
+  conversation: ConversationDetail,
+  memoryId: number,
+): ConversationDetail {
+  return {
+    ...conversation,
+    messages: conversation.messages.map((item) => {
+      const currentPending = item.pending_memories ?? [];
+      if (!currentPending.some((memory) => memory.id === memoryId)) {
+        return item;
+      }
+      return {
+        ...item,
+        pending_memories: currentPending.filter((memory) => memory.id !== memoryId),
+      };
+    }),
   };
 }
 

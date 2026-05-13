@@ -1,7 +1,23 @@
-import { Check, ChevronDown, Image as ImageIcon, PawPrint, UserRound, Volume2, X, type LucideIcon } from "lucide-react";
+import {
+  Brain,
+  Check,
+  ChevronDown,
+  History,
+  Image as ImageIcon,
+  PawPrint,
+  ShieldCheck,
+  Sparkles,
+  Trash2,
+  UserRound,
+  Volume2,
+  X,
+  type LucideIcon,
+} from "lucide-react";
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 
 import { changePassword } from "../../auth/api/session";
+import type { GeneralPreferences } from "../model/useGeneralPreferences";
+import { ModelSelect } from "../../models/ui/ModelSelect";
 import type {
   PetPreferences,
   PetProactiveLevel,
@@ -19,13 +35,15 @@ import {
 } from "../../chats/lib/imageSizeOptions";
 import { CLOUD_VOICE_OPTIONS, type CloudVoiceOption } from "../model/cloudVoices";
 import { useSpeechPreferences, type SpeechPlaybackProvider } from "../model/useSpeechPreferences";
+import type { MemorySettings, ModelOption } from "../../../types";
 
-type SettingsTab = "account" | "pet" | "voice" | "image";
+type SettingsTab = "general" | "account" | "memory" | "pet" | "voice" | "image";
 type ImageSelectKind = "size" | "quality" | "format";
 type PetSelectKind = "proactiveLevel" | "replyLength" | "tone" | "walkMode";
 type SpeechLanguage = "zh" | "en";
 type VoiceSelectKind = "cloud" | SpeechLanguage;
 type PasswordMessage = { tone: "error" | "success"; text: string };
+type SettingsTabConfig = { icon: LucideIcon; id: SettingsTab; label: string };
 
 const MIN_PASSWORD_LENGTH = 8;
 const PASSWORD_INPUT_CLASS =
@@ -413,43 +431,311 @@ function ToggleSwitch({
   );
 }
 
-const SETTINGS_TABS: Array<{ icon: LucideIcon; id: SettingsTab; label: string }> = [
-  { icon: UserRound, id: "account", label: "账户" },
-  { icon: PawPrint, id: "pet", label: "宠物" },
-  { icon: Volume2, id: "voice", label: "语音" },
-  { icon: ImageIcon, id: "image", label: "图片" },
-];
+const SETTINGS_TAB_CONFIG: Record<SettingsTab, SettingsTabConfig> = {
+  general: { icon: Sparkles, id: "general", label: "通用" },
+  account: { icon: UserRound, id: "account", label: "账户" },
+  memory: { icon: Brain, id: "memory", label: "记忆" },
+  pet: { icon: PawPrint, id: "pet", label: "宠物" },
+  voice: { icon: Volume2, id: "voice", label: "语音" },
+  image: { icon: ImageIcon, id: "image", label: "图片" },
+};
+
+const SETTINGS_TABS = Object.values(SETTINGS_TAB_CONFIG);
+
+function MemorySettingControl({
+  checked,
+  icon: Icon,
+  label,
+  onChange,
+}: {
+  checked: boolean;
+  icon: LucideIcon;
+  label: string;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <div className="flex w-full items-center justify-start gap-3 md:w-[360px] md:justify-between">
+      <div className="flex min-w-0 items-center gap-2.5">
+        <Icon className="size-4 shrink-0 text-app-muted" />
+        <div className="min-w-0 text-[14px] font-medium text-app-text">{label}</div>
+      </div>
+      <ToggleSwitch checked={checked} label={label} onChange={onChange} />
+    </div>
+  );
+}
+
+function GeneralSettingsSection({
+  availableModels,
+  defaultModel,
+  onDefaultModelChange,
+  onTemperatureChange,
+  temperature,
+}: {
+  availableModels: ModelOption[];
+  defaultModel: string;
+  onDefaultModelChange: (value: string) => void;
+  onTemperatureChange: (value: number) => void;
+  temperature: number;
+}) {
+  const selectedModel = availableModels.some((item) => item.id === defaultModel)
+    ? defaultModel
+    : availableModels[0]?.id ?? "";
+
+  return (
+    <div>
+      <SettingRow label="默认模型">
+        <ModelSelect
+          fullWidth
+          label="默认模型"
+          menuPlacement="bottom"
+          model={selectedModel}
+          models={availableModels}
+          onChange={onDefaultModelChange}
+        />
+      </SettingRow>
+      <SettingRow label="温度">
+        <div className="flex w-full items-center gap-3 md:w-[360px]">
+          <input
+            aria-label="默认温度"
+            className="settings-range min-w-0 flex-1"
+            max={1}
+            min={0}
+            onChange={(event) => onTemperatureChange(Number(event.target.value))}
+            step={0.1}
+            type="range"
+            value={temperature}
+          />
+          <span className="w-10 text-right text-[13px] font-medium text-app-muted">
+            {temperature.toFixed(1)}
+          </span>
+        </div>
+      </SettingRow>
+    </div>
+  );
+}
+
+function MemorySettingsSection({
+  isSaving,
+  onChangeSettings,
+  onClearChatHistoryIndex,
+  onClearSavedMemories,
+  settings,
+}: {
+  isSaving: boolean;
+  onChangeSettings: (patch: Partial<MemorySettings>) => void;
+  onClearChatHistoryIndex: () => void;
+  onClearSavedMemories: () => void;
+  settings: MemorySettings;
+}) {
+  const handleClearSaved = () => {
+    if (window.confirm("确定清空已保存记忆？")) {
+      onClearSavedMemories();
+    }
+  };
+  const handleClearHistory = () => {
+    if (window.confirm("确定清空历史聊天索引？")) {
+      onClearChatHistoryIndex();
+    }
+  };
+
+  return (
+    <div>
+      <SettingRow label="已保存记忆">
+        <MemorySettingControl
+          checked={settings.saved_memories_enabled}
+          icon={Brain}
+          label="回答时注入已保存记忆"
+          onChange={(checked) => onChangeSettings({ saved_memories_enabled: checked })}
+        />
+      </SettingRow>
+      <SettingRow label="历史聊天">
+        <MemorySettingControl
+          checked={settings.reference_chat_history_enabled}
+          icon={History}
+          label="参考历史聊天索引"
+          onChange={(checked) => onChangeSettings({ reference_chat_history_enabled: checked })}
+        />
+      </SettingRow>
+      <SettingRow label="自动学习">
+        <MemorySettingControl
+          checked={settings.memory_learning_enabled}
+          icon={Sparkles}
+          label="自动识别新的候选记忆"
+          onChange={(checked) => onChangeSettings({ memory_learning_enabled: checked })}
+        />
+      </SettingRow>
+      <SettingRow label="敏感信息">
+        <MemorySettingControl
+          checked={settings.sensitive_memory_enabled}
+          icon={ShieldCheck}
+          label="允许学习敏感信息"
+          onChange={(checked) => onChangeSettings({ sensitive_memory_enabled: checked })}
+        />
+      </SettingRow>
+      <SettingRow label="清理">
+        <div className="grid w-full gap-2 md:w-[360px]">
+          <button
+            className="inline-flex h-9 items-center justify-center gap-2 rounded-[8px] border border-[#f0d0ca] bg-[#fbefed] px-3 text-[13px] font-medium text-[#9d3d32] transition hover:bg-[#f5dfdb] disabled:cursor-not-allowed disabled:opacity-55"
+            disabled={isSaving}
+            onClick={handleClearSaved}
+            type="button"
+          >
+            <Trash2 className="size-4" />
+            清空已保存记忆
+          </button>
+          <button
+            className="inline-flex h-9 items-center justify-center gap-2 rounded-[8px] border border-app-border bg-app-panel px-3 text-[13px] font-medium text-app-muted transition hover:bg-app-panel-soft hover:text-app-text disabled:cursor-not-allowed disabled:opacity-55"
+            disabled={isSaving}
+            onClick={handleClearHistory}
+            type="button"
+          >
+            <Trash2 className="size-4" />
+            清空历史索引
+          </button>
+        </div>
+      </SettingRow>
+    </div>
+  );
+}
+
+function MobileSettingsTabSelect({
+  activeTab,
+  onChange,
+  onOpenChange,
+  open,
+}: {
+  activeTab: SettingsTab;
+  onChange: (tab: SettingsTab) => void;
+  onOpenChange: (open: boolean) => void;
+  open: boolean;
+}) {
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const listboxId = useId();
+  const activeItem = SETTINGS_TAB_CONFIG[activeTab];
+  const ActiveIcon = activeItem.icon;
+
+  // 移动端设置分类会继续增长，用下拉承载，避免顶部标签被挤爆。
+  useEffect(() => {
+    function handlePointerDown(event: MouseEvent) {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        onOpenChange(false);
+      }
+    }
+
+    window.addEventListener("mousedown", handlePointerDown);
+    return () => window.removeEventListener("mousedown", handlePointerDown);
+  }, [onOpenChange]);
+
+  return (
+    <div className="relative md:hidden" ref={rootRef}>
+      <button
+        aria-controls={listboxId}
+        aria-expanded={open}
+        className={[
+          "flex h-9 w-full items-center justify-between gap-3 rounded-[8px] border px-3 text-left text-[14px] font-medium transition-colors",
+          open
+            ? "border-app-border-strong bg-app-panel-soft/70 text-app-text"
+            : "border-app-border/85 bg-app-panel text-app-text hover:border-app-border-strong hover:bg-app-panel-soft/55",
+        ].join(" ")}
+        onClick={() => onOpenChange(!open)}
+        type="button"
+      >
+        <span className="flex min-w-0 items-center gap-2">
+          <ActiveIcon className="size-4 shrink-0 text-app-muted" />
+          <span className="truncate">{activeItem.label}</span>
+        </span>
+        <ChevronDown className={`size-4 shrink-0 text-app-muted transition ${open ? "rotate-180" : ""}`} />
+      </button>
+
+      {open ? (
+        <div
+          className="absolute left-0 right-0 top-[calc(100%+8px)] z-20 rounded-[8px] border border-app-border bg-app-panel-strong p-1.5 shadow-[0_14px_32px_rgba(34,24,16,0.16)]"
+          id={listboxId}
+          role="listbox"
+        >
+          {SETTINGS_TABS.map((item) => {
+            const Icon = item.icon;
+            const selected = item.id === activeTab;
+            return (
+              <button
+                aria-selected={selected}
+                className={[
+                  "flex h-9 w-full items-center justify-between gap-3 rounded-[8px] px-2.5 text-left text-[14px] font-medium transition-colors",
+                  selected ? "bg-app-panel-soft/75 text-app-text" : "text-app-muted hover:bg-app-panel-soft/45 hover:text-app-text",
+                ].join(" ")}
+                key={item.id}
+                onClick={() => {
+                  onChange(item.id);
+                  onOpenChange(false);
+                }}
+                role="option"
+                type="button"
+              >
+                <span className="flex min-w-0 items-center gap-2">
+                  <Icon className="size-4 shrink-0" />
+                  <span className="truncate">{item.label}</span>
+                </span>
+                {selected ? <Check className="size-4 shrink-0" /> : null}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 export function SettingsDialog({
   imageOutputFormat,
   imageQuality,
   imageSize,
+  availableModels,
+  defaultModel,
+  memorySettings,
+  memorySettingsSaving,
   onClose,
   onImageOutputFormatChange,
   onImageQualityChange,
   onImageSizeChange,
+  onDefaultModelChange,
+  onMemoryChangeSettings,
+  onMemoryClearChatHistoryIndex,
+  onMemoryClearSavedMemories,
   onPetEnabledChange,
   onPetPreferencesChange,
+  onTemperatureChange,
   open,
   petEnabled,
   petPreferences,
+  temperature,
   username,
 }: {
   imageOutputFormat: string;
   imageQuality: string;
   imageSize: string;
+  availableModels: ModelOption[];
+  defaultModel: GeneralPreferences["defaultModel"];
+  memorySettings: MemorySettings;
+  memorySettingsSaving: boolean;
   onClose: () => void;
   onImageOutputFormatChange: (value: string) => void;
   onImageQualityChange: (value: string) => void;
   onImageSizeChange: (value: string) => void;
+  onDefaultModelChange: (value: string) => void;
+  onMemoryChangeSettings: (patch: Partial<MemorySettings>) => void;
+  onMemoryClearChatHistoryIndex: () => void;
+  onMemoryClearSavedMemories: () => void;
   onPetEnabledChange: (enabled: boolean) => void;
   onPetPreferencesChange: (patch: Partial<PetPreferences>) => void;
+  onTemperatureChange: (value: number) => void;
   open: boolean;
   petEnabled: boolean;
   petPreferences: PetPreferences;
+  temperature: GeneralPreferences["temperature"];
   username: string;
 }) {
-  const [activeTab, setActiveTab] = useState<SettingsTab>("account");
+  const [activeTab, setActiveTab] = useState<SettingsTab>("general");
+  const [mobileCategoryOpen, setMobileCategoryOpen] = useState(false);
   const [openImageSelect, setOpenImageSelect] = useState<ImageSelectKind | null>(null);
   const [openPetSelect, setOpenPetSelect] = useState<PetSelectKind | null>(null);
   const [openVoiceSelect, setOpenVoiceSelect] = useState<VoiceSelectKind | null>(null);
@@ -476,7 +762,7 @@ export function SettingsDialog({
   } = useSpeechPreferences();
   const chineseVoices = filterVoicesByLanguage(voices, "zh");
   const englishVoices = filterVoicesByLanguage(voices, "en");
-  const activeTitle = SETTINGS_TABS.find((item) => item.id === activeTab)?.label ?? "设置";
+  const activeTitle = SETTINGS_TAB_CONFIG[activeTab].label;
   const normalizedImageSize = imageSizeChoiceForValue(imageSize).value;
   const normalizedImageQuality = imageQualityChoiceForValue(imageQuality).value;
   const normalizedImageOutputFormat = imageOutputFormatChoiceForValue(imageOutputFormat).value;
@@ -533,6 +819,9 @@ export function SettingsDialog({
   }
 
   useEffect(() => {
+    if (!open || activeTab !== "pet") {
+      setOpenPetSelect(null);
+    }
     if (!open || activeTab !== "voice") {
       setOpenVoiceSelect(null);
     }
@@ -552,6 +841,7 @@ export function SettingsDialog({
     setPasswordMessage(null);
     setPasswordFormOpen(false);
     setIsChangingPassword(false);
+    setMobileCategoryOpen(false);
   }, [open]);
 
   useEffect(() => {
@@ -569,13 +859,17 @@ export function SettingsDialog({
           setOpenImageSelect(null);
           return;
         }
+        if (mobileCategoryOpen) {
+          setMobileCategoryOpen(false);
+          return;
+        }
         onClose();
       }
     }
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onClose, open, openImageSelect, openVoiceSelect]);
+  }, [mobileCategoryOpen, onClose, open, openImageSelect, openVoiceSelect]);
 
   if (!open) {
     return null;
@@ -618,7 +912,10 @@ export function SettingsDialog({
 
         <div className="flex min-w-0 flex-1 flex-col">
           <header className="flex shrink-0 items-center justify-between gap-4 border-b border-app-border/70 px-5 py-4">
-            <div className="text-[20px] font-semibold tracking-[-0.03em] text-app-text">{activeTitle}</div>
+            <div className="min-w-0 truncate text-[20px] font-semibold tracking-[-0.03em] text-app-text">
+              <span className="md:hidden">设置</span>
+              <span className="hidden md:inline">{activeTitle}</span>
+            </div>
             <button
               aria-label="关闭设置"
               className="flex h-8 w-8 items-center justify-center rounded-[8px] text-app-muted transition-colors hover:bg-app-panel-soft hover:text-app-text"
@@ -629,29 +926,28 @@ export function SettingsDialog({
             </button>
           </header>
 
-          <div className="grid shrink-0 grid-cols-4 gap-2 border-b border-app-border/70 px-4 py-3 md:hidden">
-            {SETTINGS_TABS.map((item) => {
-              const active = activeTab === item.id;
-              return (
-                <button
-                  className={[
-                    "h-10 rounded-[8px] px-3 text-[14px] font-semibold transition-colors",
-                    active ? "bg-app-panel-soft text-app-text" : "text-app-muted hover:bg-app-panel-soft hover:text-app-text",
-                  ].join(" ")}
-                  key={item.id}
-                  onClick={() => setActiveTab(item.id)}
-                  type="button"
-                >
-                  {item.label}
-                </button>
-              );
-            })}
-          </div>
-
           <div className="app-scrollbar min-h-0 flex-1 overflow-y-auto px-4 pb-5 md:px-5">
-            <div>
-              {activeTab === "account" ? (
-                <div>
+            <div className="space-y-4 py-4">
+              <MobileSettingsTabSelect
+                activeTab={activeTab}
+                onChange={setActiveTab}
+                onOpenChange={setMobileCategoryOpen}
+                open={mobileCategoryOpen}
+              />
+
+              <div>
+                {activeTab === "general" ? (
+                  <GeneralSettingsSection
+                    availableModels={availableModels}
+                    defaultModel={defaultModel}
+                    onDefaultModelChange={onDefaultModelChange}
+                    onTemperatureChange={onTemperatureChange}
+                    temperature={temperature}
+                  />
+                ) : null}
+
+                {activeTab === "account" ? (
+                  <div>
                   <SettingRow label="用户名">
                     <div className="w-full truncate text-left text-[14px] font-medium text-app-muted">
                       {username}
@@ -875,6 +1171,16 @@ export function SettingsDialog({
                 </div>
               ) : null}
 
+              {activeTab === "memory" ? (
+                <MemorySettingsSection
+                  isSaving={memorySettingsSaving}
+                  onChangeSettings={onMemoryChangeSettings}
+                  onClearChatHistoryIndex={onMemoryClearChatHistoryIndex}
+                  onClearSavedMemories={onMemoryClearSavedMemories}
+                  settings={memorySettings}
+                />
+              ) : null}
+
               {activeTab === "image" ? (
                 <div>
                   <>
@@ -988,6 +1294,7 @@ export function SettingsDialog({
                   </>
                 </div>
               ) : null}
+              </div>
             </div>
           </div>
         </div>

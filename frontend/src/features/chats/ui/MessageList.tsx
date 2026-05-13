@@ -1,4 +1,4 @@
-import { Check, Copy, Globe, Pencil, RotateCcw, Square, ThumbsDown, ThumbsUp, Volume2 } from "lucide-react";
+import { Check, Copy, Pencil, RotateCcw, Square, ThumbsDown, ThumbsUp, Volume2 } from "lucide-react";
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 
 import { thinkingPanelLabels } from "../../models/lib/modelCapabilities";
@@ -6,11 +6,11 @@ import { findModelOption } from "../../models/lib/modelOptions";
 import { useMessageSpeechPlayback } from "../model/useMessageSpeechPlayback";
 import { useSpeechPreferences } from "../../settings/model/useSpeechPreferences";
 import { ASSISTANT_DRAFT_ID } from "../lib/constants";
-import type { ChatMessage, FeedbackValue, ModelOption, SearchTrace } from "../../../types";
-import { ContextPanel } from "./context/ContextPanel";
+import type { ChatMessage, FeedbackValue, MemoryCandidateUpdatePayload, ModelOption } from "../../../types";
 import { MarkdownMessage } from "./markdown/MarkdownMessage";
 import { MessageAttachmentStrip } from "./message/MessageAttachmentStrip";
-import { MessageSources } from "./message/MessageSources";
+import { PendingMemoryPanel } from "./memory/PendingMemoryPanel";
+import { MessageReferencesPanel } from "./context/MessageReferencesPanel";
 import { ThinkingPanel } from "./thinking/ThinkingPanel";
 
 interface MessageListProps {
@@ -22,7 +22,10 @@ interface MessageListProps {
   isReasoningStreaming?: boolean;
   isStreaming?: boolean;
   reserveThinkingSpace?: boolean;
+  onConfirmPendingMemory?: (memoryId: number, payload?: MemoryCandidateUpdatePayload) => Promise<void> | void;
   onFeedback?: (messageId: number, value: FeedbackValue | null) => void;
+  onRefreshMessagePendingMemories?: (messageId: number) => Promise<void> | void;
+  onRejectPendingMemory?: (memoryId: number) => Promise<void> | void;
   onCancelEditingUserMessage?: () => void;
   onChangeEditingUserMessage?: (content: string) => void;
   onRetry?: (messageId: number | string) => void;
@@ -79,38 +82,6 @@ function StreamingStatusSlot({
   }
 
   return <StreamingLabel label={label} />;
-}
-
-function SearchTracePanel({ trace }: { trace: SearchTrace }) {
-  const queries = trace.queries.slice(0, 8);
-  const sources = trace.sources.slice(0, 8);
-  if (queries.length === 0 && sources.length === 0) {
-    return null;
-  }
-
-  return (
-    <div className="mb-4 text-[15px] leading-7 text-app-muted/82">
-      <div className="mb-2 inline-flex items-center gap-2 text-app-muted/88">
-        <Globe className="size-4" />
-        <span>正在搜索网页</span>
-      </div>
-      <div className="space-y-1.5 break-words [overflow-wrap:anywhere]">
-        {queries.map((query) => (
-          <div key={`query-${query}`}>{query}</div>
-        ))}
-        {sources.map((source, index) => {
-          const url = source.url?.trim();
-          const title = source.title?.trim();
-          return (
-            <div key={`source-${url}-${index}`}>
-              {title ? <span>{title} </span> : null}
-              {url ? <span>{url}</span> : null}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
 }
 
 function pendingAssistantLabel(panelLabels: { streamingLabel: string }, hasReasoningCapability: boolean) {
@@ -406,7 +377,10 @@ export function MessageList({
   isReasoningStreaming = false,
   isStreaming = false,
   reserveThinkingSpace = false,
+  onConfirmPendingMemory,
   onFeedback,
+  onRefreshMessagePendingMemories,
+  onRejectPendingMemory,
   onCancelEditingUserMessage,
   onChangeEditingUserMessage,
   onRetry,
@@ -426,6 +400,7 @@ export function MessageList({
     ? [...items].reverse().find((item) => item.role === "assistant")?.id
     : null;
   const previousStreamingRef = useRef(isStreaming);
+  const pendingMemoryRefreshIdsRef = useRef<Set<number>>(new Set());
 
   useEffect(() => {
     if (playingMessageId == null) {
@@ -462,6 +437,29 @@ export function MessageList({
     void togglePlayback(latestAssistant.id, latestAssistant.content);
   }, [isStreaming, items, playingMessageId, preferences.autoPlayAssistant, togglePlayback]);
 
+  useEffect(() => {
+    if (isStreaming || !onRefreshMessagePendingMemories) {
+      return;
+    }
+
+    const latestAssistant = [...items].reverse().find(
+      (item) =>
+        item.role === "assistant"
+        && typeof item.id === "number"
+        && item.content.trim()
+        && item.localStatus !== "stopped",
+    );
+    if (!latestAssistant || typeof latestAssistant.id !== "number") {
+      return;
+    }
+    if (pendingMemoryRefreshIdsRef.current.has(latestAssistant.id)) {
+      return;
+    }
+
+    pendingMemoryRefreshIdsRef.current.add(latestAssistant.id);
+    void onRefreshMessagePendingMemories(latestAssistant.id);
+  }, [isStreaming, items, onRefreshMessagePendingMemories]);
+
   return (
     <div className="flex w-full flex-col pb-6">
       {items.map((item, index) => {
@@ -482,7 +480,8 @@ export function MessageList({
           messageModelOption?.supports_thinking_trace || messageModelOption?.supports_thinking,
         );
         const showThinkingPanel = reasoning.trim().length > 0;
-        const thinkingStreaming = isActiveStreamingAssistant && isReasoningStreaming;
+        // 中文注释：正文开始流出后，推理流对用户来说已经结束；继续显示“思考中”会让回答像是和思考态重叠。
+        const thinkingStreaming = isActiveStreamingAssistant && isReasoningStreaming && isEmptyAssistant;
         const showStreamingStatus = isActiveStreamingAssistant && isEmptyAssistant && Boolean(streamingStatusLabel);
         const isPendingAssistantDraft = item.id === ASSISTANT_DRAFT_ID && isEmptyAssistant && !hasStoppedNote;
         const showPendingPlaceholder =
@@ -490,8 +489,7 @@ export function MessageList({
           !showThinkingPanel &&
           !showStreamingStatus &&
           (isPendingAssistantDraft || (isActiveStreamingAssistant && reserveThinkingSpace));
-        const showSources = !isEmptyAssistant && item.id !== activeStreamingAssistantId;
-        const showSearchTrace = Boolean(isActiveStreamingAssistant && item.search_trace);
+        const showReferences = !isEmptyAssistant && item.id !== activeStreamingAssistantId;
         const attachments = item.attachments ?? [];
         const isEditingUserMessage = !isAssistant && editingUserMessageId === item.id;
         const shouldHideOrphanReasoningMessage =
@@ -573,8 +571,6 @@ export function MessageList({
                 />
               ) : null}
 
-              {showSearchTrace ? <SearchTracePanel trace={item.search_trace as SearchTrace} /> : null}
-
               {!isEmptyAssistant ? (
                 <div className="text-[15px] leading-8 text-app-text">
                   <MarkdownMessage content={item.content} />
@@ -587,9 +583,21 @@ export function MessageList({
                 </div>
               ) : null}
 
-              {showSources ? <MessageSources sources={item.sources ?? []} /> : null}
+              {item.pending_memories?.length ? (
+                <PendingMemoryPanel
+                  memories={item.pending_memories}
+                  onConfirm={onConfirmPendingMemory}
+                  onReject={onRejectPendingMemory}
+                />
+              ) : null}
 
-              {item.context ? <ContextPanel context={item.context} /> : null}
+              {showReferences ? (
+                <MessageReferencesPanel
+                  context={item.context ?? null}
+                  searchTrace={item.search_trace ?? null}
+                  sources={item.sources ?? []}
+                />
+              ) : null}
 
               {!isEmptyAssistant ? (
                 <AssistantActions

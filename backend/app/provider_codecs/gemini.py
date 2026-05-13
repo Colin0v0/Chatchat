@@ -70,7 +70,19 @@ def apply_gemini_reasoning_controls(payload: dict[str, object], *, reasoning_pro
     }
 
 
-def gemini_request_payload(messages: list[ChatMessagePayload], *, reasoning_profile: str | None = None) -> dict[str, object]:
+def apply_gemini_temperature(payload: dict[str, object], *, temperature: float | None) -> None:
+    if temperature is None:
+        return
+    generation_config = cast(dict[str, object], payload.setdefault("generationConfig", {}))
+    generation_config["temperature"] = min(1.0, max(0.0, float(temperature)))
+
+
+def gemini_request_payload(
+    messages: list[ChatMessagePayload],
+    *,
+    reasoning_profile: str | None = None,
+    temperature: float | None = None,
+) -> dict[str, object]:
     system_parts: list[dict[str, object]] = []
     contents: list[dict[str, object]] = []
 
@@ -91,6 +103,7 @@ def gemini_request_payload(messages: list[ChatMessagePayload], *, reasoning_prof
     payload: dict[str, object] = {"contents": contents}
     if system_parts:
         payload["systemInstruction"] = {"parts": system_parts}
+    apply_gemini_temperature(payload, temperature=temperature)
     apply_gemini_reasoning_controls(payload, reasoning_profile=reasoning_profile)
     return payload
 

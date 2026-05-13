@@ -9,9 +9,11 @@ from ..chat.types import ChatMessagePayload
 MemoryScope = Literal["working", "conversation", "global"]
 MemoryKind = Literal["profile", "preference", "goal", "project", "fact", "constraint"]
 MemoryStatus = Literal["active", "archived"]
+MemoryConfidenceState = Literal["pending", "inferred", "confirmed", "rejected"]
 MemorySourceType = Literal["manual", "auto", "promoted"]
 MemoryWritePolicy = Literal["manual", "explicit", "session"]
 MemoryDocumentType = Literal["user_profile", "workspace_profile", "conversation_brief"]
+MemoryReferenceKind = Literal["saved_memory", "past_chat"]
 MemoryAction = Literal["add", "update", "replace", "remove"]
 
 MEMORY_SCOPES: tuple[MemoryScope, ...] = ("working", "conversation", "global")
@@ -24,6 +26,12 @@ MEMORY_KINDS: tuple[MemoryKind, ...] = (
     "constraint",
 )
 MEMORY_STATUSES: tuple[MemoryStatus, ...] = ("active", "archived")
+MEMORY_CONFIDENCE_STATES: tuple[MemoryConfidenceState, ...] = (
+    "pending",
+    "inferred",
+    "confirmed",
+    "rejected",
+)
 MEMORY_SOURCE_TYPES: tuple[MemorySourceType, ...] = ("manual", "auto", "promoted")
 MEMORY_WRITE_POLICIES: tuple[MemoryWritePolicy, ...] = ("manual", "explicit", "session")
 MEMORY_DOCUMENT_TYPES: tuple[MemoryDocumentType, ...] = (
@@ -57,6 +65,28 @@ class MemoryDocumentSnapshot:
 class MemoryPromptPayload:
     messages: tuple[ChatMessagePayload, ...] = ()
     debug: dict[str, object] = field(default_factory=dict)
+    query_hints: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class MemorySettingsState:
+    saved_memories_enabled: bool = True
+    reference_chat_history_enabled: bool = True
+    memory_learning_enabled: bool = True
+    sensitive_memory_enabled: bool = False
+
+
+@dataclass(frozen=True)
+class PastChatReference:
+    id: int
+    conversation_id: int
+    conversation_title: str
+    user_message_id: int
+    assistant_message_id: int
+    summary: str
+    excerpt: str
+    score: float = 0.0
+    updated_at: datetime | None = None
 
 
 @dataclass(frozen=True)

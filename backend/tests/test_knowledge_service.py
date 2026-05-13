@@ -57,8 +57,8 @@ def make_settings(storage_root: str):
     return SimpleNamespace(
         knowledge_storage_root=storage_root,
         knowledge_max_file_size_bytes=2 * 1024 * 1024,
-        knowledge_max_documents_per_user=100,
-        knowledge_max_total_size_bytes=100 * 1024 * 1024,
+        knowledge_max_documents_per_user=1000,
+        knowledge_max_total_size_bytes=1000 * 1024 * 1024,
         knowledge_top_k=4,
         knowledge_section_max_chars=1400,
         knowledge_candidate_limit=12,

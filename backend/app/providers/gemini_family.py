@@ -15,6 +15,7 @@ class GeminiProviderAdapter(ProviderAdapter):
             model=request.profile.upstream_model,
             messages=request.messages,
             reasoning_profile=request.reasoning_profile,
+            temperature=request.temperature,
             base_url_override=request.profile.chat_base_url,
             api_key_override=request.profile.api_key,
         ):

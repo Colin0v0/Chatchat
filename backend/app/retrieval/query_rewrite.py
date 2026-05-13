@@ -9,9 +9,10 @@ from ..chat.types import ChatMessagePayload
 from ..core.config import Settings
 from ..runtime.model_runner import complete_model_response
 
-REWRITE_SYSTEM_PROMPT = """You rewrite the latest user request into a standalone retrieval query for searching a private Markdown knowledge base.
+REWRITE_SYSTEM_PROMPT = """You rewrite the latest user request into a standalone retrieval/search query for retrieval tools.
 Preserve the user's intent, entities, filenames, dates, version numbers, error messages, APIs, and code symbols.
 Resolve references such as it, that, this plan, 这个, 那个, 上面那个 using the recent conversation when needed.
+Use relevant saved memory and past-chat hints only when they clarify entities, projects, preferences, location, time range, or domain.
 Keep the user's original language unless a technical term or name should remain in English.
 Return exactly one standalone retrieval query on a single line.
 Do not explain anything.
@@ -35,6 +36,7 @@ class QueryRewriteResult:
     applied: bool
     model: str | None
     context_message_count: int
+    memory_hint_count: int = 0
 
 
 class RagQueryRewriter:
@@ -49,6 +51,7 @@ class RagQueryRewriter:
         *,
         query: str,
         history_messages: Sequence[dict[str, str]],
+        memory_query_hints: Sequence[str] = (),
     ) -> QueryRewriteResult:
         original_query = query.strip()
         if not original_query:
@@ -58,27 +61,40 @@ class RagQueryRewriter:
                 applied=False,
                 model=self._model,
                 context_message_count=0,
+                memory_hint_count=0,
             )
 
-        if not self._enabled or not self._model:
+        if not self._enabled:
             return QueryRewriteResult(
                 original_query=original_query,
                 effective_query=original_query,
                 applied=False,
                 model=self._model,
                 context_message_count=0,
+                memory_hint_count=0,
             )
 
         context_messages = self._select_context_messages(history_messages)
+        memory_hints = _select_memory_hints(memory_query_hints)
+        if not self._model:
+            return QueryRewriteResult(
+                original_query=original_query,
+                effective_query=original_query,
+                applied=False,
+                model=None,
+                context_message_count=len(context_messages),
+                memory_hint_count=0,
+            )
         cache_key = build_cache_key(
             self._settings,
             namespace="rag_query_rewrite",
-            version=1,
+            version=2,
             payload={
                 "model": self._model,
                 "query": original_query,
                 "context_messages": context_messages,
-                "prompt_version": "2026-04-29",
+                "memory_hints": memory_hints,
+                "prompt_version": "2026-05-12",
             },
         )
         cached = await get_json(self._settings, cache_key)
@@ -91,6 +107,7 @@ class RagQueryRewriter:
                 applied=cached != original_query,
                 model=self._model,
                 context_message_count=len(context_messages),
+                memory_hint_count=len(memory_hints),
             )
 
         rewritten = _normalize_rewritten_query(
@@ -104,6 +121,7 @@ class RagQueryRewriter:
                         content=_build_rewrite_prompt(
                             current_query=original_query,
                             context_messages=context_messages,
+                            memory_hints=memory_hints,
                         ),
                     ),
                 ],
@@ -126,6 +144,7 @@ class RagQueryRewriter:
             applied=rewritten != original_query,
             model=self._model,
             context_message_count=len(context_messages),
+            memory_hint_count=len(memory_hints),
         )
 
     def _select_context_messages(self, history_messages: Sequence[dict[str, str]]) -> list[dict[str, str]]:
@@ -153,22 +172,36 @@ class RagQueryRewriter:
         return list(reversed(collected))
 
 
-def _build_rewrite_prompt(*, current_query: str, context_messages: Sequence[dict[str, str]]) -> str:
-    if not context_messages:
-        return f"Latest user request:\n{current_query}"
+def _build_rewrite_prompt(
+    *,
+    current_query: str,
+    context_messages: Sequence[dict[str, str]],
+    memory_hints: Sequence[str] = (),
+) -> str:
+    blocks: list[str] = []
 
-    context_block = "\n".join(
-        f"{message['role']}: {message['content']}"
-        for message in context_messages
-    )
-    return "\n\n".join(
-        [
+    if memory_hints:
+        blocks.extend(
+            [
+                "Relevant saved memory and past-chat hints:",
+                "\n".join(f"- {hint}" for hint in memory_hints),
+            ]
+        )
+
+    if context_messages:
+        context_block = "\n".join(
+            f"{message['role']}: {message['content']}"
+            for message in context_messages
+        )
+        blocks.extend(
+            [
             "Recent conversation context:",
             context_block,
-            "Latest user request:",
-            current_query,
-        ]
-    )
+            ]
+        )
+
+    blocks.extend(["Latest user request:", current_query])
+    return "\n\n".join(blocks)
 
 
 def _normalize_rewritten_query(value: str) -> str:
@@ -204,5 +237,32 @@ def _truncate_content(value: str, *, limit: int) -> str:
     return f"{normalized[: limit - 3].rstrip()}..."
 
 
+def _select_memory_hints(values: Sequence[str]) -> list[str]:
+    hints: list[str] = []
+    for value in values:
+        normalized = _truncate_content(str(value), limit=180)
+        if normalized and normalized not in hints:
+            hints.append(normalized)
+        if len(hints) >= 5:
+            break
+    return hints
+
+
 def _term_set(value: str) -> set[str]:
-    return {term for term in re.findall(r"[A-Za-z0-9_.:+/#-]+|[\u4e00-\u9fff]{2,}", value.lower()) if term.strip()}
+    terms: set[str] = set()
+    for raw_term in re.findall(r"[A-Za-z0-9_.:+/#-]+|[\u4e00-\u9fff]{2,}", value.lower()):
+        term = raw_term.strip()
+        if not term:
+            continue
+        terms.add(term)
+        if _is_chinese_term(term):
+            # 中文没有天然空格，加入短片段后才能识别“这个面板”与“候选记忆面板”的共同实体。
+            for size in (2, 3):
+                if len(term) <= size:
+                    continue
+                terms.update(term[index : index + size] for index in range(len(term) - size + 1))
+    return terms
+
+
+def _is_chinese_term(value: str) -> bool:
+    return bool(value) and all("\u4e00" <= char <= "\u9fff" for char in value)

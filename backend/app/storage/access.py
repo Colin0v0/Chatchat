@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from sqlalchemy import desc, exists, func, select
 from sqlalchemy.orm import Session, selectinload
 
-from .models import Conversation, Message, MessageAttachment, Run
+from .models import Conversation, MemoryItem, Message, MessageAttachment, Run
 
 
 @dataclass(frozen=True)
@@ -13,6 +13,7 @@ class ConversationSummaryRow:
     id: int
     title: str
     model: str
+    temporary_chat: bool
     updated_at: object
     last_message_preview: str
 
@@ -80,6 +81,7 @@ def list_conversation_messages_window(
     ).all()
     messages = list(reversed(messages_desc))
     _hydrate_message_models(db, messages)
+    _hydrate_pending_memories(db, messages)
 
     total_message_count = db.scalar(
         select(func.count(Message.id)).where(Message.conversation_id == conversation_id)
@@ -129,6 +131,35 @@ def _hydrate_message_models(db: Session, messages: list[Message]) -> None:
         setattr(message, "_resolved_model_id", model_by_message_id.get(message.id))
 
 
+def _hydrate_pending_memories(db: Session, messages: list[Message]) -> None:
+    assistant_message_ids = [
+        message.id
+        for message in messages
+        if message.role == "assistant" and getattr(message, "id", None) is not None
+    ]
+    if not assistant_message_ids:
+        return
+
+    pending_items = db.scalars(
+        select(MemoryItem)
+        .where(
+            MemoryItem.source_assistant_message_id.in_(assistant_message_ids),
+            MemoryItem.status == "active",
+            MemoryItem.active.is_(True),
+            MemoryItem.confidence_state == "pending",
+        )
+        .order_by(MemoryItem.id.asc())
+    ).all()
+    pending_by_message_id: dict[int, list[MemoryItem]] = {}
+    for item in pending_items:
+        if item.source_assistant_message_id is None:
+            continue
+        pending_by_message_id.setdefault(item.source_assistant_message_id, []).append(item)
+
+    for message in messages:
+        setattr(message, "_pending_memories", pending_by_message_id.get(message.id, []))
+
+
 def list_user_conversation_summaries(
     db: Session,
     *,
@@ -154,6 +185,7 @@ def list_user_conversation_summaries(
             Conversation.id,
             Conversation.title,
             Conversation.model,
+            Conversation.temporary_chat,
             Conversation.updated_at,
             latest_message_content.label("last_message_content"),
             has_attachments.label("has_attachments"),
@@ -171,6 +203,7 @@ def list_user_conversation_summaries(
                 id=row.id,
                 title=row.title,
                 model=row.model,
+                temporary_chat=bool(row.temporary_chat),
                 updated_at=row.updated_at,
                 last_message_preview=preview,
             )

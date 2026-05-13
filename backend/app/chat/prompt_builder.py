@@ -83,8 +83,6 @@ def build_prompt_composition(
     inspection_summary = build_context_inspection_summary(
         history_window=history_window,
         older_summary=summary_text,
-        memory_prompt=memory_prompt,
-        retrieval_payload=retrieval_payload,
     )
     if inspection_summary:
         sections.append(
@@ -105,7 +103,12 @@ def build_prompt_composition(
         "memory_count": int(
             (memory_prompt.debug.get("memory_documents", 0) or 0)
             + (memory_prompt.debug.get("memory_hits", 0) or 0)
+            + (memory_prompt.debug.get("past_chat_hits", 0) or 0)
         ),
+        "memory_items": memory_prompt.debug.get("memory_items", []),
+        "memory_documents": memory_prompt.debug.get("memory_document_references", []),
+        "past_chats": memory_prompt.debug.get("past_chat_references", []),
+        "memory_query_hints": memory_prompt.debug.get("memory_query_hints", []),
         "source_count": len(retrieval_sources),
         "sections": [section.to_payload() for section in sections],
     }
@@ -232,30 +235,14 @@ def build_context_inspection_summary(
     *,
     history_window: HistoryWindow,
     older_summary: str,
-    memory_prompt: MemoryPromptPayload,
-    retrieval_payload: PromptContextPayload,
 ) -> str:
     recent_turn_count = count_turns(history_window.recent_messages)
     older_turn_count = count_turns(history_window.older_messages)
-    recent_user_points = recent_user_focus_points(history_window.recent_messages)
-    has_attachments = any(message.role == "user" and message.attachments for message in history_window.recent_messages)
-    memory_count = int(
-        (memory_prompt.debug.get("memory_documents", 0) or 0)
-        + (memory_prompt.debug.get("memory_hits", 0) or 0)
-    )
-    source_count = len(retrieval_payload.sources)
-
     sentences: list[str] = []
     if recent_turn_count > 0:
-        sentences.append(f"本次回答截取了最近{recent_turn_count}轮对话。")
+        sentences.append(f"已使用最近 {recent_turn_count} 轮对话作为直接上下文。")
     if older_turn_count > 0:
-        sentences.append(f"更早的{older_turn_count}轮内容已压缩。")
-    if recent_user_points:
-        sentences.append(f"最近主要围绕这些内容继续交流：{recent_user_points}。")
-    if memory_count > 0:
-        sentences.append(f"另外参考了{memory_count}条记忆信息。")
-    if source_count > 0:
-        sentences.append(f"另外参考了{source_count}条外部资料。")
+        sentences.append(f"更早的 {older_turn_count} 轮对话已压缩进上下文。")
     if not sentences and older_summary:
         sentences.append(f"上下文摘要：{compact_text(older_summary, token_limit=96)}")
     return " ".join(sentences).strip()

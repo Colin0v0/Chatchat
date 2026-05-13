@@ -528,8 +528,8 @@ export function ChatComposer({
   const imageMode = composerMode === "image";
   const showKnowledgeScope = !imageMode && toolMode === "knowledge";
   const voiceDisabled = isStreaming || isTranscribing;
-  const selectedModelOption = findModelOption(models, model);
-  const attachmentAccept = attachmentAcceptOverride ?? (selectedModelOption.capabilities?.input.image === false
+  const selectedModelOption = model ? findModelOption(models, model) : null;
+  const attachmentAccept = attachmentAcceptOverride ?? (selectedModelOption?.capabilities?.input.image === false
     ? FILE_ONLY_ATTACHMENT_ACCEPT
     : ATTACHMENT_ACCEPT);
 
@@ -665,8 +665,10 @@ export function ChatComposer({
             {imageMode ? (
               <ImageModePill disabled={isStreaming} onCancel={() => onComposerModeChange("chat")} />
             ) : null}
-            {!imageMode && showModelControls ? <ModelSelect model={model} models={models} onChange={onModelChange} /> : null}
-            {!imageMode && showModelControls ? (
+            {!imageMode && showModelControls && models.length > 0 ? (
+              <ModelSelect model={model} models={models} onChange={onModelChange} />
+            ) : null}
+            {!imageMode && showModelControls && selectedModelOption ? (
               <ReasoningProfileSelect
                 modelOption={selectedModelOption}
                 onChange={onReasoningProfileChange}

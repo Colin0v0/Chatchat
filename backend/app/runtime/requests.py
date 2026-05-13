@@ -28,6 +28,7 @@ class ChatRunRequest(ModeActionRequest):
     model: str
     history_message_ids: list[int]
     query: str
+    temperature: float | None
     tool_policy: ToolPolicy
     requested_reasoning: bool | None = None
     requested_reasoning_profile: str | None = None

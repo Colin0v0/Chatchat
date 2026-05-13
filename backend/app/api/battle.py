@@ -388,6 +388,7 @@ async def _prepare_battle_prompt(
                 query=content,
                 plan=tool_plan,
                 retrieval_messages=prepared_retrieval_history.messages,
+                memory_query_hints=[],
                 conversation_messages=history_messages,
                 include_file_context=include_file_context,
                 include_image_context=profile.native_multimodal_mode == "false",

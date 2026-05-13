@@ -5,6 +5,7 @@ import type {
   ConversationDetail,
   ComposerMode,
   FeedbackValue,
+  MemoryCandidateUpdatePayload,
   ModelOption,
   ReasoningProfileValue,
   ToolMode,
@@ -47,7 +48,10 @@ interface ConversationViewProps {
   onCancelEditingUserMessage: () => void;
   onLoadEarlierMessages: () => Promise<void> | void;
   onRemoveDraftAttachment: (attachmentId: string) => void;
+  onConfirmPendingMemory: (memoryId: number, payload?: MemoryCandidateUpdatePayload) => Promise<void> | void;
   onFeedback: (messageId: number, value: FeedbackValue | null) => void;
+  onRefreshMessagePendingMemories: (messageId: number) => Promise<void> | void;
+  onRejectPendingMemory: (memoryId: number) => Promise<void> | void;
   onRetry: (messageId: number | string) => void;
   onStartEditingUserMessage: (messageId: number | string) => void;
   onSubmitEditingUserMessage: (messageId: number | string) => void;
@@ -96,7 +100,10 @@ export function ConversationView({
   onCancelEditingUserMessage,
   onLoadEarlierMessages,
   onRemoveDraftAttachment,
+  onConfirmPendingMemory,
   onFeedback,
+  onRefreshMessagePendingMemories,
+  onRejectPendingMemory,
   onRetry,
   onStartEditingUserMessage,
   onSubmitEditingUserMessage,
@@ -271,8 +278,11 @@ export function ConversationView({
               editingUserMessageId={editingUserMessageId}
               isReasoningStreaming={isReasoningStreaming}
               onFeedback={onFeedback}
+              onConfirmPendingMemory={onConfirmPendingMemory}
               onCancelEditingUserMessage={onCancelEditingUserMessage}
               onChangeEditingUserMessage={onChangeEditingUserMessage}
+              onRefreshMessagePendingMemories={onRefreshMessagePendingMemories}
+              onRejectPendingMemory={onRejectPendingMemory}
               onStartEditingUserMessage={onStartEditingUserMessage}
               isStreaming={isStreaming}
               items={conversation.messages}

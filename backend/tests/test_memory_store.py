@@ -1,12 +1,15 @@
 import unittest
+from datetime import timedelta
 
 from sqlalchemy import create_engine, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.memory.store import MemoryStore
+from app.memory.history_store import ChatHistoryRecallStore
+from app.memory.settings_store import MemorySettingsStore
+from app.memory.store import MemoryStore, utcnow
 from app.memory.types import MemoryCandidate
 from app.storage.database import Base
-from app.storage.models import MemoryItem, User
+from app.storage.models import ChatHistoryEntry, Conversation, MemoryDocument, MemoryItem, Message, User
 
 
 class MemoryStoreTests(unittest.TestCase):
@@ -141,6 +144,324 @@ class MemoryStoreTests(unittest.TestCase):
         self.assertGreaterEqual(len(matches), 1)
         self.assertEqual(matches[0].memory_id, item.id)
         self.assertGreater(matches[0].score, 0.0)
+
+    def test_update_manual_memory_rebuilds_previous_conversation_document(self):
+        memory = self.store.create_manual_memory(
+            user_id=self.user.id,
+            scope="conversation",
+            kind="fact",
+            title="旧会话偏好",
+            detail="这个偏好只属于会话 7",
+            tags=[],
+            confidence=0.9,
+            pinned=False,
+            active=True,
+            conversation_id=7,
+        )
+        self.db.commit()
+
+        before = self.db.scalar(
+            select(MemoryDocument).where(
+                MemoryDocument.user_id == self.user.id,
+                MemoryDocument.conversation_id == 7,
+                MemoryDocument.doc_type == "conversation_brief",
+            )
+        )
+        self.assertIsNotNone(before)
+        assert before is not None
+        self.assertIn("旧会话偏好", before.content)
+
+        self.store.update_manual_memory(
+            memory,
+            user_id=self.user.id,
+            scope="global",
+            kind="fact",
+            title="全局偏好",
+            detail="这个偏好应该跨会话生效",
+            tags=[],
+            confidence=0.9,
+            pinned=False,
+            active=True,
+            conversation_id=None,
+        )
+        self.db.commit()
+
+        after = self.db.scalar(
+            select(MemoryDocument).where(
+                MemoryDocument.user_id == self.user.id,
+                MemoryDocument.conversation_id == 7,
+                MemoryDocument.doc_type == "conversation_brief",
+            )
+        )
+        self.assertIsNone(after)
+
+    def test_expiring_working_memory_rebuilds_conversation_document(self):
+        memory = self.store.upsert_auto_memory(
+            candidate=MemoryCandidate(
+                scope="working",
+                kind="project",
+                title="临时上下文",
+                detail="这条内容只应该短期存在",
+                tags=("临时",),
+                confidence=0.9,
+            ),
+            user_id=self.user.id,
+            conversation_id=8,
+            status="active",
+            confidence_state="inferred",
+            source_type="auto",
+            modality="text",
+            write_policy="session",
+            pinned=False,
+            expires_at=utcnow() + timedelta(hours=1),
+            user_message_id=1,
+            assistant_message_id=2,
+        )
+        self.store.rebuild_documents(user_id=self.user.id, conversation_id=8)
+        self.db.commit()
+
+        before = self.db.scalar(
+            select(MemoryDocument).where(
+                MemoryDocument.user_id == self.user.id,
+                MemoryDocument.conversation_id == 8,
+                MemoryDocument.doc_type == "conversation_brief",
+            )
+        )
+        self.assertIsNotNone(before)
+        assert before is not None
+        self.assertIn("临时上下文", before.content)
+
+        assert memory is not None
+        memory.expires_at = utcnow() - timedelta(minutes=1)
+        self.db.add(memory)
+        self.db.commit()
+
+        self.store.expire_stale_working_memory(user_id=self.user.id)
+        self.db.commit()
+
+        after = self.db.scalar(
+            select(MemoryDocument).where(
+                MemoryDocument.user_id == self.user.id,
+                MemoryDocument.conversation_id == 8,
+                MemoryDocument.doc_type == "conversation_brief",
+            )
+        )
+        self.assertIsNone(after)
+
+    def test_repeated_preference_promotes_to_confirmed_global_memory(self):
+        first = self.store.upsert_auto_memory(
+            candidate=MemoryCandidate(
+                scope="conversation",
+                kind="preference",
+                title="回复风格",
+                detail="用户喜欢先给结论",
+                tags=("偏好",),
+                confidence=0.82,
+            ),
+            user_id=self.user.id,
+            conversation_id=9,
+            status="active",
+            confidence_state="inferred",
+            source_type="auto",
+            modality="text",
+            write_policy="session",
+            pinned=False,
+            expires_at=None,
+            user_message_id=11,
+            assistant_message_id=12,
+        )
+        self.db.commit()
+
+        self.assertIsNotNone(first)
+        assert first is not None
+        self.assertEqual(first.scope, "conversation")
+        self.assertEqual(first.confidence_state, "inferred")
+        self.assertEqual(first.evidence_count, 1)
+
+        second = self.store.upsert_auto_memory(
+            candidate=MemoryCandidate(
+                scope="conversation",
+                kind="preference",
+                title="回复风格",
+                detail="用户喜欢先给结论",
+                tags=("偏好",),
+                confidence=0.88,
+            ),
+            user_id=self.user.id,
+            conversation_id=10,
+            status="active",
+            confidence_state="inferred",
+            source_type="auto",
+            modality="text",
+            write_policy="session",
+            pinned=False,
+            expires_at=None,
+            user_message_id=21,
+            assistant_message_id=22,
+        )
+        self.db.commit()
+
+        self.assertEqual(second.id, first.id)
+        self.assertEqual(second.scope, "global")
+        self.assertIsNone(second.conversation_id)
+        self.assertEqual(second.confidence_state, "confirmed")
+        self.assertEqual(second.evidence_count, 2)
+        self.assertEqual(len(second.evidence), 2)
+
+    def test_conflicting_style_preference_rejects_previous_memory(self):
+        old = self.store.upsert_auto_memory(
+            candidate=MemoryCandidate(
+                scope="global",
+                kind="preference",
+                title="回复风格",
+                detail="用户喜欢简短直接的回答",
+                tags=("偏好",),
+                confidence=0.9,
+            ),
+            user_id=self.user.id,
+            conversation_id=11,
+            status="active",
+            confidence_state="confirmed",
+            source_type="promoted",
+            modality="text",
+            write_policy="explicit",
+            pinned=False,
+            expires_at=None,
+            user_message_id=31,
+            assistant_message_id=32,
+        )
+        self.db.commit()
+
+        new = self.store.upsert_auto_memory(
+            candidate=MemoryCandidate(
+                scope="global",
+                kind="preference",
+                title="回复风格",
+                detail="用户现在喜欢详细展开的回答",
+                tags=("偏好",),
+                confidence=0.92,
+                action="replace",
+            ),
+            user_id=self.user.id,
+            conversation_id=11,
+            status="active",
+            confidence_state="confirmed",
+            source_type="promoted",
+            modality="text",
+            write_policy="explicit",
+            pinned=False,
+            expires_at=None,
+            user_message_id=41,
+            assistant_message_id=42,
+        )
+        self.db.commit()
+
+        self.db.refresh(old)
+        self.assertEqual(old.status, "archived")
+        self.assertFalse(old.active)
+        self.assertEqual(old.confidence_state, "rejected")
+        self.assertIsNotNone(new)
+        assert new is not None
+        self.assertNotEqual(new.id, old.id)
+        self.assertEqual(new.confidence_state, "confirmed")
+
+    def test_past_chat_recall_uses_turn_excerpt_without_summary(self):
+        source_conversation = Conversation(user_id=self.user.id, title="记忆功能讨论", model="test:model")
+        current_conversation = Conversation(user_id=self.user.id, title="当前问题", model="test:model")
+        self.db.add_all([source_conversation, current_conversation])
+        self.db.flush()
+        user_message = Message(
+            conversation_id=source_conversation.id,
+            role="user",
+            content="Chatchat 记忆系统要补候选确认面板",
+        )
+        assistant_message = Message(
+            conversation_id=source_conversation.id,
+            role="assistant",
+            content="候选记忆应该靠近刚刚触发它的回答展示。",
+        )
+        self.db.add_all([user_message, assistant_message])
+        self.db.flush()
+
+        entry = ChatHistoryRecallStore(self.db).upsert_turn(
+            user_id=self.user.id,
+            conversation=source_conversation,
+            user_message=user_message,
+            assistant_message=assistant_message,
+            summary="",
+        )
+        self.db.commit()
+
+        self.assertIsNotNone(entry)
+        refs = ChatHistoryRecallStore(self.db).recall(
+            user_id=self.user.id,
+            conversation_id=current_conversation.id,
+            query="候选确认面板",
+            limit=3,
+        )
+
+        self.assertEqual(len(refs), 1)
+        self.assertEqual(refs[0].conversation_id, source_conversation.id)
+        self.assertEqual(refs[0].summary, "")
+        self.assertIn("候选确认面板", refs[0].excerpt)
+
+    def test_memory_settings_and_clear_policies_are_persisted(self):
+        source_conversation = Conversation(user_id=self.user.id, title="历史对话", model="test:model")
+        self.db.add(source_conversation)
+        self.db.flush()
+        user_message = Message(
+            conversation_id=source_conversation.id,
+            role="user",
+            content="记住我的项目叫 Chatchat",
+        )
+        assistant_message = Message(
+            conversation_id=source_conversation.id,
+            role="assistant",
+            content="已记录项目名称。",
+        )
+        self.db.add_all([user_message, assistant_message])
+        self.db.flush()
+        self.store.create_manual_memory(
+            user_id=self.user.id,
+            scope="global",
+            kind="project",
+            title="项目",
+            detail="用户当前项目叫 Chatchat",
+            tags=["项目"],
+            confidence=0.9,
+            pinned=False,
+            active=True,
+            conversation_id=None,
+        )
+        ChatHistoryRecallStore(self.db).upsert_turn(
+            user_id=self.user.id,
+            conversation=source_conversation,
+            user_message=user_message,
+            assistant_message=assistant_message,
+            summary="用户在做 Chatchat 项目。",
+        )
+        self.db.commit()
+
+        settings_store = MemorySettingsStore(self.db)
+        settings = settings_store.update(
+            user_id=self.user.id,
+            saved_memories_enabled=False,
+            reference_chat_history_enabled=False,
+            memory_learning_enabled=False,
+            sensitive_memory_enabled=True,
+        )
+        self.db.commit()
+
+        self.assertFalse(settings.saved_memories_enabled)
+        self.assertFalse(settings.reference_chat_history_enabled)
+        self.assertFalse(settings.memory_learning_enabled)
+        self.assertTrue(settings.sensitive_memory_enabled)
+        self.assertEqual(settings_store.clear_saved_memories(user_id=self.user.id), 1)
+        self.assertEqual(settings_store.clear_chat_history_index(user_id=self.user.id), 1)
+        self.db.commit()
+        self.assertEqual(self.db.scalars(select(MemoryItem)).all(), [])
+        self.assertEqual(self.db.scalars(select(MemoryDocument)).all(), [])
+        self.assertEqual(self.db.scalars(select(ChatHistoryEntry)).all(), [])
 
 
 if __name__ == "__main__":

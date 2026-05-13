@@ -495,6 +495,33 @@ export function DebateRoomView({
   );
   const stageFixedBudgetMs = stageBudgetMs(roomSession, roomSession.stage);
   const showStageTimer = roomSession.stage !== "judge_decision";
+  const stageElapsedMsBySide = useMemo(() => {
+    const elapsedBySide: Record<"pro" | "con", number> = {
+      con: 0,
+      pro: 0,
+    };
+
+    for (const turn of roomSession.turns) {
+      if (
+        turn.kind !== "speaker_turn"
+        || turn.stage !== roomSession.stage
+        || turn.speaker_participant_id == null
+        || turn.elapsed_ms == null
+      ) {
+        continue;
+      }
+
+      const side = participantMap.get(turn.speaker_participant_id)?.side;
+      if (!side) {
+        continue;
+      }
+
+      // 中文注释：非自由辩顶部计时也要累计本阶段已完成发言，否则上一方结束后会弹回满时间。
+      elapsedBySide[side] += turn.elapsed_ms;
+    }
+
+    return elapsedBySide;
+  }, [participantMap, roomSession.stage, roomSession.turns]);
 
   const markDebateTurnUsageCounted = useCallback(
     (turn: DebateTurn) => {
@@ -566,23 +593,22 @@ export function DebateRoomView({
       if (!stageFixedBudgetMs) {
         return 0;
       }
-      if (!activeTimedTurn || activeTimedTurn.stage !== roomSession.stage) {
-        return stageFixedBudgetMs;
+
+      const settledElapsedMs = stageElapsedMsBySide[side];
+      let liveElapsedMs = 0;
+      if (
+        activeTimedTurn
+        && activeTimedTurn.stage === roomSession.stage
+        && activeTimedTurn.speaker_participant_id != null
+        && activeTimedTurn.elapsed_ms == null
+      ) {
+        const participant = participantMap.get(activeTimedTurn.speaker_participant_id) ?? null;
+        if (participant?.side === side && activeStreamingTurnStartedAtMs != null) {
+          liveElapsedMs = Math.max(0, clockNow - activeStreamingTurnStartedAtMs);
+        }
       }
 
-      const participant =
-        activeTimedTurn.speaker_participant_id != null
-          ? participantMap.get(activeTimedTurn.speaker_participant_id) ?? null
-          : null;
-      if (!participant || participant.side !== side) {
-        return stageFixedBudgetMs;
-      }
-
-      if (!activeStreamingTurnStartedAtMs) {
-        return stageFixedBudgetMs;
-      }
-
-      return Math.max(0, stageFixedBudgetMs - Math.max(0, clockNow - activeStreamingTurnStartedAtMs));
+      return Math.max(0, stageFixedBudgetMs - settledElapsedMs - liveElapsedMs);
     },
     [
       activeStreamingTurnStartedAtMs,
@@ -593,6 +619,7 @@ export function DebateRoomView({
       freeDebateState,
       participantMap,
       roomSession.stage,
+      stageElapsedMsBySide,
       stageFixedBudgetMs,
     ],
   );
@@ -1393,6 +1420,7 @@ export function DebateRoomView({
                   showStageHeader={showStageHeader}
                   showStageTimer={showStageTimer}
                   stageTimerTitle={stageTimerTitle}
+                  timerScopeLabel={roomSession.stage === "free_debate" ? "总时长" : "本阶段时长"}
                 />
 
                 {hasTurns ? (

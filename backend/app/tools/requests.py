@@ -25,6 +25,7 @@ class ToolContextBuildRequest:
     query: str
     plan: ToolContextPlan
     retrieval_messages: list[dict[str, str]]
+    memory_query_hints: list[str]
     conversation_messages: list["Message"]
     include_file_context: bool
     include_image_context: bool
