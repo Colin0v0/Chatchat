@@ -117,6 +117,7 @@ async def stream_claude_chat(
     model: str,
     messages: list[ChatMessagePayload],
     reasoning_profile: str | None = None,
+    temperature: float | None = None,
     base_url_override: str | None = None,
     api_key_override: str | None = None,
 ) -> AsyncIterator[dict]:
@@ -125,6 +126,7 @@ async def stream_claude_chat(
         max_tokens=CLAUDE_DEFAULT_MAX_TOKENS,
         stream=True,
         reasoning_profile=reasoning_profile,
+        temperature=temperature,
     )
     payload["model"] = model
 
@@ -156,6 +158,7 @@ async def complete_claude_chat(
     model: str,
     messages: list[ChatMessagePayload],
     reasoning_profile: str | None = None,
+    temperature: float | None = None,
     base_url_override: str | None = None,
     api_key_override: str | None = None,
 ) -> AsyncIterator[dict]:
@@ -164,6 +167,7 @@ async def complete_claude_chat(
         max_tokens=CLAUDE_DEFAULT_MAX_TOKENS,
         stream=False,
         reasoning_profile=reasoning_profile,
+        temperature=temperature,
     )
     payload["model"] = model
 

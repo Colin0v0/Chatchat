@@ -91,6 +91,7 @@ def test_build_chat_run_request_encodes_history_and_tool_policy():
         user_message=user_message,
         history_messages=history,
         query="q2",
+        temperature=0.6,
         tool_mode="search",
         reasoning_profile="high",
         knowledge_folders=[],
@@ -101,6 +102,7 @@ def test_build_chat_run_request_encodes_history_and_tool_policy():
     assert run_request.model == "openai:gpt-5"
     assert run_request.history_message_ids == [1, 2]
     assert run_request.query == "q2"
+    assert run_request.temperature == 0.6
     assert run_request.tool_policy.mode == "search"
     assert run_request.tool_policy.source_mode == "search"
     assert run_request.requested_reasoning_profile == "high"

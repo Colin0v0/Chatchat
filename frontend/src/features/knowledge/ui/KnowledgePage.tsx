@@ -540,7 +540,7 @@ export function KnowledgePage({
         headerPlacement="content"
         maxWidthClassName="max-w-[1400px]"
         actions={
-          <div className="flex w-full items-center justify-start gap-2 sm:w-auto sm:justify-end">
+          <div className="flex items-center justify-end gap-2">
             <button
               className="flex h-10 w-10 items-center justify-center rounded-[8px] border border-app-border bg-app-panel-strong text-app-muted transition hover:bg-app-panel-soft hover:text-app-text"
               onClick={knowledge.onRefresh}
@@ -550,7 +550,7 @@ export function KnowledgePage({
               <RefreshCw className={`size-4 ${knowledge.isLoading ? "animate-spin" : ""}`} />
             </button>
             <button
-              className="inline-flex h-10 items-center justify-center gap-2 rounded-[8px] bg-app-accent-soft px-4 text-[14px] font-medium text-app-accent-strong transition hover:bg-[#e7ddcf] disabled:cursor-not-allowed disabled:opacity-55"
+              className="inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-[8px] bg-app-accent-soft px-4 text-[14px] font-medium text-app-accent-strong transition hover:bg-[#e7ddcf] disabled:cursor-not-allowed disabled:opacity-55"
               disabled={knowledge.isUpdating}
               onClick={knowledge.onUpdate}
               type="button"

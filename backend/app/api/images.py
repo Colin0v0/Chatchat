@@ -55,6 +55,7 @@ def _job_out(*, db: Session, job: ImageGenerationJob) -> ImageGenerationJobOut:
         status=job.status,
         conversation_id=job.conversation_id,
         user_message_id=job.user_message_id,
+        conversation_model=conversation.model if conversation is not None else settings.default_model,
         assistant_message_id=job.assistant_message_id,
         conversation_title=conversation.title if conversation is not None else "",
         content=assistant_message.content if assistant_message is not None else "",

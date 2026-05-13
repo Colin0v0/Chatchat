@@ -10,8 +10,11 @@ from ..chat.state import get_chat_services
 from ..schemas import (
     MemoryCollectionOut,
     MemoryCreate,
+    MemoryClearResult,
     MemoryItemOut,
     MemoryLayerCollectionOut,
+    MemorySettingsOut,
+    MemorySettingsUpdate,
     MemoryUpdate,
 )
 from ..storage.access import get_user_conversation
@@ -152,6 +155,58 @@ def list_memories(
         conversation_id=conversation_id,
         db=db,
         current_user=current_user,
+    )
+
+
+@router.get("/settings", response_model=MemorySettingsOut)
+def get_memory_settings(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
+    services = get_chat_services(request)
+    return services.memory_service.get_settings(db=db, user_id=current_user.id)
+
+
+@router.patch("/settings", response_model=MemorySettingsOut)
+def update_memory_settings(
+    payload: MemorySettingsUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
+    services = get_chat_services(request)
+    return services.memory_service.update_settings(
+        db=db,
+        user_id=current_user.id,
+        saved_memories_enabled=payload.saved_memories_enabled,
+        reference_chat_history_enabled=payload.reference_chat_history_enabled,
+        memory_learning_enabled=payload.memory_learning_enabled,
+        sensitive_memory_enabled=payload.sensitive_memory_enabled,
+    )
+
+
+@router.post("/clear-saved", response_model=MemoryClearResult)
+def clear_saved_memories(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
+    services = get_chat_services(request)
+    return MemoryClearResult(
+        deleted_count=services.memory_service.clear_saved_memories(db=db, user_id=current_user.id)
+    )
+
+
+@router.post("/clear-history-index", response_model=MemoryClearResult)
+def clear_chat_history_index(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
+    services = get_chat_services(request)
+    return MemoryClearResult(
+        deleted_count=services.memory_service.clear_chat_history_index(db=db, user_id=current_user.id)
     )
 
 

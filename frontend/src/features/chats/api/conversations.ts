@@ -3,6 +3,8 @@ import type {
   ConversationMessagePage,
   ConversationSummary,
   FeedbackValue,
+  MemoryCandidateUpdatePayload,
+  MemoryItem,
 } from "../../../types";
 import { apiFetch, assertApiResponse, toApiUrl } from "../../../shared/api/http";
 
@@ -67,5 +69,22 @@ export function updateMessageFeedback(messageId: number, value: FeedbackValue | 
   return apiFetch<{ id: number; feedback: FeedbackValue | null }>(`/api/chat/messages/${messageId}/feedback`, {
     method: "PATCH",
     body: JSON.stringify({ value }),
+  });
+}
+
+export function fetchMessagePendingMemories(messageId: number) {
+  return apiFetch<MemoryItem[]>(`/api/chat/messages/${messageId}/pending-memories`);
+}
+
+export function confirmPendingMemory(memoryId: number, payload?: MemoryCandidateUpdatePayload) {
+  return apiFetch<MemoryItem>(`/api/chat/memories/${memoryId}/confirm`, {
+    method: "POST",
+    body: payload ? JSON.stringify(payload) : undefined,
+  });
+}
+
+export function rejectPendingMemory(memoryId: number) {
+  return apiFetch<MemoryItem>(`/api/chat/memories/${memoryId}/reject`, {
+    method: "POST",
   });
 }

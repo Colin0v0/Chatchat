@@ -8,9 +8,7 @@ import {
   useState,
 } from "react";
 
-import { useLatestRequestGuard } from "../../../shared/hooks/useLatestRequestGuard";
-import { INITIAL_CHAT_MODEL, pickLandingTitle } from "../../chats/lib/constants";
-import { labelForStage } from "../../chats/lib/chatSessionUtils";
+import { pickLandingTitle } from "../../chats/lib/constants";
 import { useComposerTranscription } from "../../chats/model/useComposerTranscription";
 import { useComposerAttachments } from "../../chats/model/useComposerAttachments";
 import { useConversationStreams } from "../../chats/model/useConversationStreams";
@@ -18,46 +16,36 @@ import { useChatMessageActions } from "../../chats/model/useChatMessageActions";
 import { useChatConversationLifecycle } from "../../chats/model/useChatConversationLifecycle";
 import { useKnowledgeManager } from "../../knowledge/model/useKnowledgeManager";
 import { useMemoryManager } from "../../memories/model/useMemoryManager";
-import { fetchModels } from "../../models/api/models";
+import type { GeneralPreferences } from "../../settings/model/useGeneralPreferences";
 import { useDebateMode } from "../../debates/model/useDebateMode";
 import { useBattleMode } from "../../battles/model/useBattleMode";
 import { useWorkspaceNavigation } from "./useWorkspaceNavigation";
-import {
-  createInitialModelOptions,
-  createModelOption,
-  ensureSelectedModel,
-  findModelOption,
-  resolveInitialSelectedModel,
-} from "../../models/lib/modelOptions";
-import {
-  normalizeReasoningProfileForModel,
-  reasoningRequestValueForModel,
-  resolveModelDefaultReasoningProfile,
-  resolveModelReasoningControl,
-} from "../../models/lib/reasoningProfiles";
+import { usePetCompanionContext } from "./usePetCompanionContext";
+import { buildChatAppViewModel } from "./chatAppViewModel";
+import { useWorkspaceModels } from "./useWorkspaceModels";
 import type { WorkspaceSection } from "./workspaceSections";
 import { buildConversationMarkdown, buildDebateMarkdown, downloadMarkdown } from "../../../lib/exportMarkdown";
 import {
   loadStoredConversationSummariesCache,
-  loadStoredModelsCache,
-  saveModelsCache,
 } from "./workspaceCache";
+import {
+  fileLooksLikeImage,
+  toggleToolMode,
+} from "./chatAppUtils";
 import type { PetSignal, PetSignalType } from "../../pet/model/petSignals";
-import type { PetCompanionContext, PetCompanionContextMessage } from "../../pet/api/petChat";
 import type {
   ComposerMode,
   ConversationDetail,
-  ChatMessage,
   ConversationSummary,
-  ModelOption,
-  ModelsPayload,
-  ReasoningProfileValue,
   ToolMode,
 } from "../../../types";
 
 type UseChatAppOptions = {
   closeMobileSidebar: () => void;
+  generalPreferences: GeneralPreferences;
   isDesktop: boolean;
+  memorySettingsOpen?: boolean;
+  onGeneralPreferencesChange: (patch: Partial<GeneralPreferences>) => void;
   onSectionRouteChange?: (section: WorkspaceSection) => void;
   routeSection?: WorkspaceSection;
   sidebarOpen: boolean;
@@ -68,45 +56,13 @@ type UseChatAppOptions = {
 const DEFAULT_IMAGE_SIZE = "1024x1024";
 const DEFAULT_IMAGE_QUALITY = "auto";
 const DEFAULT_IMAGE_OUTPUT_FORMAT = "png";
-const IMAGE_ATTACHMENT_EXTENSIONS = new Set([".gif", ".jpeg", ".jpg", ".png", ".webp"]);
-const PET_CONTEXT_MESSAGE_LIMIT = 8;
-const PET_CONTEXT_TEXT_LIMIT = 420;
-
-function fileExtension(name: string) {
-  const dotIndex = name.lastIndexOf(".");
-  return dotIndex >= 0 ? name.slice(dotIndex).toLowerCase() : "";
-}
-
-function fileLooksLikeImage(file: File) {
-  return file.type.startsWith("image/") || IMAGE_ATTACHMENT_EXTENSIONS.has(fileExtension(file.name));
-}
-
-function compactPetContextText(text: string) {
-  return text.replace(/\s+/g, " ").trim().slice(0, PET_CONTEXT_TEXT_LIMIT);
-}
-
-function toPetContextMessages(messages: ChatMessage[]): PetCompanionContextMessage[] {
-  return messages
-    .filter((message) => message.role === "user" || message.role === "assistant" || message.role === "system")
-    .map((message) => ({
-      content: compactPetContextText(message.content),
-      role: message.role,
-    }))
-    .filter((message) => message.content.length > 0)
-    .slice(-PET_CONTEXT_MESSAGE_LIMIT);
-}
-
-function modelAllowsImageAttachments(model: ModelOption) {
-  return model.capabilities?.input.image ?? model.supports_attachment_upload;
-}
-
-function toggleToolMode(current: ToolMode, next: Exclude<ToolMode, "none">): ToolMode {
-  return current === next ? "none" : next;
-}
 
 export function useChatApp({
   closeMobileSidebar,
+  generalPreferences,
   isDesktop,
+  memorySettingsOpen = false,
+  onGeneralPreferencesChange,
   onSectionRouteChange,
   routeSection = "chats",
   sidebarOpen,
@@ -114,7 +70,6 @@ export function useChatApp({
   userId,
 }: UseChatAppOptions) {
   const [initialConversationSummariesCache] = useState(() => loadStoredConversationSummariesCache());
-  const [initialModelsCache] = useState(() => loadStoredModelsCache());
   const [conversations, setConversations] = useState<ConversationSummary[]>(() => initialConversationSummariesCache ?? []);
   const [conversationsLoaded, setConversationsLoaded] = useState(() => initialConversationSummariesCache !== null);
   const [activeConversationId, setActiveConversationId] = useState<number | null>(null);
@@ -124,19 +79,10 @@ export function useChatApp({
   const [draft, setDraft] = useState("");
   const [editingUserMessageId, setEditingUserMessageId] = useState<number | string | null>(null);
   const [editingUserMessageContent, setEditingUserMessageContent] = useState("");
-  const [models, setModels] = useState<ModelOption[]>(() =>
-    initialModelsCache?.models.length ? initialModelsCache.models : createInitialModelOptions(),
-  );
-  const [selectedModel, setSelectedModel] = useState(() =>
-    initialModelsCache?.models.length
-      ? resolveInitialSelectedModel(initialModelsCache.models, initialModelsCache.default_model)
-      : INITIAL_CHAT_MODEL,
-  );
   const [composerMode, setComposerModeState] = useState<ComposerMode>("chat");
   const [imageSize, setImageSize] = useState(DEFAULT_IMAGE_SIZE);
   const [imageQuality, setImageQuality] = useState(DEFAULT_IMAGE_QUALITY);
   const [imageOutputFormat, setImageOutputFormat] = useState(DEFAULT_IMAGE_OUTPUT_FORMAT);
-  const [reasoningProfile, setReasoningProfile] = useState<ReasoningProfileValue>("off");
   const [collapsedMessageIds, setCollapsedMessageIds] = useState<Set<number | string>>(new Set());
   const [toolMode, setToolMode] = useState<ToolMode>("none");
   const [knowledgeFolder, setKnowledgeFolder] = useState("");
@@ -146,73 +92,40 @@ export function useChatApp({
   const [petSignal, setPetSignal] = useState<PetSignal | null>(null);
   const memoryManager = useMemoryManager({
     activeConversationId: activeConversationId && activeConversationId > 0 ? activeConversationId : null,
-    enabled: activeSection === "memories",
+    enabled: activeSection === "memories" || memorySettingsOpen,
   });
   const knowledgeManager = useKnowledgeManager({ enabled: activeSection === "knowledge" || toolMode === "knowledge" });
   const { addAttachments, clearAttachments, draftAttachments, removeAttachment, replaceAttachments } =
     useComposerAttachments();
   const transientAttachmentUrlsRef = useRef<string[]>([]);
   const composerModeRef = useRef<ComposerMode>("chat");
-  const chatModelBeforeImageRef = useRef(INITIAL_CHAT_MODEL);
-  const modelsLoadGuard = useLatestRequestGuard();
+  const chatModelBeforeImageRef = useRef("");
   const deferredQuery = useDeferredValue(query);
-  const reasoningSyncKeyRef = useRef<string | null>(null);
   const previousRouteSectionRef = useRef(routeSection);
   const petSignalIdRef = useRef(0);
-
-  const selectedModelOption = useMemo(
-    () => findModelOption(models, selectedModel),
-    [models, selectedModel],
-  );
-  const attachmentUploadAvailable = selectedModelOption.supports_attachment_upload;
-  const imageUploadAvailable = modelAllowsImageAttachments(selectedModelOption);
-  const selectedModelReasoningKey = useMemo(
-    () =>
-      [
-        selectedModelOption.id,
-        resolveModelReasoningControl(selectedModelOption),
-        resolveModelDefaultReasoningProfile(selectedModelOption),
-      ].join(":"),
-    [selectedModelOption],
-  );
-  const activeReasoningRequest = useMemo(
-    () => reasoningRequestValueForModel(selectedModelOption, reasoningProfile),
-    [reasoningProfile, selectedModelOption],
-  );
+  const {
+    activeReasoningRequest,
+    adjustModelLoveScore,
+    adjustModelUsageCount,
+    attachmentUploadAvailable,
+    availableModels,
+    handleModelChange,
+    handleReasoningProfileChange,
+    imageUploadAvailable,
+    reasoningProfile,
+    selectedModel,
+    setSelectedModel,
+  } = useWorkspaceModels({
+    defaultModel: generalPreferences.defaultModel,
+    onDefaultModelResolved: (model) => {
+      onGeneralPreferencesChange({ defaultModel: model });
+    },
+    setError,
+  });
   const activeKnowledgeFolders = useMemo(
     () => (toolMode === "knowledge" && knowledgeFolder ? [knowledgeFolder] : []),
     [knowledgeFolder, toolMode],
   );
-  const availableModels = useMemo(
-    () => ensureSelectedModel(models, selectedModel),
-    [models, selectedModel],
-  );
-  const adjustModelLoveScore = useCallback((modelId: string, delta: number) => {
-    setModels((current) =>
-      current.map((model) =>
-        model.id === modelId
-          ? {
-              ...model,
-              // 中文注释：模型页展示的是喜爱数，点踩只能扣回 0，不能出现负数。
-              love_score: Math.max(0, (model.love_score ?? 0) + delta),
-            }
-          : model,
-      ),
-    );
-  }, []);
-  const adjustModelUsageCount = useCallback((modelId: string, delta: number) => {
-    setModels((current) =>
-      current.map((model) =>
-        model.id === modelId
-          ? {
-              ...model,
-              // 中文注释：调用数来自全局统计，本地即时同步时同样保证不会显示负数。
-              usage_count: Math.max(0, (model.usage_count ?? 0) + delta),
-            }
-          : model,
-      ),
-    );
-  }, []);
   const emitPetSignal = useCallback((type: PetSignalType) => {
     petSignalIdRef.current += 1;
     setPetSignal({
@@ -220,6 +133,10 @@ export function useChatApp({
       type,
     });
   }, []);
+  const handleDefaultModelChange = useCallback((model: string) => {
+    onGeneralPreferencesChange({ defaultModel: model });
+    handleModelChange(model);
+  }, [handleModelChange, onGeneralPreferencesChange]);
   const {
     activeId: activeDebateId,
     activeSession: activeDebate,
@@ -300,6 +217,10 @@ export function useChatApp({
         return;
       }
 
+      if (!selectedModel) {
+        setError("模型列表还没有加载完成，稍后再试。");
+        return;
+      }
       const allowedFiles = imageUploadAvailable
         ? selectedFiles
         : selectedFiles.filter((file) => !fileLooksLikeImage(file));
@@ -310,7 +231,7 @@ export function useChatApp({
         addAttachments(allowedFiles);
       }
     },
-    [activeSection, addAttachments, imageUploadAvailable],
+    [activeSection, addAttachments, imageUploadAvailable, selectedModel],
   );
 
   const {
@@ -411,32 +332,6 @@ export function useChatApp({
     });
   }, [clearActiveBattleSession, clearActiveDebate, routeSection]);
 
-  const loadModels = useCallback(async () => {
-    const requestId = modelsLoadGuard.begin();
-    try {
-      const payload = await fetchModels();
-      if (!modelsLoadGuard.isCurrent(requestId)) {
-        return;
-      }
-      const nextModels =
-        payload.models.length > 0 ? payload.models : [createModelOption(payload.default_model)];
-      saveModelsCache({
-        default_model: payload.default_model,
-        models: nextModels,
-      } satisfies ModelsPayload);
-      setModels(nextModels);
-      setSelectedModel(resolveInitialSelectedModel(nextModels, payload.default_model));
-    } catch (loadError) {
-      if (modelsLoadGuard.isCurrent(requestId)) {
-        setError(loadError instanceof Error ? loadError.message : "Failed to load models.");
-      }
-    }
-  }, [modelsLoadGuard, setError]);
-
-  useEffect(() => {
-    void loadModels();
-  }, [loadModels]);
-
   useEffect(() => {
     return () => {
       conversationLoadAbortRef.current?.abort();
@@ -445,19 +340,6 @@ export function useChatApp({
       clearTransientAttachmentUrls();
     };
   }, [abortBattleStreams, clearTransientAttachmentUrls]);
-
-  useEffect(() => {
-    if (reasoningSyncKeyRef.current === selectedModelReasoningKey) {
-      return;
-    }
-    reasoningSyncKeyRef.current = selectedModelReasoningKey;
-    setReasoningProfile(
-      normalizeReasoningProfileForModel(
-        selectedModelOption,
-        resolveModelDefaultReasoningProfile(selectedModelOption),
-      ),
-    );
-  }, [selectedModelOption, selectedModelReasoningKey]);
 
   useEffect(() => {
     if (!error) {
@@ -477,10 +359,6 @@ export function useChatApp({
     emitPetSignal("error");
   }, [emitPetSignal, error]);
 
-  const handleModelChange = useCallback((model: string) => {
-    setSelectedModel(model);
-  }, []);
-
   const setComposerModeValue = useCallback((mode: ComposerMode) => {
     composerModeRef.current = mode;
     setComposerModeState(mode);
@@ -488,12 +366,18 @@ export function useChatApp({
 
   const restoreChatComposerMode = useCallback(() => {
     setComposerModeValue("chat");
-    setSelectedModel(chatModelBeforeImageRef.current);
+    if (chatModelBeforeImageRef.current) {
+      setSelectedModel(chatModelBeforeImageRef.current);
+    }
   }, [setComposerModeValue]);
 
   const handleComposerModeChange = useCallback(
     (mode: ComposerMode) => {
       if (mode === "image") {
+        if (!selectedModel) {
+          setError("模型列表还没有加载完成，稍后再试。");
+          return;
+        }
         chatModelBeforeImageRef.current = selectedModel;
         setComposerModeValue("image");
         return;
@@ -502,10 +386,6 @@ export function useChatApp({
     },
     [restoreChatComposerMode, selectedModel, setComposerModeValue],
   );
-
-  const handleReasoningProfileChange = useCallback((value: ReasoningProfileValue) => {
-    setReasoningProfile(normalizeReasoningProfileForModel(selectedModelOption, value));
-  }, [selectedModelOption]);
 
   const {
     handleCancelCreateDebate,
@@ -567,7 +447,10 @@ export function useChatApp({
 
   const {
     handleCancelEditingUserMessage,
+    handleConfirmPendingMemory,
     handleMessageFeedback,
+    handleRefreshMessagePendingMemories,
+    handleRejectPendingMemory,
     handleRetryAssistant,
     handleSend,
     handleStartEditingUserMessage,
@@ -606,6 +489,7 @@ export function useChatApp({
     setEditingUserMessageId,
     setError,
     stopStream,
+    temperature: generalPreferences.temperature,
     toolMode,
     transientAttachmentUrlsRef,
   });
@@ -628,15 +512,6 @@ export function useChatApp({
     activeDebateId === null &&
     activeConversationId === null &&
     (!activeConversation || activeConversation.messages.length === 0);
-  const showSessionHeaderActions =
-    activeSection === "chats" || activeSection === "debates";
-  const showChatModelSelector = activeSection === "chats" && composerMode !== "image";
-  const workspaceTitle =
-    activeSection === "battle"
-      ? "Chatchat: Battle"
-      : activeSection === "debates"
-        ? "Chatchat: Debate"
-        : "Chatchat";
   const petDraftActive =
     activeSection === "battle"
       ? battleDraft.trim().length > 0
@@ -647,271 +522,136 @@ export function useChatApp({
       : activeSection === "chats"
         ? visibleStreaming
         : false;
-  const petContext = useMemo<PetCompanionContext>(() => {
-    const activeDraft = activeSection === "battle"
-      ? battleDraft
-      : editingUserMessageContent.trim()
-        ? editingUserMessageContent
-        : draft;
-
-    return {
-      activeSection,
-      conversation: activeSection === "chats" && activeConversation
-        ? {
-            id: activeConversation.id,
-            messages: toPetContextMessages(activeConversation.messages),
-            model: activeConversation.model || selectedModel,
-            title: activeConversation.title,
-          }
-        : null,
-      draft: compactPetContextText(activeDraft),
-    };
-  }, [activeConversation, activeSection, battleDraft, draft, editingUserMessageContent, selectedModel]);
-
-  return {
+  const petContext = usePetCompanionContext({
+    activeConversation,
     activeSection,
-    error,
-    battlePageProps: {
-      composerProps: {
-        attachmentUploadAvailable: true,
-        attachments: draftAttachments,
-        centered: true,
-        composerMode: "chat" as const,
-        isRecording: false,
-        isStreaming: battleStreaming,
-        isTranscribing: false,
-        knowledgeFolder,
-        knowledgeFolders: knowledgeManager.folders,
-        model: selectedModel,
-        models: availableModels,
-        onChange: setBattleDraft,
-        onComposerModeChange: restoreChatComposerMode,
-        onKnowledgeFolderChange: setKnowledgeFolder,
-        onModelChange: handleModelChange,
-        onNewDebate: handleNewDebate,
-        onNewBattle: handleNewBattle,
-        onReasoningProfileChange: handleReasoningProfileChange,
-        onRemoveAttachment: removeAttachment,
-        onSelectAttachments: handleSelectAttachments,
-        onStop: handleStopBattle,
-        onSubmit: () => void handleSendBattle(),
-        onToggleRag: handleSelectRag,
-        onToggleRecording: handleToggleRecording,
-        onToggleWeb: handleSelectWeb,
-        reasoningProfile,
-        showNewBattleOption: false,
-        submitBlocked: false,
-        submitBlockedReason: null,
-        toolMode,
-        value: battleDraft,
-      },
-      isStreaming: battleStreaming,
-      session: activeBattleSession,
-      onVote: handleBattleVote,
-    },
-    debateCreateProps: debateCreateOpen
-      ? {
-          defaultProModelId: selectedModel,
-          defaultConModelId: selectedModel,
-          models: availableModels,
-          onCancel: handleCancelCreateDebate,
-          onCreate: handleCreateDebate,
-        }
-      : null,
+    battleDraft,
+    draft,
+    editingUserMessageContent,
+    selectedModel,
+  });
+
+  return buildChatAppViewModel({
+    activeBattleId,
+    activeBattleSession,
+    activeConversation,
+    activeConversationId,
+    activeDebate,
+    activeDebateId,
+    activeReasoningRequest,
+    activeSection,
+    activeSession,
+    attachmentUploadAvailable,
+    availableModels,
+    battleDraft,
+    battleSessionsLoaded,
+    battleStreaming,
+    collapsedMessageIds,
+    composerMode,
+    conversationActivity,
+    conversationsLoaded,
+    debateActivity,
+    debateCreateOpen,
     debateRoomProps,
-    conversationProps: activeConversation
-      ? {
-          canLoadEarlierMessages: activeConversation.remaining_message_count > 0,
-          collapsedMessageIds,
-          conversation: activeConversation,
-          draft,
-          draftAttachments,
-          editingUserMessageContent,
-          editingUserMessageId,
-          attachmentUploadAvailable,
-          earlierMessagesError,
-          isLoadingEarlierMessages,
-          isRecording,
-          isReasoningStreaming: activeSession?.reasoningStreaming ?? false,
-          isStreaming: visibleStreaming,
-          isTranscribing,
-          model: selectedModel,
-          models: availableModels,
-          composerMode,
-          reserveThinkingSpace: activeReasoningRequest !== null && activeReasoningRequest !== "off",
-          reasoningProfile,
-          knowledgeFolders: knowledgeManager.folders,
-          knowledgeFolder,
-          onChangeDraft: setDraft,
-          onComposerModeChange: handleComposerModeChange,
-          onFeedback: (messageId: number, value: "up" | "down" | null) =>
-            void handleMessageFeedback(messageId, value),
-          onLoadEarlierMessages: () => void handleLoadEarlierMessages(),
-          onModelChange: handleModelChange,
-          onReasoningProfileChange: handleReasoningProfileChange,
-          onKnowledgeFolderChange: setKnowledgeFolder,
-          onCancelEditingUserMessage: handleCancelEditingUserMessage,
-          onChangeEditingUserMessage: setEditingUserMessageContent,
-          onRemoveDraftAttachment: removeAttachment,
-          onRetry: handleRetryAssistant,
-          onStartEditingUserMessage: handleStartEditingUserMessage,
-          onSubmitEditingUserMessage: (messageId: number | string) => void handleSubmitEditedUserMessage(messageId),
-          onSelectAttachments: handleSelectAttachments,
-          onNewDebate: handleNewDebate,
-          onNewBattle: handleNewBattle,
-          onSend: () => void handleSend(),
-          onStop: handleStop,
-          onToggleRecording: handleToggleRecording,
-          onToggleRag: handleSelectRag,
-          onToggleWeb: handleSelectWeb,
-          toolMode,
-          submitBlocked,
-          submitBlockedReason,
-          showNewBattleOption: true,
-          streamingStatusLabel: visibleStreaming ? labelForStage(activeSession?.stage ?? null) : null,
-        }
-      : null,
-    headerProps: {
-      activeItemId: showSessionHeaderActions
-        ? activeSection === "debates"
-          ? activeDebateId
-          : activeConversationId
-        : null,
-      activeItemKind:
-        showSessionHeaderActions
-          ? activeSection === "debates"
-            ? activeDebateId !== null
-              ? ("debate" as const)
-              : null
-            : activeConversationId !== null
-              ? ("chat" as const)
-              : null
-          : null,
-      activeItemTitle: activeDebate?.topic ?? activeConversation?.title ?? "",
-      isDesktop,
-      mobileModel: showChatModelSelector ? selectedModel : "",
-      mobileModels: showChatModelSelector ? availableModels : [],
-      onNewChat: handleNewChat,
-      onNewDebate: handleNewDebate,
-      onDeleteItem: async (itemId: number, kind: "chat" | "debate") => {
-        if (kind === "debate") {
-          await handleDeleteDebate(itemId);
-          return;
-        }
-        await handleDeleteConversation(itemId);
-      },
-      onExportItem: async (itemId: number, kind: "chat" | "debate") => {
-        await handleExportItem(itemId, kind);
-      },
-      onRenameItem: async (itemId: number, title: string, kind: "chat" | "debate") => {
-        if (kind === "debate") {
-          await handleRenameDebate(itemId, title);
-          return;
-        }
-        await handleRenameConversation(itemId, title);
-      },
-      onMobileModelChange: showChatModelSelector ? handleModelChange : undefined,
-      onToggleSidebar: toggleSidebar,
-      showTitle: true,
-      sidebarOpen,
-      title: workspaceTitle,
-    },
-    landingProps: {
-      draft,
-      draftAttachments,
-      attachmentUploadAvailable,
-      isRecording,
-      isStreaming,
-      isTranscribing,
-      model: selectedModel,
-      models: availableModels,
-      composerMode,
-      reasoningProfile,
-      knowledgeFolders: knowledgeManager.folders,
-      knowledgeFolder,
-      onAnimationComplete: handleLandingAnimationComplete,
-      onChangeDraft: setDraft,
-      onComposerModeChange: handleComposerModeChange,
-      onModelChange: handleModelChange,
-      onReasoningProfileChange: handleReasoningProfileChange,
-      onKnowledgeFolderChange: setKnowledgeFolder,
-      onRemoveDraftAttachment: removeAttachment,
-      onSelectAttachments: handleSelectAttachments,
-      onNewDebate: handleNewDebate,
-      onNewBattle: handleNewBattle,
-      onSend: () => void handleSend(),
-      onStop: handleStop,
-      onToggleRecording: handleToggleRecording,
-      onToggleRag: handleSelectRag,
-      onToggleWeb: handleSelectWeb,
-      toolMode,
-      submitBlocked,
-      submitBlockedReason,
-      showNewBattleOption: true,
-      shouldAnimate: !landingHeroAnimated,
-      title: landingTitle,
-    },
-    imageSettingsProps: {
-      imageSize,
-      imageQuality,
-      imageOutputFormat,
-      onImageSizeChange: setImageSize,
-      onImageQualityChange: setImageQuality,
-      onImageOutputFormatChange: setImageOutputFormat,
-    },
-    knowledgePageProps: {
-      knowledge: knowledgeManager,
-    },
-    memoriesPageProps: {
-      activeConversationId: activeConversationId && activeConversationId > 0 ? activeConversationId : null,
-      activeConversationTitle: activeConversation?.title ?? "",
-      memories: memoryManager,
-    },
-    petActivity: {
-      context: petContext,
-      draftActive: petDraftActive,
-      isStreaming: petStreaming,
-      signal: petSignal,
-    },
-    modelsPageProps: {
-      models: availableModels,
-      onSelectModel: handleModelChange,
-      selectedModel,
-    },
+    debateSessionsLoaded,
+    draft,
+    draftAttachments,
+    earlierMessagesError,
+    editingUserMessageContent,
+    editingUserMessageId,
+    error,
+    filteredBattleSessions,
+    filteredConversations,
+    filteredDebateSessions,
+    generalPreferences,
+    imageOutputFormat,
+    imageQuality,
+    imageSize,
     isBattleLoading,
     isConversationLoading: activeSection === "chats" && activeConversationId !== null && activeConversation === null,
     isDebateLoading,
+    isDesktop,
+    isLoadingEarlierMessages,
+    isRecording,
+    isStreaming,
+    isTranscribing,
+    knowledgeFolder,
+    knowledgeFolders: knowledgeManager.folders,
+    knowledgeManager,
+    landingHeroAnimated,
+    landingTitle,
+    memoryManager,
+    onAnimationComplete: handleLandingAnimationComplete,
+    petContext,
+    petDraftActive,
+    petSignal,
+    petStreaming,
+    query,
+    reasoningProfile,
+    selectedModel,
     showLanding,
-    sidebarProps: {
-      activeSection,
-      activeConversationId,
-      activeDebateId,
-      activeBattleId,
-      activity: conversationActivity,
-      debateActivity,
-      battlesLoaded: battleSessionsLoaded,
-      conversationsLoaded,
-      debatesLoaded: debateSessionsLoaded,
-      isDesktop,
-      items: filteredConversations,
-      debateItems: filteredDebateSessions,
-      battleItems: filteredBattleSessions,
-      onSelectSection: handleSelectSection,
-      onDelete: handleDeleteConversation,
-      onDeleteDebate: handleDeleteDebate,
-      onDeleteBattle: handleDeleteBattle,
-      onNewChat: handleNewChat,
-      onNewDebate: handleNewDebate,
-      onQueryChange: setQuery,
-      onRename: handleRenameConversation,
-      onRenameDebate: handleRenameDebate,
-      onRenameBattle: handleRenameBattle,
-      onSelect: handleSelectConversation,
-      onSelectDebate: handleSelectDebate,
-      onSelectBattle: handleSelectBattle,
-      onToggleSidebar: toggleSidebar,
-      open: sidebarOpen,
-      query,
+    sidebarOpen,
+    submitBlocked,
+    submitBlockedReason,
+    toolMode,
+    visibleStreaming,
+    onChangeDefaultModel: handleDefaultModelChange,
+    onCancelCreateDebate: handleCancelCreateDebate,
+    onCancelEditingUserMessage: handleCancelEditingUserMessage,
+    onChangeBattleDraft: setBattleDraft,
+    onChangeComposerMode: handleComposerModeChange,
+    onChangeDraft: setDraft,
+    onChangeEditingUserMessage: setEditingUserMessageContent,
+    onChangeGeneralPreferences: onGeneralPreferencesChange,
+    onChangeImageOutputFormat: setImageOutputFormat,
+    onChangeImageQuality: setImageQuality,
+    onChangeImageSize: setImageSize,
+    onChangeKnowledgeFolder: setKnowledgeFolder,
+    onChangeQuery: setQuery,
+    onConfirmPendingMemory: handleConfirmPendingMemory,
+    onCreateDebate: handleCreateDebate,
+    onDeleteBattle: handleDeleteBattle,
+    onDeleteConversation: handleDeleteConversation,
+    onDeleteDebate: handleDeleteDebate,
+    onExportItem: handleExportItem,
+    onKnowledgeFolderChange: setKnowledgeFolder,
+    onLoadEarlierMessages: handleLoadEarlierMessages,
+    onMessageFeedback: handleMessageFeedback,
+    onModelChange: handleModelChange,
+    onNewBattle: handleNewBattle,
+    onNewChat: handleNewChat,
+    onNewDebate: handleNewDebate,
+    onReasoningProfileChange: handleReasoningProfileChange,
+    onRefreshMessagePendingMemories: handleRefreshMessagePendingMemories,
+    onRejectPendingMemory: handleRejectPendingMemory,
+    onRemoveAttachment: removeAttachment,
+    onRenameBattle: handleRenameBattle,
+    onRenameConversation: handleRenameConversation,
+    onRenameDebate: handleRenameDebate,
+    onRenameItem: async (itemId: number, title: string, kind: "chat" | "debate") => {
+      if (kind === "debate") {
+        await handleRenameDebate(itemId, title);
+        return;
+      }
+      await handleRenameConversation(itemId, title);
     },
-  };
+    onRestoreChatComposerMode: restoreChatComposerMode,
+    onRetryAssistant: handleRetryAssistant,
+    onSelectAttachments: handleSelectAttachments,
+    onSelectBattle: handleSelectBattle,
+    onSelectConversation: handleSelectConversation,
+    onSelectDebate: handleSelectDebate,
+    onSelectSection: handleSelectSection,
+    onSend: handleSend,
+    onSendBattle: handleSendBattle,
+    onStartEditingUserMessage: handleStartEditingUserMessage,
+    onStop: handleStop,
+    onStopBattle: handleStopBattle,
+    onSubmitEditedUserMessage: handleSubmitEditedUserMessage,
+    onToggleRag: handleSelectRag,
+    onToggleRecording: handleToggleRecording,
+    onToggleSidebar: toggleSidebar,
+    onToggleWeb: handleSelectWeb,
+    onVoteBattle: handleBattleVote,
+  });
 }

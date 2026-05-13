@@ -12,6 +12,7 @@ function isConversationSummary(value: unknown): value is ConversationSummary {
     && typeof value.id === "number"
     && typeof value.title === "string"
     && typeof value.model === "string"
+    && (typeof value.temporary_chat === "boolean" || value.temporary_chat === undefined)
     && (typeof value.updated_at === "string" || value.updated_at === null)
     && typeof value.last_message_preview === "string"
   );

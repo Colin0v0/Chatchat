@@ -21,6 +21,7 @@ async def stream_model_response(
     *,
     model: str,
     messages: list[ChatMessagePayload],
+    temperature: float | None = None,
     requested_reasoning: bool | None = None,
     requested_reasoning_profile: str | None = None,
 ) -> AsyncIterator[ModelStreamChunk]:
@@ -50,6 +51,7 @@ async def stream_model_response(
             profile=profile,
             messages=model_messages,
             reasoning_profile=reasoning_profile,
+            temperature=temperature,
         )
     ):
         if event.kind == "reasoning_delta":
@@ -85,6 +87,7 @@ async def complete_model_response(
     *,
     model: str,
     messages: list[ChatMessagePayload],
+    temperature: float | None = None,
     requested_reasoning: bool | None = None,
     requested_reasoning_profile: str | None = None,
 ) -> str:
@@ -92,6 +95,7 @@ async def complete_model_response(
     async for chunk in stream_model_response(
         model=model,
         messages=messages,
+        temperature=temperature,
         requested_reasoning=requested_reasoning,
         requested_reasoning_profile=requested_reasoning_profile,
     ):

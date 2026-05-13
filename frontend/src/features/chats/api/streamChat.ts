@@ -19,10 +19,16 @@ export async function streamChat(payload: ChatStreamRequest, options: ChatStream
   if (payload.model) {
     formData.append("model", payload.model);
   }
+  if (typeof payload.temperature === "number") {
+    formData.append("temperature", String(payload.temperature));
+  }
   formData.append("tool_mode", payload.tool_mode);
   payload.knowledge_folders?.forEach((folder) => formData.append("knowledge_folders", folder));
   if (payload.reasoning_profile) {
     formData.append("reasoning_profile", payload.reasoning_profile);
+  }
+  if (payload.temporary_chat) {
+    formData.append("temporary_chat", "true");
   }
   payload.files?.forEach((file) => formData.append("files", file));
 

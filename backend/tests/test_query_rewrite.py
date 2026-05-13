@@ -47,6 +47,32 @@ class QueryRewriteTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result.applied)
         self.assertEqual(result.effective_query, "部署文档")
 
+    async def test_memory_hints_are_passed_to_rewrite_prompt(self):
+        settings = SimpleNamespace(
+            rag_query_rewrite_enabled=True,
+            rag_query_rewrite_model="codex:gpt-5.2",
+            rag_query_rewrite_history_messages=2,
+        )
+        rewriter = RagQueryRewriter(settings)
+
+        captured: dict[str, object] = {}
+
+        async def fake_complete(**kwargs):
+            captured["messages"] = kwargs["messages"]
+            return "Chatchat memory 系统 候选记忆面板"
+
+        with patch("app.retrieval.query_rewrite.complete_model_response", fake_complete):
+            result = await rewriter.rewrite(
+                query="这个面板怎么做",
+                history_messages=[],
+                memory_query_hints=["用户当前在做 Chatchat memory 系统"],
+            )
+
+        self.assertEqual(result.memory_hint_count, 1)
+        self.assertTrue(result.applied)
+        messages = captured["messages"]
+        self.assertIn("用户当前在做 Chatchat memory 系统", messages[1].content)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -5,19 +5,24 @@ import type {
   MemoryItem,
   MemoryKind,
   MemoryScope,
+  MemorySettings,
   MemoryUpsertPayload,
 } from "../../../types";
 import { useLatestRequestGuard } from "../../../shared/hooks/useLatestRequestGuard";
 import {
   createMemory,
+  clearChatHistoryIndex,
+  clearSavedMemories,
   deleteMemory,
+  fetchMemorySettings,
   fetchMemories,
+  updateMemorySettings,
   updateMemory,
 } from "../api/memories";
 
 type EditableScope = Exclude<MemoryScope, "working">;
 
-type MemoryEditorState = {
+export type MemoryEditorState = {
   id: number | null;
   scope: EditableScope;
   kind: MemoryKind;
@@ -28,7 +33,9 @@ type MemoryEditorState = {
   pinned: boolean;
   active: boolean;
   conversation_id: number | null;
-};
+} | null;
+
+type ActiveMemoryEditorState = NonNullable<MemoryEditorState>;
 
 function createEmptyCollection(): MemoryCollection {
   return {
@@ -41,11 +48,20 @@ function createEmptyCollection(): MemoryCollection {
   };
 }
 
+function createDefaultSettings(): MemorySettings {
+  return {
+    saved_memories_enabled: true,
+    reference_chat_history_enabled: true,
+    memory_learning_enabled: true,
+    sensitive_memory_enabled: false,
+  };
+}
+
 function createEditor(
   conversationId: number | null,
   scope: EditableScope,
   memory?: MemoryItem,
-): MemoryEditorState {
+): ActiveMemoryEditorState {
   if (memory) {
     return {
       id: memory.id,
@@ -82,7 +98,7 @@ function parseTags(value: string): string[] {
     .filter(Boolean);
 }
 
-function toPayload(editor: MemoryEditorState): MemoryUpsertPayload {
+function toPayload(editor: ActiveMemoryEditorState): MemoryUpsertPayload {
   const confidence = Number(editor.confidenceText);
   return {
     scope: editor.scope,
@@ -105,7 +121,8 @@ export function useMemoryManager({
   enabled: boolean;
 }) {
   const [collection, setCollection] = useState<MemoryCollection>(createEmptyCollection);
-  const [editor, setEditor] = useState<MemoryEditorState | null>(null);
+  const [settings, setSettings] = useState<MemorySettings>(createDefaultSettings);
+  const [editor, setEditor] = useState<MemoryEditorState>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -117,10 +134,12 @@ export function useMemoryManager({
     setError(null);
     try {
       const nextCollection = await fetchMemories(activeConversationId);
+      const nextSettings = await fetchMemorySettings();
       if (!loadGuard.isCurrent(requestId)) {
         return;
       }
       setCollection(nextCollection);
+      setSettings(nextSettings);
     } catch (loadError) {
       if (loadGuard.isCurrent(requestId)) {
         setError(loadError instanceof Error ? loadError.message : "Failed to load memory workspace.");
@@ -225,6 +244,48 @@ export function useMemoryManager({
     [editor?.id, loadMemories],
   );
 
+  const patchSettings = useCallback(
+    async (patch: Partial<MemorySettings>) => {
+      setIsSaving(true);
+      setError(null);
+      try {
+        const nextSettings = await updateMemorySettings(patch);
+        setSettings(nextSettings);
+      } catch (settingsError) {
+        setError(settingsError instanceof Error ? settingsError.message : "Failed to update memory settings.");
+      } finally {
+        setIsSaving(false);
+      }
+    },
+    [],
+  );
+
+  const clearSaved = useCallback(async () => {
+    setIsSaving(true);
+    setError(null);
+    try {
+      await clearSavedMemories();
+      await loadMemories();
+    } catch (clearError) {
+      setError(clearError instanceof Error ? clearError.message : "Failed to clear saved memories.");
+    } finally {
+      setIsSaving(false);
+    }
+  }, [loadMemories]);
+
+  const clearHistoryIndex = useCallback(async () => {
+    setIsSaving(true);
+    setError(null);
+    try {
+      await clearChatHistoryIndex();
+      await loadMemories();
+    } catch (clearError) {
+      setError(clearError instanceof Error ? clearError.message : "Failed to clear chat history index.");
+    } finally {
+      setIsSaving(false);
+    }
+  }, [loadMemories]);
+
   const hasMemories =
     collection.documents.length > 0 ||
     collection.active_items.global_items.length > 0 ||
@@ -239,9 +300,13 @@ export function useMemoryManager({
       hasMemories,
       isLoading,
       isSaving,
+      settings,
       onCancelEditing: cancelEditing,
       onChangeEditor: (patch: Record<string, unknown>) =>
         setEditor((current) => (current ? { ...current, ...patch } : current)),
+      onChangeSettings: (patch: Partial<MemorySettings>) => void patchSettings(patch),
+      onClearChatHistoryIndex: () => void clearHistoryIndex(),
+      onClearSavedMemories: () => void clearSaved(),
       onCreateGlobalMemory: () => startCreate("global"),
       onDeleteMemory: (memoryId: number) => void removeMemory(memoryId),
       onEditMemory: (memory: MemoryItem) => startEdit(memory),
@@ -250,6 +315,8 @@ export function useMemoryManager({
     }),
     [
       cancelEditing,
+      clearHistoryIndex,
+      clearSaved,
       collection,
       editor,
       error,
@@ -257,8 +324,10 @@ export function useMemoryManager({
       isLoading,
       isSaving,
       loadMemories,
+      patchSettings,
       removeMemory,
       saveEditing,
+      settings,
       startCreate,
       startEdit,
     ],

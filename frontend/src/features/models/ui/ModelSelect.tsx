@@ -1,7 +1,6 @@
 import { Check, ChevronDown } from "lucide-react";
 import { Fragment, useEffect, useRef, useState } from "react";
 
-import { toModelLabel } from "../../../lib/models";
 import type { ModelOption } from "../../../types";
 import { cn, sidebarMenuItemClass, sidebarMenuPanelClass } from "../../workspace/ui/sidebar/styles";
 
@@ -14,19 +13,6 @@ interface ModelSelectProps {
   label?: string;
   menuPlacement?: "top" | "bottom";
   triggerStyle?: "default" | "chevron";
-}
-
-function createFallbackOption(id: string): ModelOption {
-  return {
-    id,
-    label: toModelLabel(id),
-    supports_thinking: false,
-    supports_thinking_trace: false,
-    supports_attachment_upload: false,
-    native_multimodal_mode: "false",
-    chat_model: null,
-    reasoning_model: null,
-  };
 }
 
 function providerOf(modelId: string): string {
@@ -50,10 +36,8 @@ export function ModelSelect({
 }: ModelSelectProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const currentModel =
-    models.find((item) => item.id === model) ??
-    (model ? createFallbackOption(model) : { ...createFallbackOption(""), id: "", label });
-  const displayModel = currentModel;
+  const currentModel = models.find((item) => item.id === model) ?? models[0] ?? null;
+  const displayLabel = currentModel?.label ?? "模型列表加载中";
   const visibleModels = models;
 
   useEffect(() => {
@@ -110,20 +94,21 @@ export function ModelSelect({
   return (
     <div className={`relative min-w-0 ${fullWidth ? "w-full" : "shrink-0"}`} ref={rootRef}>
       <button
-        aria-label={isChevronOnly ? `Select model: ${displayModel.label}` : undefined}
+        aria-label={isChevronOnly ? `Select model: ${displayLabel}` : undefined}
         className={buttonClassName}
+        disabled={visibleModels.length === 0}
         onClick={() => setOpen((value) => !value)}
         type="button"
       >
         {isChevronOnly ? null : fullWidth ? (
-          <span className="min-w-0 truncate text-[#5f564a]">{displayModel.label}</span>
+          <span className="min-w-0 truncate text-[#5f564a]">{displayLabel}</span>
         ) : (
           <span className="flex min-w-0 items-center gap-1.5 sm:gap-2">
             <span className={`shrink-0 whitespace-nowrap ${compact ? "text-[#5f564a]" : "text-[#5f564a] sm:hidden"}`}>
               {label}
             </span>
             {compact ? null : <span className="hidden shrink-0 whitespace-nowrap text-[#5f564a] sm:inline">{label}:</span>}
-            {compact ? null : <span className="hidden min-w-0 truncate text-[#5f564a] sm:inline">{displayModel.label}</span>}
+            {compact ? null : <span className="hidden min-w-0 truncate text-[#5f564a] sm:inline">{displayLabel}</span>}
           </span>
         )}
         <ChevronDown className={`shrink-0 text-[#5f564a] transition ${isChevronOnly ? "size-4.5" : "size-4"} ${open ? "rotate-180" : ""}`} />
@@ -132,7 +117,7 @@ export function ModelSelect({
       {open ? (
         <div className={menuClassName}>
           {visibleModels.map((item, index) => {
-            const active = item.id === displayModel.id;
+            const active = item.id === currentModel?.id;
             const previousProvider = index > 0 ? providerOf(visibleModels[index - 1].id) : null;
             const currentProvider = providerOf(item.id);
             const showProviderDivider = previousProvider !== null && previousProvider !== currentProvider;

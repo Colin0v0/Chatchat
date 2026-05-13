@@ -73,7 +73,7 @@ class ModelRerankerPayloadTests(unittest.TestCase):
 
     def test_legacy_chat_model_id_is_disabled(self):
         reranker = ModelReranker(
-            _build_settings(knowledge_rerank_model="openai:deepseek-chat"),
+            _build_settings(knowledge_rerank_model="openai:deepseek-v4-flash"),
             rerank_window=2,
         )
 

@@ -36,6 +36,12 @@ def apply_anthropic_reasoning_controls(payload: dict[str, object], *, reasoning_
     }
 
 
+def apply_anthropic_temperature(payload: dict[str, object], *, temperature: float | None) -> None:
+    if temperature is None:
+        return
+    payload["temperature"] = min(1.0, max(0.0, float(temperature)))
+
+
 def _claude_image_part(image: ChatImagePayload) -> dict[str, object]:
     _, _, encoded = image.data_url.partition(",")
     if not encoded:
@@ -78,6 +84,7 @@ def claude_request_payload(
     max_tokens: int,
     stream: bool,
     reasoning_profile: str | None = None,
+    temperature: float | None = None,
 ) -> dict[str, object]:
     system_parts: list[str] = []
     chat_messages: list[dict[str, object]] = []
@@ -105,6 +112,7 @@ def claude_request_payload(
     }
     if system_parts:
         payload["system"] = "\n\n".join(system_parts)
+    apply_anthropic_temperature(payload, temperature=temperature)
     apply_anthropic_reasoning_controls(payload, reasoning_profile=reasoning_profile)
     return payload
 

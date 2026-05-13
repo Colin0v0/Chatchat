@@ -67,6 +67,7 @@ async def stream_chat_run(
     model: str,
     history_message_ids: list[int],
     query: str,
+    temperature: float | None,
     tool_policy: ToolPolicy,
     requested_reasoning: bool | None = None,
     requested_reasoning_profile: str | None = None,
@@ -186,6 +187,7 @@ async def stream_chat_run(
                 query=query or retrieval_query,
                 plan=tool_plan,
                 retrieval_messages=prepared_retrieval_history.messages,
+                memory_query_hints=list(memory_prompt.query_hints),
                 conversation_messages=all_history_messages,
                 include_file_context=should_build_file_context,
                 include_image_context=include_image_context,
@@ -263,6 +265,7 @@ async def stream_chat_run(
         async for chunk in stream_model_response(
             model=model,
             messages=hydrated_history,
+            temperature=temperature,
             requested_reasoning=requested_reasoning,
             requested_reasoning_profile=requested_reasoning_profile,
         ):

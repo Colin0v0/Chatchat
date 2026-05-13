@@ -49,7 +49,7 @@ export async function pollImageGenerationJob(
     type: "meta",
     conversation_id: job.conversation_id,
     message_id: job.user_message_id,
-    model: options.model,
+    model: job.conversation_model,
   });
   options.onEvent({ type: "status", items: ["Generating image"] });
 

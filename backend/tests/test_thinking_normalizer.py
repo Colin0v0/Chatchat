@@ -114,7 +114,7 @@ class ThinkingNormalizerTests(unittest.TestCase):
         messages = [ChatMessagePayload(role="user", content="hello")]
 
         injected = inject_thinking_system_prompt(
-            model="openai:deepseek-reasoner",
+            model="openai:deepseek-v4-pro",
             messages=messages,
             reasoning_profile="medium",
             reasoning_visibility="full",

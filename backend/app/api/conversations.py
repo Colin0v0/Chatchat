@@ -56,6 +56,7 @@ def list_conversations(
             id=item.id,
             title=item.title,
             model=item.model,
+            temporary_chat=item.temporary_chat,
             updated_at=item.updated_at,
             last_message_preview=item.last_message_preview,
         )
@@ -77,6 +78,7 @@ def create_conversation(
         user_id=current_user.id,
         title=payload.title,
         model=target_model,
+        temporary_chat=payload.temporary_chat,
     )
     db.add(conversation)
     db.commit()
@@ -85,6 +87,7 @@ def create_conversation(
         id=conversation.id,
         title=conversation.title,
         model=conversation.model,
+        temporary_chat=conversation.temporary_chat,
         updated_at=conversation.updated_at,
         last_message_preview="",
     )
@@ -114,6 +117,7 @@ async def get_conversation(
         id=conversation.id,
         title=conversation.title,
         model=conversation.model,
+        temporary_chat=conversation.temporary_chat,
         messages=window.messages,
         total_message_count=window.total_message_count,
         loaded_message_count=window.loaded_message_count,
@@ -177,6 +181,7 @@ def update_conversation(
         id=conversation.id,
         title=conversation.title,
         model=conversation.model,
+        temporary_chat=conversation.temporary_chat,
         updated_at=conversation.updated_at,
         last_message_preview=message_preview(conversation.messages[-1] if conversation.messages else None),
     )

@@ -15,6 +15,7 @@ BattleSideStatus = Literal["streaming", "done", "error"]
 MemoryScope = Literal["working", "global", "conversation"]
 MemoryKind = Literal["profile", "preference", "goal", "project", "fact", "constraint"]
 MemoryStatus = Literal["active", "archived"]
+MemoryConfidenceState = Literal["pending", "inferred", "confirmed", "rejected"]
 MemoryDocumentType = Literal["user_profile", "workspace_profile", "conversation_brief"]
 KnowledgeDocumentStatus = Literal["pending", "indexing", "ready", "failed"]
 ImageGenerationJobStatus = Literal["queued", "running", "succeeded", "failed"]
@@ -31,6 +32,7 @@ class ConversationSummary(BaseModel):
     id: int
     title: str
     model: str
+    temporary_chat: bool = False
     updated_at: Optional[datetime] = None
     last_message_preview: str = ""
 
@@ -40,6 +42,7 @@ class ConversationSummary(BaseModel):
 class ConversationCreate(BaseModel):
     title: str = "New chat"
     model: Optional[str] = None
+    temporary_chat: bool = False
 
 
 class LoginRequest(BaseModel):
@@ -72,6 +75,7 @@ class RegenerateRequest(BaseModel):
     assistant_message_id: int
     edited_content: Optional[str] = None
     model: Optional[str] = None
+    temperature: Optional[float] = Field(default=None, ge=0, le=1)
     tool_mode: ToolMode = "none"
     reasoning_profile: Optional[ReasoningProfileValue] = None
     knowledge_folders: list[str] = Field(default_factory=list)
@@ -209,6 +213,7 @@ class ImageGenerationJobOut(BaseModel):
     status: ImageGenerationJobStatus
     conversation_id: int
     user_message_id: int
+    conversation_model: str
     assistant_message_id: Optional[int] = None
     conversation_title: str = ""
     content: str = ""
@@ -252,6 +257,36 @@ class MessageContextSectionOut(BaseModel):
     item_count: int = 0
 
 
+class MessageMemoryReferenceOut(BaseModel):
+    id: int
+    scope: MemoryScope
+    kind: MemoryKind
+    title: str
+    detail: str = ""
+    tags: list[str] = Field(default_factory=list)
+    confidence_state: MemoryConfidenceState = "inferred"
+    evidence_count: int = 0
+
+
+class MessageMemoryDocumentReferenceOut(BaseModel):
+    id: int
+    doc_type: MemoryDocumentType
+    title: str
+    content: str = ""
+    source_memory_ids: list[int] = Field(default_factory=list)
+
+
+class MessagePastChatReferenceOut(BaseModel):
+    id: int
+    conversation_id: int
+    conversation_title: str = ""
+    user_message_id: int
+    assistant_message_id: int
+    summary: str = ""
+    excerpt: str = ""
+    score: float = 0.0
+
+
 class MessageContextOut(BaseModel):
     query: str = ""
     strategy: str = "balanced"
@@ -260,8 +295,20 @@ class MessageContextOut(BaseModel):
     older_message_count: int = 0
     recent_message_count: int = 0
     memory_count: int = 0
+    memory_items: list[MessageMemoryReferenceOut] = Field(default_factory=list)
+    memory_documents: list[MessageMemoryDocumentReferenceOut] = Field(default_factory=list)
+    past_chats: list[MessagePastChatReferenceOut] = Field(default_factory=list)
+    memory_query_hints: list[str] = Field(default_factory=list)
     source_count: int = 0
     sections: list[MessageContextSectionOut] = Field(default_factory=list)
+
+
+class MessageMemoryCandidatePatch(BaseModel):
+    scope: Literal["global", "conversation"] = "conversation"
+    kind: MemoryKind = "fact"
+    title: str = Field(min_length=1, max_length=255)
+    detail: str = ""
+    tags: list[str] = Field(default_factory=list)
 
 
 class MessageOut(BaseModel):
@@ -273,6 +320,7 @@ class MessageOut(BaseModel):
     attachments: list[MessageAttachmentOut] = Field(default_factory=list)
     sources: list[MessageSource] = Field(default_factory=list)
     context: Optional[MessageContextOut] = None
+    pending_memories: list["MemoryItemOut"] = Field(default_factory=list)
     feedback: Optional[FeedbackValue] = None
     created_at: Optional[datetime] = None
 
@@ -290,6 +338,7 @@ class ConversationDetail(BaseModel):
     id: int
     title: str
     model: str
+    temporary_chat: bool = False
     messages: list[MessageOut]
     total_message_count: int = 0
     loaded_message_count: int = 0
@@ -542,6 +591,9 @@ class MemoryItemOut(BaseModel):
     detail: str = ""
     tags: list[str] = Field(default_factory=list)
     confidence: float
+    confidence_state: MemoryConfidenceState = "inferred"
+    evidence_count: int = 1
+    evidence: list[dict[str, object]] = Field(default_factory=list)
     status: MemoryStatus
     source_type: str
     modality: str
@@ -584,6 +636,26 @@ class MemoryLayerCollectionOut(BaseModel):
 class MemoryCollectionOut(BaseModel):
     documents: list[MemoryDocumentOut] = Field(default_factory=list)
     active_items: MemoryLayerCollectionOut = Field(default_factory=MemoryLayerCollectionOut)
+
+
+class MemorySettingsOut(BaseModel):
+    saved_memories_enabled: bool = True
+    reference_chat_history_enabled: bool = True
+    memory_learning_enabled: bool = True
+    sensitive_memory_enabled: bool = False
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class MemorySettingsUpdate(BaseModel):
+    saved_memories_enabled: Optional[bool] = None
+    reference_chat_history_enabled: Optional[bool] = None
+    memory_learning_enabled: Optional[bool] = None
+    sensitive_memory_enabled: Optional[bool] = None
+
+
+class MemoryClearResult(BaseModel):
+    deleted_count: int = 0
 
 
 class MemoryCreate(BaseModel):

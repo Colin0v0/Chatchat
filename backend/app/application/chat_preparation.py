@@ -104,10 +104,12 @@ async def prepare_chat_stream_run_request(
     conversation_id: int | None,
     message: str,
     model: str | None,
+    temperature: float | None,
     tool_mode: ToolMode,
     knowledge_folders: list[str],
     reasoning_profile: ReasoningProfileValue | None,
     files: list[UploadFile] | None,
+    temporary_chat: bool = False,
 ) -> ChatRunRequest:
     content = message.strip()
     uploads = files or []
@@ -143,6 +145,7 @@ async def prepare_chat_stream_run_request(
         profile=profile,
         content=content,
         uploaded_attachments=uploaded_attachments,
+        temporary_chat=temporary_chat,
     )
     conversation = reload_conversation_for_run(
         db=db,
@@ -155,6 +158,7 @@ async def prepare_chat_stream_run_request(
         user_message=persisted_turn.user_message,
         history_messages=list(conversation.messages),
         query=content,
+        temperature=temperature,
         tool_mode=tool_mode,
         knowledge_folders=knowledge_folders,
         reasoning_profile=reasoning_profile,
@@ -211,6 +215,7 @@ async def prepare_regeneration_run_request(
         user_message=regenerated_user_message,
         history_messages=regeneration.history_messages,
         query=query,
+        temperature=payload.temperature,
         tool_mode=payload.tool_mode,
         knowledge_folders=payload.knowledge_folders,
         reasoning_profile=payload.reasoning_profile,

@@ -145,6 +145,7 @@ class Settings(BaseSettings):
     conversation_view_message_limit: int = 10
     memory_model: str = ""
     memory_recall_top_k: int = 4
+    memory_past_chat_recall_top_k: int = 4
     memory_pinned_top_k: int = 3
     memory_extract_max_items: int = 6
     memory_refresh_max_concurrency: int = 1
@@ -175,8 +176,8 @@ class Settings(BaseSettings):
     knowledge_rerank_max_chars: int = 480
     knowledge_rerank_max_concurrency: int = 1
     knowledge_max_file_size_bytes: int = 2 * 1024 * 1024
-    knowledge_max_documents_per_user: int = 100
-    knowledge_max_total_size_bytes: int = 100 * 1024 * 1024
+    knowledge_max_documents_per_user: int = 1000
+    knowledge_max_total_size_bytes: int = 1000 * 1024 * 1024
     knowledge_top_k: int = 4
     knowledge_section_max_chars: int = 1400
     knowledge_candidate_limit: int = 4

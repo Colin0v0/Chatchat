@@ -10,12 +10,12 @@ function WorkspacePageHeader({
   title: string;
 }) {
   return (
-    <div className="flex flex-wrap items-start justify-between gap-4">
+    <div className="flex items-start justify-between gap-4">
       <div className="min-w-0 flex-1">
         <div className="text-[28px] font-semibold tracking-[-0.04em] text-app-text">{title}</div>
         {subtitle ? <div className="mt-2 text-[14px] leading-7 text-app-muted">{subtitle}</div> : null}
       </div>
-      {actions ? <div className="flex w-full flex-wrap items-center gap-3 sm:w-auto sm:justify-end">{actions}</div> : null}
+      {actions ? <div className="flex shrink-0 items-center justify-end gap-3">{actions}</div> : null}
     </div>
   );
 }

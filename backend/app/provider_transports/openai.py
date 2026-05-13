@@ -108,6 +108,12 @@ def openai_headers(provider: Provider = "openai", api_key_override: str | None =
     return headers
 
 
+def _apply_temperature(payload: dict[str, object], temperature: float | None) -> None:
+    if temperature is None:
+        return
+    payload["temperature"] = min(1.0, max(0.0, float(temperature)))
+
+
 async def _openai_client(
     *,
     provider: Provider,
@@ -238,6 +244,7 @@ async def _stream_responses_chat(
     model: str,
     messages: list[ChatMessagePayload],
     reasoning_profile: str | None,
+    temperature: float | None,
     base_url_override: str | None,
     api_key_override: str | None,
 ) -> AsyncIterator[dict]:
@@ -246,6 +253,7 @@ async def _stream_responses_chat(
         "input": [responses_message_payload(message) for message in messages],
         "stream": True,
     }
+    _apply_temperature(payload, temperature)
     apply_responses_reasoning_controls(payload, reasoning_profile=reasoning_profile)
     if "reasoning" in payload:
         logger.info("setting responses reasoning controls in payload | provider=codex | reasoning=%s", payload["reasoning"])
@@ -308,6 +316,7 @@ async def _complete_responses_chat(
     model: str,
     messages: list[ChatMessagePayload],
     reasoning_profile: str | None,
+    temperature: float | None,
     base_url_override: str | None,
     api_key_override: str | None,
 ) -> AsyncIterator[dict]:
@@ -315,6 +324,7 @@ async def _complete_responses_chat(
         "model": model,
         "input": [responses_message_payload(message) for message in messages],
     }
+    _apply_temperature(payload, temperature)
     apply_responses_reasoning_controls(payload, reasoning_profile=reasoning_profile)
     if "reasoning" in payload:
         logger.info("setting responses reasoning controls in payload | provider=codex | reasoning=%s", payload["reasoning"])
@@ -345,6 +355,7 @@ async def stream_openai_chat(
     messages: list[ChatMessagePayload],
     provider: Provider = "openai",
     reasoning_profile: str | None = None,
+    temperature: float | None = None,
     base_url_override: str | None = None,
     api_key_override: str | None = None,
 ) -> AsyncIterator[dict]:
@@ -361,6 +372,7 @@ async def stream_openai_chat(
             model=model,
             messages=messages,
             reasoning_profile=reasoning_profile,
+            temperature=temperature,
             base_url_override=base_url_override,
             api_key_override=api_key_override,
         ):
@@ -372,6 +384,7 @@ async def stream_openai_chat(
         "messages": [openai_message_payload(message) for message in messages],
         "stream": use_stream,
     }
+    _apply_temperature(payload, temperature)
     apply_reasoning_controls(payload, provider=provider, reasoning_profile=reasoning_profile)
     if "thinking" in payload:
         logger.info("setting reasoning controls in payload | provider=%s | thinking=%s", provider, payload["thinking"])

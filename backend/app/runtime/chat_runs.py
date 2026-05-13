@@ -208,6 +208,7 @@ class ChatRunRegistry:
                 model=run_request.model,
                 history_message_ids=run_request.history_message_ids,
                 query=run_request.query,
+                temperature=run_request.temperature,
                 tool_policy=run_request.tool_policy,
                 requested_reasoning=run_request.requested_reasoning,
                 requested_reasoning_profile=run_request.requested_reasoning_profile,

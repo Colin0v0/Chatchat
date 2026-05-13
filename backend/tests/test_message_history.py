@@ -70,7 +70,7 @@ class MessageHistoryServiceTests(unittest.IsolatedAsyncioTestCase):
         ]
 
         with patch('app.chat.history.resolve_native_multimodal_mode', return_value='false'):
-            prepared = await service.prepare(model='openai:deepseek-chat', messages=[message])
+            prepared = await service.prepare(model='openai:deepseek-v4-flash', messages=[message])
 
         self.assertEqual(prepared.messages[0].role, 'system')
         self.assertEqual(prepared.messages[1].images, ())

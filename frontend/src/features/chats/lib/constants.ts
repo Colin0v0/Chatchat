@@ -1,6 +1,4 @@
 export const ASSISTANT_DRAFT_ID = "assistant-draft";
-export const INITIAL_CHAT_MODEL = "openai:deepseek-chat";
-export const INITIAL_REASONING_MODEL = "openai:deepseek-reasoner";
 
 const FILTER_PATTERN = /\b(?:folder|tag|path):\S+/gi;
 const TITLE_MAX_LENGTH = 40;
