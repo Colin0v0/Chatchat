@@ -103,6 +103,9 @@ export function useChatApp({
   const deferredQuery = useDeferredValue(query);
   const previousRouteSectionRef = useRef(routeSection);
   const petSignalIdRef = useRef(0);
+  const handleResolvedDefaultModel = useCallback((model: string) => {
+    onGeneralPreferencesChange({ defaultModel: model });
+  }, [onGeneralPreferencesChange]);
   const {
     activeReasoningRequest,
     adjustModelLoveScore,
@@ -117,9 +120,7 @@ export function useChatApp({
     setSelectedModel,
   } = useWorkspaceModels({
     defaultModel: generalPreferences.defaultModel,
-    onDefaultModelResolved: (model) => {
-      onGeneralPreferencesChange({ defaultModel: model });
-    },
+    onDefaultModelResolved: handleResolvedDefaultModel,
     setError,
   });
   const activeKnowledgeFolders = useMemo(
