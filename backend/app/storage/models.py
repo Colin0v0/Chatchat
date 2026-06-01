@@ -28,6 +28,11 @@ class User(Base):
     )
 
     conversations: Mapped[list["Conversation"]] = relationship(back_populates="user")
+    projects: Mapped[list["Project"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+        order_by="Project.updated_at",
+    )
     battle_sessions: Mapped[list["BattleSession"]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
@@ -69,6 +74,29 @@ class User(Base):
         cascade="all, delete-orphan",
         order_by="desc(UserSession.created_at)",
     )
+
+
+class Project(Base):
+    # 中文注释：项目空间只负责归属和默认偏好，聊天、知识库内容仍由各自表保存。
+    __tablename__ = "projects"
+    __table_args__ = (UniqueConstraint("user_id", "name", name="uq_projects_user_name"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(255))
+    description: Mapped[str] = mapped_column(Text(), default="")
+    default_model: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    user: Mapped[User] = relationship(back_populates="projects")
+    conversations: Mapped[list["Conversation"]] = relationship(back_populates="project")
+    knowledge_documents: Mapped[list["KnowledgeDocument"]] = relationship(back_populates="project")
+    knowledge_folders: Mapped[list["KnowledgeFolder"]] = relationship(back_populates="project")
 
 
 class UserSession(Base):
@@ -117,6 +145,11 @@ class Conversation(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    project_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("projects.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     title: Mapped[str] = mapped_column(String(255), default="New chat")
     model: Mapped[str] = mapped_column(String(128))
     temporary_chat: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -128,6 +161,7 @@ class Conversation(Base):
     )
 
     user: Mapped[Optional[User]] = relationship(back_populates="conversations")
+    project: Mapped[Optional[Project]] = relationship(back_populates="conversations")
     messages: Mapped[list["Message"]] = relationship(
         back_populates="conversation",
         cascade="all, delete-orphan",
@@ -612,6 +646,11 @@ class KnowledgeDocument(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    project_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("projects.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     title: Mapped[str] = mapped_column(String(255))
     folder: Mapped[str] = mapped_column(String(255), default="")
     mime_type: Mapped[str] = mapped_column(String(128))
@@ -632,6 +671,7 @@ class KnowledgeDocument(Base):
     )
 
     user: Mapped[User] = relationship(back_populates="knowledge_documents")
+    project: Mapped[Optional[Project]] = relationship(back_populates="knowledge_documents")
     chunks: Mapped[list["KnowledgeChunk"]] = relationship(
         back_populates="document",
         cascade="all, delete-orphan",
@@ -652,10 +692,15 @@ class KnowledgeDocument(Base):
 
 class KnowledgeFolder(Base):
     __tablename__ = "knowledge_folders"
-    __table_args__ = (UniqueConstraint("user_id", "name", name="uq_knowledge_folders_user_name"),)
+    __table_args__ = (UniqueConstraint("user_id", "project_id", "name", name="uq_knowledge_folders_user_project_name"),)
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    project_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("projects.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     name: Mapped[str] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -668,6 +713,7 @@ class KnowledgeFolder(Base):
     )
 
     user: Mapped[User] = relationship(back_populates="knowledge_folders")
+    project: Mapped[Optional[Project]] = relationship(back_populates="knowledge_folders")
 
 
 class KnowledgeChunk(Base):
@@ -676,6 +722,11 @@ class KnowledgeChunk(Base):
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     document_id: Mapped[int] = mapped_column(ForeignKey("knowledge_documents.id"), index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    project_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("projects.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     chunk_key: Mapped[str] = mapped_column(String(64), index=True)
     chunk_index: Mapped[int] = mapped_column(Integer)
     path: Mapped[str] = mapped_column(String(255))

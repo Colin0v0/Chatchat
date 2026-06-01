@@ -15,6 +15,9 @@ export async function streamChat(payload: ChatStreamRequest, options: ChatStream
   if (payload.conversation_id) {
     formData.append("conversation_id", String(payload.conversation_id));
   }
+  if (payload.project_id) {
+    formData.append("project_id", String(payload.project_id));
+  }
   formData.append("message", payload.message);
   if (payload.model) {
     formData.append("model", payload.model);

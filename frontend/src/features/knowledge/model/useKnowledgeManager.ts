@@ -32,7 +32,7 @@ function createEmptyStatus(): KnowledgeStatus {
   };
 }
 
-export function useKnowledgeManager({ enabled }: { enabled: boolean }) {
+export function useKnowledgeManager({ enabled, projectId }: { enabled: boolean; projectId?: number | null }) {
   const [documents, setDocuments] = useState<KnowledgeDocument[]>([]);
   const [status, setStatus] = useState<KnowledgeStatus>(createEmptyStatus);
   const [error, setError] = useState<string | null>(null);
@@ -50,9 +50,9 @@ export function useKnowledgeManager({ enabled }: { enabled: boolean }) {
     setError(null);
     try {
       const [nextDocuments, nextStatus, nextFolders] = await Promise.all([
-        fetchKnowledgeDocuments(),
-        fetchKnowledgeStatus(),
-        fetchKnowledgeFolders(),
+        fetchKnowledgeDocuments(projectId),
+        fetchKnowledgeStatus(projectId),
+        fetchKnowledgeFolders(projectId),
       ]);
       if (!loadGuard.isCurrent(requestId)) {
         return;
@@ -72,7 +72,7 @@ export function useKnowledgeManager({ enabled }: { enabled: boolean }) {
         setIsLoading(false);
       }
     }
-  }, [loadGuard]);
+  }, [loadGuard, projectId]);
 
   useEffect(() => {
     if (!enabled) {
@@ -113,7 +113,7 @@ export function useKnowledgeManager({ enabled }: { enabled: boolean }) {
       setError(null);
       setUpdateResult(null);
       try {
-        const folder = await createKnowledgeFolder(trimmed);
+        const folder = await createKnowledgeFolder(trimmed, projectId);
         setSavedFolders((current) =>
           Array.from(new Set([...current, folder])).sort((left, right) => left.localeCompare(right, "zh-CN")),
         );
@@ -125,7 +125,7 @@ export function useKnowledgeManager({ enabled }: { enabled: boolean }) {
         setIsSaving(false);
       }
     },
-    [],
+    [projectId],
   );
 
   const removeFolder = useCallback(
@@ -138,7 +138,7 @@ export function useKnowledgeManager({ enabled }: { enabled: boolean }) {
       setError(null);
       setUpdateResult(null);
       try {
-        await deleteKnowledgeFolder(trimmed);
+        await deleteKnowledgeFolder(trimmed, projectId);
         setSavedFolders((current) => current.filter((folder) => folder !== trimmed));
         setSelectedDocumentIds([]);
         await loadKnowledge();
@@ -150,7 +150,7 @@ export function useKnowledgeManager({ enabled }: { enabled: boolean }) {
         setIsSaving(false);
       }
     },
-    [loadKnowledge],
+    [loadKnowledge, projectId],
   );
 
   const renameFolder = useCallback(
@@ -164,7 +164,7 @@ export function useKnowledgeManager({ enabled }: { enabled: boolean }) {
       setError(null);
       setUpdateResult(null);
       try {
-        const renamedFolder = await renameKnowledgeFolder(trimmed, nextName);
+        const renamedFolder = await renameKnowledgeFolder(trimmed, nextName, projectId);
         setSavedFolders((current) =>
           Array.from(
             new Set(current.map((folder) => (folder === trimmed ? renamedFolder : folder)).concat(renamedFolder)),
@@ -179,7 +179,7 @@ export function useKnowledgeManager({ enabled }: { enabled: boolean }) {
         setIsSaving(false);
       }
     },
-    [loadKnowledge],
+    [loadKnowledge, projectId],
   );
 
   const uploadDocuments = useCallback(
@@ -191,7 +191,7 @@ export function useKnowledgeManager({ enabled }: { enabled: boolean }) {
       setError(null);
       setUpdateResult(null);
       try {
-        await uploadKnowledgeDocuments(files, { folder, relativePaths });
+        await uploadKnowledgeDocuments(files, { folder, projectId, relativePaths });
         await loadKnowledge();
       } catch (uploadError) {
         setError(uploadError instanceof Error ? uploadError.message : "Failed to upload knowledge documents.");
@@ -199,7 +199,7 @@ export function useKnowledgeManager({ enabled }: { enabled: boolean }) {
         setIsSaving(false);
       }
     },
-    [loadKnowledge],
+    [loadKnowledge, projectId],
   );
 
   const moveSelectedDocuments = useCallback(
@@ -211,7 +211,7 @@ export function useKnowledgeManager({ enabled }: { enabled: boolean }) {
       setError(null);
       setUpdateResult(null);
       try {
-        await moveKnowledgeDocuments(selectedDocumentIds, folder);
+        await moveKnowledgeDocuments(selectedDocumentIds, folder, projectId);
         setSelectedDocumentIds([]);
         await loadKnowledge();
       } catch (moveError) {
@@ -220,7 +220,7 @@ export function useKnowledgeManager({ enabled }: { enabled: boolean }) {
         setIsSaving(false);
       }
     },
-    [loadKnowledge, selectedDocumentIds],
+    [loadKnowledge, projectId, selectedDocumentIds],
   );
 
   const reindexDocument = useCallback(
@@ -229,7 +229,7 @@ export function useKnowledgeManager({ enabled }: { enabled: boolean }) {
       setError(null);
       setUpdateResult(null);
       try {
-        await reindexKnowledgeDocument(documentId);
+        await reindexKnowledgeDocument(documentId, projectId);
         await loadKnowledge();
       } catch (reindexError) {
         setError(reindexError instanceof Error ? reindexError.message : "Failed to reindex knowledge document.");
@@ -237,7 +237,7 @@ export function useKnowledgeManager({ enabled }: { enabled: boolean }) {
         setIsSaving(false);
       }
     },
-    [loadKnowledge],
+    [loadKnowledge, projectId],
   );
 
   const removeDocument = useCallback(
@@ -246,7 +246,7 @@ export function useKnowledgeManager({ enabled }: { enabled: boolean }) {
       setError(null);
       setUpdateResult(null);
       try {
-        await deleteKnowledgeDocument(documentId);
+        await deleteKnowledgeDocument(documentId, projectId);
         await loadKnowledge();
       } catch (deleteError) {
         setError(deleteError instanceof Error ? deleteError.message : "Failed to delete knowledge document.");
@@ -254,7 +254,7 @@ export function useKnowledgeManager({ enabled }: { enabled: boolean }) {
         setIsSaving(false);
       }
     },
-    [loadKnowledge],
+    [loadKnowledge, projectId],
   );
 
   const removeSelectedDocuments = useCallback(async () => {
@@ -266,9 +266,9 @@ export function useKnowledgeManager({ enabled }: { enabled: boolean }) {
     setUpdateResult(null);
     try {
       if (selectedDocumentIds.length === 1) {
-        await deleteKnowledgeDocument(selectedDocumentIds[0]);
+        await deleteKnowledgeDocument(selectedDocumentIds[0], projectId);
       } else {
-        await deleteKnowledgeDocuments(selectedDocumentIds);
+        await deleteKnowledgeDocuments(selectedDocumentIds, projectId);
       }
       setSelectedDocumentIds([]);
       await loadKnowledge();
@@ -277,13 +277,13 @@ export function useKnowledgeManager({ enabled }: { enabled: boolean }) {
     } finally {
       setIsSaving(false);
     }
-  }, [loadKnowledge, selectedDocumentIds]);
+  }, [loadKnowledge, projectId, selectedDocumentIds]);
 
   const updateKnowledge = useCallback(async () => {
     setIsUpdating(true);
     setError(null);
     try {
-      const result = await reindexKnowledgeDocuments();
+      const result = await reindexKnowledgeDocuments(projectId);
       setUpdateResult(result);
       await loadKnowledge();
     } catch (updateError) {
@@ -291,7 +291,7 @@ export function useKnowledgeManager({ enabled }: { enabled: boolean }) {
     } finally {
       setIsUpdating(false);
     }
-  }, [loadKnowledge]);
+  }, [loadKnowledge, projectId]);
 
   return useMemo(
     () => ({

@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.knowledge.service import KnowledgeService
 from app.retrieval.rag.types import RagChunk, RetrievalCandidate
 from app.storage.database import Base
-from app.storage.models import KnowledgeChunk, KnowledgeDocument, KnowledgeFolder, User
+from app.storage.models import KnowledgeChunk, KnowledgeDocument, KnowledgeFolder, Project, User
 
 TEST_EMBEDDING = [0.1] * 1024
 
@@ -236,6 +236,42 @@ class KnowledgeServiceTests(unittest.IsolatedAsyncioTestCase):
                 service.list_folders(db=self.db, user_id=user.id),
                 ["product", "project-a"],
             )
+
+    async def test_project_scoped_documents_and_status(self):
+        user = User(username="project_knowledge", password_hash="hash", is_active=True)
+        self.db.add(user)
+        self.db.commit()
+        self.db.refresh(user)
+
+        project_a = Project(user_id=user.id, name="Alpha")
+        project_b = Project(user_id=user.id, name="Beta")
+        self.db.add_all([project_a, project_b])
+        self.db.commit()
+        self.db.refresh(project_a)
+        self.db.refresh(project_b)
+
+        settings = make_settings(self.temp_dir.name)
+        with patch("app.knowledge.service.build_knowledge_embedder", return_value=_FakeEmbedder(settings, settings.knowledge_embedding_model)), patch(
+            "app.knowledge.service.ModelReranker", _FakeReranker
+        ):
+            service = KnowledgeService(settings)
+            alpha_docs = await service.create_documents(
+                db=self.db,
+                user_id=user.id,
+                project_id=project_a.id,
+                uploads=[UploadFile(filename="same.md", file=BytesIO(b"# Alpha\n\nalpha facts"), headers=None)],
+            )
+            beta_docs = await service.create_documents(
+                db=self.db,
+                user_id=user.id,
+                project_id=project_b.id,
+                uploads=[UploadFile(filename="same.md", file=BytesIO(b"# Beta\n\nbeta facts"), headers=None)],
+            )
+
+            self.assertEqual([document.id for document in service.list_documents(db=self.db, user_id=user.id, project_id=project_a.id)], [alpha_docs[0].id])
+            self.assertEqual([document.id for document in service.list_documents(db=self.db, user_id=user.id, project_id=project_b.id)], [beta_docs[0].id])
+            self.assertEqual(service.status(db=self.db, user_id=user.id, project_id=project_a.id)["document_count"], 1)
+            self.assertEqual(service.status(db=self.db, user_id=user.id)["document_count"], 2)
 
     async def test_retrieve_context_applies_query_filters_for_in_memory_rag(self):
         user = User(username="carol", password_hash="hash", is_active=True)

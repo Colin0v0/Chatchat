@@ -70,6 +70,7 @@ async def regenerate_chat(
 async def chat_stream(
     request: Request,
     conversation_id: Optional[int] = Form(None),
+    project_id: Optional[int] = Form(None),
     message: str = Form(""),
     model: Optional[str] = Form(None),
     temperature: Optional[float] = Form(None, ge=0, le=1),
@@ -88,6 +89,7 @@ async def chat_stream(
         request=request,
         db=db,
         conversation_id=conversation_id,
+        project_id=project_id,
         message=message,
         model=model,
         temperature=temperature,

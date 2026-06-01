@@ -21,7 +21,7 @@ class FileParserTests(unittest.TestCase):
             position=0,
         )
 
-        with patch("app.multimodal.file_parser.MEDIA_ROOT", root):
+        with patch("app.storage.media.MEDIA_ROOT", root):
             markdown = parser.extract_markdown([attachment])
 
         self.assertIn("### File 1", markdown)
@@ -42,7 +42,7 @@ class FileParserTests(unittest.TestCase):
             position=0,
         )
 
-        with patch("app.multimodal.file_parser.MEDIA_ROOT", root):
+        with patch("app.storage.media.MEDIA_ROOT", root):
             markdown = parser.extract_markdown([attachment])
 
         self.assertIn("columns: name, score", markdown)

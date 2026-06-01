@@ -11,6 +11,7 @@ from .models import Conversation, MemoryItem, Message, MessageAttachment, Run
 @dataclass(frozen=True)
 class ConversationSummaryRow:
     id: int
+    project_id: int | None
     title: str
     model: str
     temporary_chat: bool
@@ -164,6 +165,7 @@ def list_user_conversation_summaries(
     db: Session,
     *,
     user_id: int,
+    project_id: int | None = None,
 ) -> list[ConversationSummaryRow]:
     latest_message_id = (
         select(Message.id)
@@ -180,19 +182,19 @@ def list_user_conversation_summaries(
         .scalar_subquery()
     )
     has_attachments = exists(select(1).where(MessageAttachment.message_id == latest_message_id))
-    rows = db.execute(
-        select(
-            Conversation.id,
-            Conversation.title,
-            Conversation.model,
-            Conversation.temporary_chat,
-            Conversation.updated_at,
-            latest_message_content.label("last_message_content"),
-            has_attachments.label("has_attachments"),
-        )
-        .where(Conversation.user_id == user_id)
-        .order_by(desc(Conversation.updated_at), desc(Conversation.id))
-    ).all()
+    query = select(
+        Conversation.id,
+        Conversation.project_id,
+        Conversation.title,
+        Conversation.model,
+        Conversation.temporary_chat,
+        Conversation.updated_at,
+        latest_message_content.label("last_message_content"),
+        has_attachments.label("has_attachments"),
+    ).where(Conversation.user_id == user_id)
+    if project_id is not None:
+        query = query.where(Conversation.project_id == project_id)
+    rows = db.execute(query.order_by(desc(Conversation.updated_at), desc(Conversation.id))).all()
 
     summaries: list[ConversationSummaryRow] = []
     for row in rows:
@@ -201,6 +203,7 @@ def list_user_conversation_summaries(
         summaries.append(
             ConversationSummaryRow(
                 id=row.id,
+                project_id=row.project_id,
                 title=row.title,
                 model=row.model,
                 temporary_chat=bool(row.temporary_chat),

@@ -115,6 +115,7 @@ function finalizeAssistantDraft(
 type UseConversationStreamsOptions = {
   activeConversation: ConversationDetail | null;
   activeConversationId: number | null;
+  projectId?: number | null;
   setActiveConversation: Dispatch<SetStateAction<ConversationDetail | null>>;
   setActiveConversationId: Dispatch<SetStateAction<number | null>>;
   setConversations: Dispatch<SetStateAction<ConversationSummary[]>>;
@@ -143,6 +144,7 @@ type AttachActiveStreamOptions = {
 export function useConversationStreams({
   activeConversation,
   activeConversationId,
+  projectId,
   setActiveConversation,
   setActiveConversationId,
   setConversations,
@@ -180,6 +182,9 @@ export function useConversationStreams({
       if (conversation.id <= 0) {
         return;
       }
+      if (projectId && conversation.project_id !== projectId) {
+        return;
+      }
 
       setConversations((current) =>
         sortConversations([
@@ -188,7 +193,7 @@ export function useConversationStreams({
         ]),
       );
     },
-    [setConversations],
+    [projectId, setConversations],
   );
 
   const removeStreamSession = useCallback(
@@ -698,8 +703,18 @@ export function useConversationStreams({
   );
 
   const mergeConversationSummariesWithSessions = useCallback(
-    (items: ConversationSummary[]) => mergeConversationSummaries(items, streamSessionsRef.current),
-    [],
+    (items: ConversationSummary[]) => {
+      if (!projectId) {
+        return mergeConversationSummaries(items, streamSessionsRef.current);
+      }
+      const scopedSessions = Object.fromEntries(
+        Object.entries(streamSessionsRef.current).filter(
+          ([, session]) => session.conversation.project_id === projectId,
+        ),
+      );
+      return mergeConversationSummaries(items, scopedSessions);
+    },
+    [projectId],
   );
 
   const getSessionConversation = useCallback((conversationId: number) => {

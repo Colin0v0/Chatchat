@@ -8,7 +8,7 @@ from ..core.config import Settings
 from ..retrieval.file_context import ConversationFileContextService
 from ..retrieval.language import prefers_simplified_chinese, response_language_instruction
 from ..retrieval.query_rewrite import QueryRewriteResult, RagQueryRewriter
-from ..retrieval.types import ContextEntry, ContextPayload, PromptContextPayload
+from ..retrieval.types import ContextEntry, ContextPayload, PromptContextPayload, SourceItem
 from .plan import ToolContextPlan, build_tool_context_plan
 from .requests import ToolContextBuildRequest, ToolPlanRequest
 
@@ -75,6 +75,7 @@ class ToolRuntimeService:
                 self._knowledge_service.retrieve_context(
                     db=request.db,
                     user_id=request.user_id,
+                    project_id=request.project_id,
                     query=rewrite_result.effective_query,
                     folders=list(request.plan.policy.knowledge_folders),
                 )
@@ -92,7 +93,6 @@ class ToolRuntimeService:
             )
 
         results = await asyncio.gather(*tasks) if tasks else []
-        merged_sources = self._merge_sources(results)
         merged_entries = self._merge_entries(results, strategy=request.plan.strategy)
         refusal_message = self._resolve_refusal_message(results, query=rewrite_result.effective_query)
         merged_debug = self._merge_debug(
@@ -127,21 +127,19 @@ class ToolRuntimeService:
                 instructions=merged_instructions,
                 plan=request.plan,
             ),
-            sources=[source.to_payload() for source in merged_sources],
+            sources=[source.to_payload() for source in self._sources_for_entries(merged_entries)],
             debug=merged_debug,
         )
 
-    def _merge_sources(self, results: list[ContextPayload]) -> list:
-        unique: dict[tuple[str, str, str], object] = {}
-        for result in results:
-            for source in result.sources:
-                key = (source.type, source.path, source.url)
-                previous = unique.get(key)
-                if previous is None or (source.score or 0.0) > (previous.score or 0.0):
-                    unique[key] = source
-
-        ranked = sorted(unique.values(), key=lambda item: item.score or 0.0, reverse=True)
-        return ranked[: self._context_top_k]
+    def _sources_for_entries(self, entries: list[ContextEntry]) -> list[SourceItem]:
+        unique: dict[tuple[str, str, str, str, str], SourceItem] = {}
+        for entry in entries:
+            source = entry.source
+            key = (source.type, source.path, source.url, source.heading, source.title)
+            if key not in unique:
+                # 中文注释：sources 面板只展示最终注入给模型的条目，避免 UI 展示和真实上下文错位。
+                unique[key] = source
+        return list(unique.values())
 
     def _merge_entries(self, results: list[ContextPayload], *, strategy) -> list[ContextEntry]:
         weighted_entries: list[tuple[float, ContextEntry]] = []

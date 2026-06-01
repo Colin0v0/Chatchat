@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 
 from .api import (
     audio_router,
@@ -13,9 +12,11 @@ from .api import (
     debate_router,
     images_router,
     knowledge_router,
+    media_router,
     memories_router,
     models_router,
     pet_router,
+    projects_router,
 )
 from .audio import build_audio_services
 from .cache import close_cache, initialize_cache
@@ -27,13 +28,11 @@ from .providers import ModelCatalogError, validate_model_catalog
 from .runtime.chat_runs import ChatRunRegistry
 from .runtime.debate_runs import DebateRunRegistry
 from .storage.database import initialize_storage
-from .storage.media import MEDIA_ROOT
 
 
 def create_app() -> FastAPI:
     configure_logging()
     app = FastAPI(title=settings.app_name)
-    app.mount("/media", StaticFiles(directory=MEDIA_ROOT), name="media")
     app.state.chat_services = build_chat_services(settings)
     app.state.audio_services = build_audio_services(settings)
     app.state.chat_run_registry = ChatRunRegistry()
@@ -66,8 +65,10 @@ def create_app() -> FastAPI:
     app.include_router(battle_router)
     app.include_router(knowledge_router)
     app.include_router(images_router)
+    app.include_router(media_router)
     app.include_router(memories_router)
     app.include_router(pet_router)
+    app.include_router(projects_router)
     app.include_router(conversations_router)
     app.include_router(debate_router)
     app.include_router(chat_router)

@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
 from sqlalchemy.orm import Session
 
 from ..auth import require_current_user
 from ..chat.state import get_chat_services
+from ..projects import require_user_project
 from ..schemas import (
     KnowledgeBatchDeleteIn,
     KnowledgeBatchDeleteResult,
@@ -30,35 +31,42 @@ router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
 @router.get("/documents", response_model=list[KnowledgeDocumentOut])
 def list_knowledge_documents(
     request: Request,
+    project_id: int | None = Query(default=None, ge=1),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_current_user),
 ):
+    require_user_project(db, user_id=current_user.id, project_id=project_id)
     services = get_chat_services(request)
-    return services.knowledge_service.list_documents(db=db, user_id=current_user.id)
+    return services.knowledge_service.list_documents(db=db, user_id=current_user.id, project_id=project_id)
 
 
 @router.get("/folders", response_model=list[str])
 def list_knowledge_folders(
     request: Request,
+    project_id: int | None = Query(default=None, ge=1),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_current_user),
 ):
+    require_user_project(db, user_id=current_user.id, project_id=project_id)
     services = get_chat_services(request)
-    return services.knowledge_service.list_folders(db=db, user_id=current_user.id)
+    return services.knowledge_service.list_folders(db=db, user_id=current_user.id, project_id=project_id)
 
 
 @router.post("/folders", response_model=str, status_code=status.HTTP_201_CREATED)
 def create_knowledge_folder(
     payload: KnowledgeFolderCreate,
     request: Request,
+    project_id: int | None = Query(default=None, ge=1),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_current_user),
 ):
+    require_user_project(db, user_id=current_user.id, project_id=project_id)
     services = get_chat_services(request)
     try:
         return services.knowledge_service.create_folder(
             db=db,
             user_id=current_user.id,
+            project_id=project_id,
             name=payload.name,
         )
     except ValueError as exc:
@@ -69,14 +77,17 @@ def create_knowledge_folder(
 def delete_knowledge_folder(
     payload: KnowledgeFolderDeleteIn,
     request: Request,
+    project_id: int | None = Query(default=None, ge=1),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_current_user),
 ):
+    require_user_project(db, user_id=current_user.id, project_id=project_id)
     services = get_chat_services(request)
     try:
         result = services.knowledge_service.delete_folder(
             db=db,
             user_id=current_user.id,
+            project_id=project_id,
             name=payload.name,
         )
     except ValueError as exc:
@@ -90,14 +101,17 @@ def delete_knowledge_folder(
 def rename_knowledge_folder(
     payload: KnowledgeFolderRenameIn,
     request: Request,
+    project_id: int | None = Query(default=None, ge=1),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_current_user),
 ):
+    require_user_project(db, user_id=current_user.id, project_id=project_id)
     services = get_chat_services(request)
     try:
         renamed_folder = services.knowledge_service.rename_folder(
             db=db,
             user_id=current_user.id,
+            project_id=project_id,
             name=payload.name,
             new_name=payload.new_name,
         )
@@ -111,11 +125,13 @@ def rename_knowledge_folder(
 @router.get("/status", response_model=KnowledgeStatusOut)
 def get_knowledge_status(
     request: Request,
+    project_id: int | None = Query(default=None, ge=1),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_current_user),
 ):
+    require_user_project(db, user_id=current_user.id, project_id=project_id)
     services = get_chat_services(request)
-    return KnowledgeStatusOut(**services.knowledge_service.status(db=db, user_id=current_user.id))
+    return KnowledgeStatusOut(**services.knowledge_service.status(db=db, user_id=current_user.id, project_id=project_id))
 
 
 @router.post("/documents", response_model=KnowledgeDocumentOut, status_code=status.HTTP_201_CREATED)
@@ -124,9 +140,11 @@ async def upload_knowledge_document(
     file: UploadFile = File(...),
     folder: str = Form(""),
     relative_path: str = Form(""),
+    project_id: int | None = Form(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_current_user),
 ):
+    require_user_project(db, user_id=current_user.id, project_id=project_id)
     services = get_chat_services(request)
     try:
         return await services.knowledge_service.create_document(
@@ -135,6 +153,7 @@ async def upload_knowledge_document(
             upload=file,
             folder=folder,
             relative_path=relative_path,
+            project_id=project_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -146,9 +165,11 @@ async def upload_knowledge_documents_batch(
     files: list[UploadFile] = File(...),
     folder: str = Form(""),
     relative_paths: Optional[list[str]] = Form(None),
+    project_id: int | None = Form(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_current_user),
 ):
+    require_user_project(db, user_id=current_user.id, project_id=project_id)
     services = get_chat_services(request)
     try:
         documents = await services.knowledge_service.create_documents(
@@ -157,6 +178,7 @@ async def upload_knowledge_documents_batch(
             uploads=files,
             folder=folder,
             relative_paths=relative_paths or [],
+            project_id=project_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -170,14 +192,17 @@ async def upload_knowledge_documents_batch(
 async def reindex_knowledge_document(
     document_id: int,
     request: Request,
+    project_id: int | None = Query(default=None, ge=1),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_current_user),
 ):
+    require_user_project(db, user_id=current_user.id, project_id=project_id)
     services = get_chat_services(request)
     document = await services.knowledge_service.reindex_document(
         db=db,
         user_id=current_user.id,
         document_id=document_id,
+        project_id=project_id,
     )
     if document is None:
         raise HTTPException(status_code=404, detail="Knowledge document not found")
@@ -187,13 +212,16 @@ async def reindex_knowledge_document(
 @router.post("/reindex", response_model=KnowledgeReindexResult)
 async def reindex_pending_knowledge_documents(
     request: Request,
+    project_id: int | None = Query(default=None, ge=1),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_current_user),
 ):
+    require_user_project(db, user_id=current_user.id, project_id=project_id)
     services = get_chat_services(request)
     result = await services.knowledge_service.reindex_pending_documents(
         db=db,
         user_id=current_user.id,
+        project_id=project_id,
     )
     return KnowledgeReindexResult(**result)
 
@@ -202,14 +230,17 @@ async def reindex_pending_knowledge_documents(
 def delete_knowledge_document(
     document_id: int,
     request: Request,
+    project_id: int | None = Query(default=None, ge=1),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_current_user),
 ):
+    require_user_project(db, user_id=current_user.id, project_id=project_id)
     services = get_chat_services(request)
     relative_path = services.knowledge_service.delete_document(
         db=db,
         user_id=current_user.id,
         document_id=document_id,
+        project_id=project_id,
     )
     if relative_path is None:
         raise HTTPException(status_code=404, detail="Knowledge document not found")
@@ -220,14 +251,17 @@ def delete_knowledge_document(
 def delete_knowledge_documents_batch(
     payload: KnowledgeBatchDeleteIn,
     request: Request,
+    project_id: int | None = Query(default=None, ge=1),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_current_user),
 ):
+    require_user_project(db, user_id=current_user.id, project_id=project_id)
     services = get_chat_services(request)
     deleted_ids, deleted_paths = services.knowledge_service.delete_documents(
         db=db,
         user_id=current_user.id,
         document_ids=payload.document_ids,
+        project_id=project_id,
     )
     services.knowledge_service.remove_files(deleted_paths)
     return KnowledgeBatchDeleteResult(
@@ -240,9 +274,11 @@ def delete_knowledge_documents_batch(
 def move_knowledge_documents_folder(
     payload: KnowledgeBatchMoveIn,
     request: Request,
+    project_id: int | None = Query(default=None, ge=1),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_current_user),
 ):
+    require_user_project(db, user_id=current_user.id, project_id=project_id)
     services = get_chat_services(request)
     try:
         documents = services.knowledge_service.move_documents(
@@ -250,6 +286,7 @@ def move_knowledge_documents_folder(
             user_id=current_user.id,
             document_ids=payload.document_ids,
             folder=payload.folder,
+            project_id=project_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

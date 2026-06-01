@@ -5,6 +5,7 @@ import binascii
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Iterable
 from uuid import uuid4
 
 from fastapi import UploadFile
@@ -43,8 +44,48 @@ GENERATED_IMAGE_FORMATS = {
 
 
 def media_url(relative_path: str) -> str:
-    normalized = relative_path.replace("\\", "/").lstrip("/")
+    normalized = normalize_media_relative_path(relative_path)
     return f"/media/{normalized}"
+
+
+def normalize_media_relative_path(relative_path: str) -> str:
+    raw_value = str(relative_path or "").replace("\\", "/").strip()
+    trimmed = raw_value.lstrip("/")
+    if not trimmed:
+        raise ValueError("Media path cannot be empty.")
+
+    path = Path(trimmed)
+    if path.is_absolute():
+        raise ValueError("Media path must be relative.")
+
+    parts = path.parts
+    if any(part in {"", ".", ".."} for part in parts):
+        raise ValueError("Media path contains an invalid segment.")
+
+    return Path(*parts).as_posix()
+
+
+def media_relative_path_from_url(url: str) -> str:
+    normalized_url = str(url or "").strip()
+    if not normalized_url.startswith("/media/"):
+        raise ValueError("Media URL must start with /media/.")
+    return normalize_media_relative_path(normalized_url.removeprefix("/media/"))
+
+
+def resolve_media_file_path(relative_path: str) -> Path:
+    normalized = normalize_media_relative_path(relative_path)
+    media_root = MEDIA_ROOT.resolve()
+    file_path = (media_root / normalized).resolve()
+    if not file_path.is_relative_to(media_root):
+        raise ValueError("Media path escapes the media directory.")
+    return file_path
+
+
+def _normalize_upload_namespace(namespace: str) -> Path:
+    raw_namespace = str(namespace or "").strip()
+    if not raw_namespace:
+        return Path()
+    return Path(normalize_media_relative_path(raw_namespace))
 
 
 def persist_generated_image(
@@ -111,7 +152,11 @@ def persist_generated_image_bytes(
     )
 
 
-async def persist_uploaded_attachments(files: list[UploadFile]) -> list[StoredAttachment]:
+async def persist_uploaded_attachments(
+    files: list[UploadFile],
+    *,
+    namespace: str = "",
+) -> list[StoredAttachment]:
     uploads = [file for file in files if file.filename or file.content_type]
     if not uploads:
         return []
@@ -121,6 +166,7 @@ async def persist_uploaded_attachments(files: list[UploadFile]) -> list[StoredAt
             f"You can upload up to {settings.attachment_max_upload_count} attachments per message."
         )
 
+    namespace_path = _normalize_upload_namespace(namespace)
     saved_attachments: list[StoredAttachment] = []
     for upload in uploads:
         attachment_type = resolve_attachment_type(upload.filename or "", upload.content_type or "")
@@ -136,7 +182,8 @@ async def persist_uploaded_attachments(files: list[UploadFile]) -> list[StoredAt
 
         today = datetime.now(timezone.utc)
         relative_path = (
-            Path("images" if attachment_type.kind == "image" else "files")
+            namespace_path
+            / Path("images" if attachment_type.kind == "image" else "files")
             / today.strftime("%Y")
             / today.strftime("%m")
             / today.strftime("%d")
@@ -161,14 +208,14 @@ async def persist_uploaded_attachments(files: list[UploadFile]) -> list[StoredAt
 
 
 def read_image_data_url(relative_path: str, mime_type: str) -> str:
-    file_path = MEDIA_ROOT / Path(relative_path)
+    file_path = resolve_media_file_path(relative_path)
     raw = file_path.read_bytes()
     encoded = base64.b64encode(raw).decode("ascii")
     return f"data:{mime_type};base64,{encoded}"
 
 
-def remove_media_files(relative_paths: list[str]) -> None:
+def remove_media_files(relative_paths: Iterable[str]) -> None:
     for relative_path in dict.fromkeys(path for path in relative_paths if path):
-        file_path = MEDIA_ROOT / Path(relative_path)
+        file_path = resolve_media_file_path(relative_path)
         if file_path.exists():
             file_path.unlink()

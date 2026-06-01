@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import base64
 from dataclasses import dataclass
-from pathlib import Path
 
 from sqlalchemy.orm import Session
 
@@ -11,7 +10,7 @@ from .upstream_files import ensure_upstream_file_id
 from ..llm.capabilities import NativeMultimodalMode
 from ..multimodal.attachment import AttachmentContextService
 from ..providers import resolve_native_multimodal_mode
-from ..storage.media import MEDIA_ROOT, read_image_data_url
+from ..storage.media import read_image_data_url, resolve_media_file_path
 from ..storage.models import Message, MessageAttachment
 
 DEFAULT_ATTACHMENT_PROMPT = "Please analyze the uploaded attachments in detail."
@@ -44,7 +43,7 @@ ATTACHMENT_REFERENCE_MARKERS_FOLDED = tuple(value.lower() for value in ATTACHMEN
 
 
 def read_attachment_base64(relative_path: str) -> str:
-    file_path = MEDIA_ROOT / Path(relative_path)
+    file_path = resolve_media_file_path(relative_path)
     return base64.b64encode(file_path.read_bytes()).decode("ascii")
 
 

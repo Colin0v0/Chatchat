@@ -93,6 +93,7 @@ interface UseChatMessageActionsOptions {
   onModelLoveScoreChange?: (modelId: string, delta: number) => void;
   onModelUsageCountChange?: (modelId: string, delta: number) => void;
   onPetEvent?: (type: PetSignalType) => void;
+  projectId?: number | null;
   refreshConversations: () => Promise<void>;
   replaceAttachments: (files: File[]) => void;
   restoreChatComposerMode: () => void;
@@ -131,6 +132,7 @@ export function useChatMessageActions({
   onModelLoveScoreChange,
   onModelUsageCountChange,
   onPetEvent,
+  projectId,
   refreshConversations,
   replaceAttachments,
   restoreChatComposerMode,
@@ -186,6 +188,7 @@ export function useChatMessageActions({
           }
         : {
             id: tempConversationId,
+            project_id: projectId ?? null,
             title: deriveConversationTitle(message, 0),
             model: conversationModel,
             total_message_count: 2,
@@ -216,6 +219,7 @@ export function useChatMessageActions({
             {
               conversation_id:
                 activeConversation && activeConversation.id > 0 ? activeConversation.id : null,
+              project_id: activeConversation && activeConversation.id > 0 ? activeConversation.project_id : projectId,
               prompt: message,
               size: imageGenerationSize,
               quality: imageGenerationQuality,
@@ -252,6 +256,7 @@ export function useChatMessageActions({
         }
       : {
           id: tempConversationId,
+          project_id: projectId ?? null,
           title: deriveConversationTitle(message, tempAttachments.length),
           model: effectiveModel,
           total_message_count: 2,
@@ -281,6 +286,7 @@ export function useChatMessageActions({
           {
             conversation_id:
               activeConversation && activeConversation.id > 0 ? activeConversation.id : null,
+            project_id: activeConversation && activeConversation.id > 0 ? activeConversation.project_id : projectId,
             message,
             files: pendingFiles,
             model: effectiveModel,
@@ -316,6 +322,7 @@ export function useChatMessageActions({
     isTranscribing,
     onModelUsageCountChange,
     onPetEvent,
+    projectId,
     refreshConversations,
     restoreChatComposerMode,
     runStream,
@@ -416,6 +423,7 @@ export function useChatMessageActions({
           return streamChat(
             {
               conversation_id: activeConversation.id > 0 ? activeConversation.id : null,
+              project_id: activeConversation.project_id ?? projectId,
               message: nextContent,
               files: restoredFiles,
               model: effectiveModel,
@@ -440,6 +448,7 @@ export function useChatMessageActions({
       activeReasoningRequest,
       isStreaming,
       onModelUsageCountChange,
+      projectId,
       refreshConversations,
       runStream,
       selectedModel,

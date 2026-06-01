@@ -4,7 +4,7 @@ import csv
 import json
 from pathlib import Path
 
-from ..storage.media import MEDIA_ROOT
+from ..storage.media import resolve_media_file_path
 from ..storage.models import MessageAttachment
 from .file_types import is_text_attachment
 
@@ -24,7 +24,7 @@ class FileParser:
         return "\n\n".join(blocks).strip()
 
     def _build_attachment_block(self, *, index: int, attachment: MessageAttachment) -> str:
-        file_path = MEDIA_ROOT / Path(attachment.relative_path)
+        file_path = resolve_media_file_path(attachment.relative_path)
         content = self._parse_file(attachment=attachment, file_path=file_path)
         return "\n".join(
             [

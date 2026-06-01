@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from ..chat.state import ChatServices
 from ..core.config import settings
 from ..multimodal.file_types import resolve_attachment_type
+from ..projects import require_user_project
 from ..providers.catalog import ModelProfile
 from ..runtime.chat_runs import get_chat_run_registry
 from ..runtime.requests import ChatRunRequest
@@ -109,17 +110,13 @@ async def prepare_chat_stream_run_request(
     knowledge_folders: list[str],
     reasoning_profile: ReasoningProfileValue | None,
     files: list[UploadFile] | None,
+    project_id: int | None = None,
     temporary_chat: bool = False,
 ) -> ChatRunRequest:
     content = message.strip()
     uploads = files or []
     _ensure_chat_input_present(content=content, upload_count=len(uploads))
-    profile = resolve_chat_model(
-        requested_model=model,
-        fallback_model=settings.default_model,
-    )
-    _ensure_uploads_supported_by_model(profile=profile, uploads=uploads)
-
+    project = require_user_project(db, user_id=current_user.id, project_id=project_id)
     conversation = (
         load_user_chat_conversation(
             db=db,
@@ -129,6 +126,17 @@ async def prepare_chat_stream_run_request(
         if conversation_id is not None
         else None
     )
+    if conversation is not None and project_id is not None and conversation.project_id != project_id:
+        raise HTTPException(status_code=400, detail="Conversation does not belong to the selected project")
+    profile = resolve_chat_model(
+        requested_model=model,
+        fallback_model=(
+            conversation.model
+            if conversation is not None
+            else (project.default_model if project is not None and project.default_model else settings.default_model)
+        ),
+    )
+    _ensure_uploads_supported_by_model(profile=profile, uploads=uploads)
     if conversation is not None:
         await _ensure_no_active_chat_run(request=request, conversation_id=conversation.id)
 
@@ -145,6 +153,7 @@ async def prepare_chat_stream_run_request(
         profile=profile,
         content=content,
         uploaded_attachments=uploaded_attachments,
+        project_id=project.id if project is not None else None,
         temporary_chat=temporary_chat,
     )
     conversation = reload_conversation_for_run(

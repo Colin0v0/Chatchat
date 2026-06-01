@@ -8,8 +8,13 @@ import type {
 } from "../../../types";
 import { apiFetch, assertApiResponse, toApiUrl } from "../../../shared/api/http";
 
-export function fetchConversations() {
-  return apiFetch<ConversationSummary[]>("/api/conversations");
+export function fetchConversations(projectId?: number | null) {
+  const params = new URLSearchParams();
+  if (projectId) {
+    params.set("project_id", String(projectId));
+  }
+  const suffix = params.size > 0 ? `?${params.toString()}` : "";
+  return apiFetch<ConversationSummary[]>(`/api/conversations${suffix}`);
 }
 
 export function fetchConversation(

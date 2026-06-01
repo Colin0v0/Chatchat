@@ -184,6 +184,7 @@ async def stream_chat_run(
             request=ToolContextBuildRequest(
                 db=run_db,
                 user_id=conversation.user_id or 0,
+                project_id=conversation.project_id,
                 query=query or retrieval_query,
                 plan=tool_plan,
                 retrieval_messages=prepared_retrieval_history.messages,

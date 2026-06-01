@@ -68,26 +68,44 @@ class KnowledgeService:
         self._reindex_tasks: dict[int, asyncio.Task[None]] = {}
         self._reindex_lock = asyncio.Lock()
 
-    def list_documents(self, *, db: Session, user_id: int) -> list[KnowledgeDocument]:
+    def _project_scope_filters(self, model, project_id: int | None) -> list[object]:
+        if project_id is None:
+            return []
+        return [model.project_id == project_id]
+
+    def _exact_project_filters(self, model, project_id: int | None) -> list[object]:
+        if project_id is None:
+            return [model.project_id.is_(None)]
+        return [model.project_id == project_id]
+
+    def list_documents(self, *, db: Session, user_id: int, project_id: int | None = None) -> list[KnowledgeDocument]:
+        filters = [
+            KnowledgeDocument.user_id == user_id,
+            *self._project_scope_filters(KnowledgeDocument, project_id),
+        ]
         return list(
             db.scalars(
                 select(KnowledgeDocument)
                 .options(selectinload(KnowledgeDocument.chunks))
-                .where(KnowledgeDocument.user_id == user_id)
+                .where(*filters)
                 .order_by(KnowledgeDocument.updated_at.desc(), KnowledgeDocument.id.desc())
             ).all()
         )
 
-    def list_folders(self, *, db: Session, user_id: int) -> list[str]:
+    def list_folders(self, *, db: Session, user_id: int, project_id: int | None = None) -> list[str]:
         saved_folders = set(
             db.scalars(
-                select(KnowledgeFolder.name).where(KnowledgeFolder.user_id == user_id)
+                select(KnowledgeFolder.name).where(
+                    KnowledgeFolder.user_id == user_id,
+                    *self._project_scope_filters(KnowledgeFolder, project_id),
+                )
             ).all()
         )
         document_folders = set(
             db.scalars(
                 select(KnowledgeDocument.folder).where(
                     KnowledgeDocument.user_id == user_id,
+                    *self._project_scope_filters(KnowledgeDocument, project_id),
                     KnowledgeDocument.folder != "",
                 )
             ).all()
@@ -96,16 +114,23 @@ class KnowledgeService:
             folder for folder in saved_folders.union(document_folders) if folder
         )
 
-    def create_folder(self, *, db: Session, user_id: int, name: str) -> str:
+    def create_folder(self, *, db: Session, user_id: int, name: str, project_id: int | None = None) -> str:
         folder = self._sanitize_folder(name)
         if not folder:
             raise ValueError("Folder name is required.")
         if len(folder) > 255:
             raise ValueError("Folder names must be 255 characters or shorter.")
-        self._ensure_folder(db=db, user_id=user_id, folder=folder, commit=True)
+        self._ensure_folder(db=db, user_id=user_id, project_id=project_id, folder=folder, commit=True)
         return folder
 
-    def delete_folder(self, *, db: Session, user_id: int, name: str) -> dict[str, int | str] | None:
+    def delete_folder(
+        self,
+        *,
+        db: Session,
+        user_id: int,
+        name: str,
+        project_id: int | None = None,
+    ) -> dict[str, int | str] | None:
         folder = self._sanitize_folder(name)
         if not folder:
             raise ValueError("Default folder cannot be deleted.")
@@ -113,6 +138,7 @@ class KnowledgeService:
         folder_model = db.scalar(
             select(KnowledgeFolder).where(
                 KnowledgeFolder.user_id == user_id,
+                *self._exact_project_filters(KnowledgeFolder, project_id),
                 KnowledgeFolder.name == folder,
             )
         )
@@ -122,6 +148,7 @@ class KnowledgeService:
                 .options(selectinload(KnowledgeDocument.chunks))
                 .where(
                     KnowledgeDocument.user_id == user_id,
+                    *self._exact_project_filters(KnowledgeDocument, project_id),
                     KnowledgeDocument.folder == folder,
                 )
                 .order_by(KnowledgeDocument.id.asc())
@@ -137,6 +164,7 @@ class KnowledgeService:
             db.scalars(
                 select(KnowledgeDocument.title).where(
                     KnowledgeDocument.user_id == user_id,
+                    *self._exact_project_filters(KnowledgeDocument, project_id),
                     KnowledgeDocument.folder == "",
                     KnowledgeDocument.title.in_(moving_titles),
                 )
@@ -163,7 +191,15 @@ class KnowledgeService:
             "moved_document_count": len(documents),
         }
 
-    def rename_folder(self, *, db: Session, user_id: int, name: str, new_name: str) -> str | None:
+    def rename_folder(
+        self,
+        *,
+        db: Session,
+        user_id: int,
+        name: str,
+        new_name: str,
+        project_id: int | None = None,
+    ) -> str | None:
         folder = self._sanitize_folder(name)
         target_folder = self._sanitize_folder(new_name)
         if not folder:
@@ -178,18 +214,21 @@ class KnowledgeService:
         folder_model = db.scalar(
             select(KnowledgeFolder).where(
                 KnowledgeFolder.user_id == user_id,
+                *self._exact_project_filters(KnowledgeFolder, project_id),
                 KnowledgeFolder.name == folder,
             )
         )
         target_folder_model = db.scalar(
             select(KnowledgeFolder).where(
                 KnowledgeFolder.user_id == user_id,
+                *self._exact_project_filters(KnowledgeFolder, project_id),
                 KnowledgeFolder.name == target_folder,
             )
         )
         target_document_count = db.scalar(
             select(func.count(KnowledgeDocument.id)).where(
                 KnowledgeDocument.user_id == user_id,
+                *self._exact_project_filters(KnowledgeDocument, project_id),
                 KnowledgeDocument.folder == target_folder,
             )
         ) or 0
@@ -202,6 +241,7 @@ class KnowledgeService:
                 .options(selectinload(KnowledgeDocument.chunks))
                 .where(
                     KnowledgeDocument.user_id == user_id,
+                    *self._exact_project_filters(KnowledgeDocument, project_id),
                     KnowledgeDocument.folder == folder,
                 )
                 .order_by(KnowledgeDocument.id.asc())
@@ -221,6 +261,7 @@ class KnowledgeService:
             db.scalars(
                 select(KnowledgeDocument).where(
                     KnowledgeDocument.user_id == user_id,
+                    *self._exact_project_filters(KnowledgeDocument, project_id),
                     KnowledgeDocument.folder != folder,
                 )
             ).all()
@@ -231,7 +272,7 @@ class KnowledgeService:
             raise ValueError("These knowledge paths already exist: " + ", ".join(duplicated))
 
         if folder_model is None:
-            folder_model = KnowledgeFolder(user_id=user_id, name=target_folder)
+            folder_model = KnowledgeFolder(user_id=user_id, project_id=project_id, name=target_folder)
             db.add(folder_model)
         else:
             folder_model.name = target_folder
@@ -248,7 +289,15 @@ class KnowledgeService:
         db.commit()
         return target_folder
 
-    def status(self, *, db: Session, user_id: int) -> dict[str, int]:
+    def status(self, *, db: Session, user_id: int, project_id: int | None = None) -> dict[str, int]:
+        document_filters = [
+            KnowledgeDocument.user_id == user_id,
+            *self._project_scope_filters(KnowledgeDocument, project_id),
+        ]
+        chunk_filters = [
+            KnowledgeChunk.user_id == user_id,
+            *self._project_scope_filters(KnowledgeChunk, project_id),
+        ]
         counts = db.execute(
             select(
                 func.count(KnowledgeDocument.id),
@@ -257,10 +306,10 @@ class KnowledgeService:
                 func.sum(case((KnowledgeDocument.status == "ready", 1), else_=0)),
                 func.sum(case((KnowledgeDocument.status == "failed", 1), else_=0)),
                 func.sum(KnowledgeDocument.size_bytes),
-            ).where(KnowledgeDocument.user_id == user_id)
+            ).where(*document_filters)
         ).one()
         chunk_count = db.scalar(
-            select(func.count(KnowledgeChunk.id)).where(KnowledgeChunk.user_id == user_id)
+            select(func.count(KnowledgeChunk.id)).where(*chunk_filters)
         ) or 0
         return {
             "document_count": int(counts[0] or 0),
@@ -283,6 +332,7 @@ class KnowledgeService:
         upload: UploadFile,
         folder: str = "",
         relative_path: str = "",
+        project_id: int | None = None,
     ) -> KnowledgeDocument:
         return (
             await self.create_documents(
@@ -291,6 +341,7 @@ class KnowledgeService:
                 uploads=[upload],
                 folder=folder,
                 relative_paths=[relative_path] if relative_path else [],
+                project_id=project_id,
             )
         )[0]
 
@@ -302,6 +353,7 @@ class KnowledgeService:
         uploads: list[UploadFile],
         folder: str = "",
         relative_paths: list[str] | None = None,
+        project_id: int | None = None,
     ) -> list[KnowledgeDocument]:
         paths = relative_paths or []
         pending_uploads = [
@@ -312,16 +364,22 @@ class KnowledgeService:
             )
             for index, upload in enumerate(uploads)
         ]
-        self._validate_upload_batch(db=db, user_id=user_id, pending_uploads=pending_uploads)
+        self._validate_upload_batch(
+            db=db,
+            user_id=user_id,
+            pending_uploads=pending_uploads,
+            project_id=project_id,
+        )
 
         created_documents: list[KnowledgeDocument] = []
         written_paths: list[Path] = []
         try:
             for folder_name in dict.fromkeys(pending.folder for pending in pending_uploads if pending.folder):
-                self._ensure_folder(db=db, user_id=user_id, folder=folder_name)
+                self._ensure_folder(db=db, user_id=user_id, project_id=project_id, folder=folder_name)
             for pending in pending_uploads:
                 document = KnowledgeDocument(
                     user_id=user_id,
+                    project_id=project_id,
                     title=pending.title,
                     folder=pending.folder,
                     mime_type=pending.mime_type,
@@ -363,12 +421,14 @@ class KnowledgeService:
         db: Session,
         user_id: int,
         document_id: int,
+        project_id: int | None = None,
     ) -> KnowledgeDocument | None:
         document = db.scalar(
             select(KnowledgeDocument)
             .where(
                 KnowledgeDocument.id == document_id,
                 KnowledgeDocument.user_id == user_id,
+                *self._project_scope_filters(KnowledgeDocument, project_id),
             )
         )
         if document is None:
@@ -408,10 +468,11 @@ class KnowledgeService:
         *,
         db: Session,
         user_id: int,
+        project_id: int | None = None,
     ) -> dict[str, int]:
         async with self._reindex_lock:
             if self._user_has_active_reindex_task(user_id):
-                status = self.status(db=db, user_id=user_id)
+                status = self.status(db=db, user_id=user_id, project_id=project_id)
                 return self._build_reindex_result(
                     started=False,
                     scheduled_documents=0,
@@ -423,13 +484,14 @@ class KnowledgeService:
                     select(KnowledgeDocument)
                     .where(
                         KnowledgeDocument.user_id == user_id,
+                        *self._project_scope_filters(KnowledgeDocument, project_id),
                         KnowledgeDocument.status.in_(("pending", "failed")),
                     )
                     .order_by(KnowledgeDocument.id.asc())
                 ).all()
             )
             if not documents:
-                status = self.status(db=db, user_id=user_id)
+                status = self.status(db=db, user_id=user_id, project_id=project_id)
                 return self._build_reindex_result(
                     started=False,
                     scheduled_documents=0,
@@ -444,7 +506,7 @@ class KnowledgeService:
             task = asyncio.create_task(self._run_reindex_documents(user_id=user_id, document_ids=document_ids))
             self._register_reindex_task(user_id=user_id, task=task)
 
-            status = self.status(db=db, user_id=user_id)
+            status = self.status(db=db, user_id=user_id, project_id=project_id)
             return self._build_reindex_result(
                 started=True,
                 scheduled_documents=len(document_ids),
@@ -518,11 +580,30 @@ class KnowledgeService:
                         error_message=str(exc).strip() or exc.__class__.__name__,
                     )
 
-    def delete_document(self, *, db: Session, user_id: int, document_id: int) -> str | None:
-        deleted_ids, relative_paths = self.delete_documents(db=db, user_id=user_id, document_ids=[document_id])
+    def delete_document(
+        self,
+        *,
+        db: Session,
+        user_id: int,
+        document_id: int,
+        project_id: int | None = None,
+    ) -> str | None:
+        deleted_ids, relative_paths = self.delete_documents(
+            db=db,
+            user_id=user_id,
+            document_ids=[document_id],
+            project_id=project_id,
+        )
         return relative_paths[0] if deleted_ids else None
 
-    def delete_documents(self, *, db: Session, user_id: int, document_ids: list[int]) -> tuple[list[int], list[str]]:
+    def delete_documents(
+        self,
+        *,
+        db: Session,
+        user_id: int,
+        document_ids: list[int],
+        project_id: int | None = None,
+    ) -> tuple[list[int], list[str]]:
         normalized_ids = [document_id for document_id in dict.fromkeys(document_ids) if isinstance(document_id, int)]
         if not normalized_ids:
             return [], []
@@ -531,6 +612,7 @@ class KnowledgeService:
             db.scalars(
                 select(KnowledgeDocument).where(
                     KnowledgeDocument.user_id == user_id,
+                    *self._project_scope_filters(KnowledgeDocument, project_id),
                     KnowledgeDocument.id.in_(normalized_ids),
                 )
             ).all()
@@ -552,6 +634,7 @@ class KnowledgeService:
         user_id: int,
         document_ids: list[int],
         folder: str,
+        project_id: int | None = None,
     ) -> list[KnowledgeDocument]:
         normalized_ids = [document_id for document_id in dict.fromkeys(document_ids) if isinstance(document_id, int)]
         if not normalized_ids:
@@ -564,6 +647,7 @@ class KnowledgeService:
                 .options(selectinload(KnowledgeDocument.chunks))
                 .where(
                     KnowledgeDocument.user_id == user_id,
+                    *self._project_scope_filters(KnowledgeDocument, project_id),
                     KnowledgeDocument.id.in_(normalized_ids),
                 )
                 .order_by(KnowledgeDocument.id.asc())
@@ -583,6 +667,7 @@ class KnowledgeService:
             db.scalars(
                 select(KnowledgeDocument).where(
                     KnowledgeDocument.user_id == user_id,
+                    *self._project_scope_filters(KnowledgeDocument, project_id),
                     KnowledgeDocument.id.notin_([document.id for document in documents]),
                 )
             ).all()
@@ -599,7 +684,8 @@ class KnowledgeService:
                 chunk.path = document.path
                 chunk.directory = target_folder
                 db.add(chunk)
-        self._ensure_folder(db=db, user_id=user_id, folder=target_folder)
+        folder_project_id = project_id if project_id is not None else None
+        self._ensure_folder(db=db, user_id=user_id, project_id=folder_project_id, folder=target_folder)
 
         db.commit()
         for document in documents:
@@ -671,6 +757,7 @@ class KnowledgeService:
         db: Session,
         user_id: int,
         folder: str,
+        project_id: int | None = None,
         commit: bool = False,
     ) -> KnowledgeFolder | None:
         folder_name = self._sanitize_folder(folder)
@@ -679,12 +766,13 @@ class KnowledgeService:
         existing = db.scalar(
             select(KnowledgeFolder).where(
                 KnowledgeFolder.user_id == user_id,
+                *self._exact_project_filters(KnowledgeFolder, project_id),
                 KnowledgeFolder.name == folder_name,
             )
         )
         if existing is not None:
             return existing
-        knowledge_folder = KnowledgeFolder(user_id=user_id, name=folder_name)
+        knowledge_folder = KnowledgeFolder(user_id=user_id, project_id=project_id, name=folder_name)
         db.add(knowledge_folder)
         if commit:
             db.commit()
@@ -709,6 +797,7 @@ class KnowledgeService:
         db: Session,
         user_id: int,
         pending_uploads: list[PendingKnowledgeUpload],
+        project_id: int | None = None,
     ) -> None:
         if not pending_uploads:
             raise ValueError("Select at least one Markdown file.")
@@ -732,7 +821,10 @@ class KnowledgeService:
 
         existing_documents = list(
             db.scalars(
-                select(KnowledgeDocument).where(KnowledgeDocument.user_id == user_id)
+                select(KnowledgeDocument).where(
+                    KnowledgeDocument.user_id == user_id,
+                    *self._exact_project_filters(KnowledgeDocument, project_id),
+                )
             ).all()
         )
         existing_paths = {document.path for document in existing_documents}
@@ -756,6 +848,7 @@ class KnowledgeService:
         user_id: int,
         query: str,
         folders: list[str] | None = None,
+        project_id: int | None = None,
     ) -> ContextPayload:
         cleaned_query = query.strip()
         if not cleaned_query:
@@ -763,7 +856,7 @@ class KnowledgeService:
         query_filters = self._merge_scope_filters(parse_query_filters(cleaned_query), folders or [])
         retrieval_query = query_filters.cleaned_query or cleaned_query
 
-        documents = self.list_documents(db=db, user_id=user_id)
+        documents = self.list_documents(db=db, user_id=user_id, project_id=project_id)
         ready_documents = [document for document in documents if document.status == "ready"]
         if not ready_documents:
             return ContextPayload(
@@ -780,6 +873,7 @@ class KnowledgeService:
             candidates = self._retrieve_postgres_candidates(
                 db=db,
                 user_id=user_id,
+                project_id=project_id,
                 query_filters=query_filters,
                 query_embedding=query_embedding,
             )
@@ -826,6 +920,7 @@ class KnowledgeService:
             context_chunk_pool = self._load_postgres_context_chunk_pool(
                 db=db,
                 user_id=user_id,
+                project_id=project_id,
                 primary_candidates=primary_candidates,
                 limit=context_limit,
             )
@@ -951,6 +1046,7 @@ class KnowledgeService:
                 KnowledgeChunk(
                     document_id=document.id,
                     user_id=document.user_id,
+                    project_id=document.project_id,
                     chunk_key=chunk.id,
                     chunk_index=chunk.order,
                     path=chunk.path,
@@ -1003,10 +1099,15 @@ class KnowledgeService:
         *,
         db: Session,
         user_id: int,
+        project_id: int | None,
         query_filters: QueryFilters,
         query_embedding: list[float],
     ) -> list[RetrievalCandidate]:
-        filter_clauses = self._build_postgres_filter_clauses(user_id=user_id, query_filters=query_filters)
+        filter_clauses = self._build_postgres_filter_clauses(
+            user_id=user_id,
+            project_id=project_id,
+            query_filters=query_filters,
+        )
         distance_expr = KnowledgeChunk.embedding.cosine_distance(query_embedding)
         vector_rows = db.execute(
             select(KnowledgeChunk, distance_expr.label("distance"))
@@ -1088,6 +1189,7 @@ class KnowledgeService:
         *,
         db: Session,
         user_id: int,
+        project_id: int | None,
         primary_candidates: list[RetrievalCandidate],
         limit: int,
     ) -> list[RagChunk]:
@@ -1118,7 +1220,11 @@ class KnowledgeService:
 
         rows = db.scalars(
             select(KnowledgeChunk)
-            .where(KnowledgeChunk.user_id == user_id, or_(*window_clauses))
+            .where(
+                KnowledgeChunk.user_id == user_id,
+                *self._project_scope_filters(KnowledgeChunk, project_id),
+                or_(*window_clauses),
+            )
             .order_by(KnowledgeChunk.path.asc(), KnowledgeChunk.chunk_index.asc(), KnowledgeChunk.id.asc())
         ).all()
         return [self._runtime_chunk_from_model(chunk) for chunk in rows]
@@ -1140,9 +1246,11 @@ class KnowledgeService:
         self,
         *,
         user_id: int,
+        project_id: int | None,
         query_filters: QueryFilters,
     ) -> list[object]:
         clauses: list[object] = [KnowledgeChunk.user_id == user_id]
+        clauses.extend(self._project_scope_filters(KnowledgeChunk, project_id))
         lower_path = func.lower(KnowledgeChunk.path)
         lower_directory = func.lower(KnowledgeChunk.directory)
         lower_tags = func.lower(KnowledgeChunk.tags_json)

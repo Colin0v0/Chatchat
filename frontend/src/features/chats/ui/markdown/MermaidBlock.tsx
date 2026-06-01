@@ -23,7 +23,8 @@ async function getMermaid() {
         mermaid.initialize({
           startOnLoad: false,
           theme: MERMAID_THEME,
-          securityLevel: "loose",
+          // 中文注释：图表内容可能来自模型、网页或知识库，必须使用严格模式渲染 SVG。
+          securityLevel: "strict",
         });
         mermaidInitialized = true;
       }

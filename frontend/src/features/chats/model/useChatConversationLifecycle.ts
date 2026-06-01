@@ -89,6 +89,7 @@ interface UseChatConversationLifecycleOptions {
   deferredQuery: string;
   getSessionConversation: (conversationId: number) => ConversationDetail | null;
   mergeConversationSummariesWithSessions: (items: ConversationSummary[]) => ConversationSummary[];
+  projectId?: number | null;
   renameSession: (conversationId: number, title: string) => void;
   runningSessions: Array<{ conversation: ConversationDetail }>;
   setActiveConversation: Dispatch<SetStateAction<ConversationDetail | null>>;
@@ -115,6 +116,7 @@ export function useChatConversationLifecycle({
   deferredQuery,
   getSessionConversation,
   mergeConversationSummariesWithSessions,
+  projectId,
   renameSession,
   runningSessions,
   setActiveConversation,
@@ -335,7 +337,7 @@ export function useChatConversationLifecycle({
   const refreshConversations = useCallback(async () => {
     const requestId = conversationsRefreshGuard.begin();
     try {
-      const items = await fetchConversations();
+      const items = await fetchConversations(projectId);
       if (!conversationsRefreshGuard.isCurrent(requestId)) {
         return;
       }
@@ -353,6 +355,7 @@ export function useChatConversationLifecycle({
   }, [
     conversationsRefreshGuard,
     mergeConversationSummariesWithSessions,
+    projectId,
     setConversations,
     setConversationsLoaded,
     setError,

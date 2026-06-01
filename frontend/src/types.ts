@@ -93,6 +93,7 @@ export interface SearchTrace {
 
 export interface ConversationSummary {
   id: number;
+  project_id?: number | null;
   title: string;
   model: string;
   temporary_chat?: boolean;
@@ -135,6 +136,7 @@ export interface ChatMessage {
 
 export interface ConversationDetail {
   id: number;
+  project_id?: number | null;
   title: string;
   model: string;
   temporary_chat?: boolean;
@@ -321,8 +323,18 @@ export interface ModelsPayload {
   default_model: string;
 }
 
+export interface ProjectSummary {
+  id: number;
+  name: string;
+  description: string;
+  default_model?: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
 export interface ChatStreamRequest {
   conversation_id?: number | null;
+  project_id?: number | null;
   message: string;
   files?: File[];
   model?: string | null;
@@ -345,6 +357,7 @@ export interface BattleStreamRequest {
 
 export interface ImageGenerationRequest {
   conversation_id?: number | null;
+  project_id?: number | null;
   prompt: string;
   size?: string | null;
   quality?: string | null;
@@ -393,6 +406,7 @@ export type KnowledgeDocumentStatus = "pending" | "indexing" | "ready" | "failed
 
 export interface KnowledgeDocument {
   id: number;
+  project_id?: number | null;
   title: string;
   folder: string;
   path: string;

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from ..auth import require_current_user
 from ..chat.context import conversation_media_paths, conversation_options, message_preview
 from ..core.config import settings
+from ..projects import require_user_project
 from ..providers import normalize_model, resolve_model_profile
 from ..runtime.chat_runs import get_chat_run_registry
 from ..schemas import (
@@ -48,19 +49,22 @@ async def _conversation_active_run(request: Request, conversation_id: int) -> Ch
 
 @router.get("", response_model=list[ConversationSummary])
 def list_conversations(
+    project_id: int | None = Query(default=None, ge=1),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_current_user),
 ):
+    require_user_project(db, user_id=current_user.id, project_id=project_id)
     return [
         ConversationSummary(
             id=item.id,
+            project_id=item.project_id,
             title=item.title,
             model=item.model,
             temporary_chat=item.temporary_chat,
             updated_at=item.updated_at,
             last_message_preview=item.last_message_preview,
         )
-        for item in list_user_conversation_summaries(db, user_id=current_user.id)
+        for item in list_user_conversation_summaries(db, user_id=current_user.id, project_id=project_id)
     ]
 
 
@@ -70,12 +74,14 @@ def create_conversation(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_current_user),
 ):
-    target_model = payload.model or normalize_model(settings.default_model)
+    project = require_user_project(db, user_id=current_user.id, project_id=payload.project_id)
+    target_model = payload.model or (project.default_model if project is not None else None) or normalize_model(settings.default_model)
     if settings.model_catalog_strict and resolve_model_profile(target_model) is None:
         raise HTTPException(status_code=400, detail=f"Model not enabled: {target_model}")
 
     conversation = Conversation(
         user_id=current_user.id,
+        project_id=payload.project_id,
         title=payload.title,
         model=target_model,
         temporary_chat=payload.temporary_chat,
@@ -85,6 +91,7 @@ def create_conversation(
     db.refresh(conversation)
     return ConversationSummary(
         id=conversation.id,
+        project_id=conversation.project_id,
         title=conversation.title,
         model=conversation.model,
         temporary_chat=conversation.temporary_chat,
@@ -115,6 +122,7 @@ async def get_conversation(
     )
     return ConversationDetail(
         id=conversation.id,
+        project_id=conversation.project_id,
         title=conversation.title,
         model=conversation.model,
         temporary_chat=conversation.temporary_chat,
@@ -179,6 +187,7 @@ def update_conversation(
 
     return ConversationSummary(
         id=conversation.id,
+        project_id=conversation.project_id,
         title=conversation.title,
         model=conversation.model,
         temporary_chat=conversation.temporary_chat,

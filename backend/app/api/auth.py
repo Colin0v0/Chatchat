@@ -5,7 +5,6 @@ from sqlalchemy.orm import Session
 
 from ..auth import (
     AuthenticationFailed,
-    AuthenticationFailureCode,
     PasswordChangeFailed,
     PasswordChangeFailureCode,
     apply_session_cookie,
@@ -37,19 +36,12 @@ def login(
             password=payload.password,
         )
     except AuthenticationFailed as exc:
-        if exc.code is AuthenticationFailureCode.USER_NOT_FOUND:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail={
-                    "code": exc.code.value,
-                    "message": "用户未注册",
-                },
-            ) from exc
+        # 中文注释：登录失败统一响应，避免通过状态码或文案枚举已注册用户名。
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={
-                "code": exc.code.value,
-                "message": "密码错误",
+                "code": "invalid_credentials",
+                "message": "用户名或密码错误",
             },
         ) from exc
 

@@ -22,6 +22,7 @@ class ToolPlanRequest:
 class ToolContextBuildRequest:
     db: "Session"
     user_id: int
+    project_id: int | None
     query: str
     plan: ToolContextPlan
     retrieval_messages: list[dict[str, str]]

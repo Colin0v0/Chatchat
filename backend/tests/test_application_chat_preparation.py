@@ -200,7 +200,7 @@ async def test_prepare_chat_stream_run_request_coordinates_submission_dependenci
     }
     assert captured["profile"] == {
         "requested_model": "chat-model",
-        "fallback_model": chat_preparation.settings.default_model,
+        "fallback_model": "existing-model",
     }
     assert captured["uploads"] == [upload_file]
     assert captured["persist"] == {
@@ -210,6 +210,7 @@ async def test_prepare_chat_stream_run_request_coordinates_submission_dependenci
         "profile": resolved_profile,
         "content": "Hello",
         "uploaded_attachments": [uploaded_attachment],
+        "project_id": None,
         "temporary_chat": False,
     }
     assert captured["reload"] == {

@@ -2,6 +2,7 @@ import json
 import unittest
 from unittest.mock import patch
 
+from fastapi import HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -119,7 +120,8 @@ class BattleSessionCrudTests(unittest.TestCase):
         self.db.close()
         self.engine.dispose()
 
-    def _round_payload(self, *, prompt: str, attachment_url: str = "/media/files/demo.txt") -> BattleRoundPayload:
+    def _round_payload(self, *, prompt: str, attachment_url: str | None = None) -> BattleRoundPayload:
+        media_url = attachment_url or f"/media/battle/{self.user.id}/files/demo.txt"
         side_a = BattleSideStatePayload(
             id="a",
             model={"id": "openai:gpt-5.4", "label": "GPT"},
@@ -155,7 +157,7 @@ class BattleSessionCrudTests(unittest.TestCase):
                     "mime_type": "text/plain",
                     "size_bytes": 12,
                     "extension": ".txt",
-                    "url": attachment_url,
+                    "url": media_url,
                 }
             ],
         )
@@ -207,7 +209,12 @@ class BattleSessionCrudTests(unittest.TestCase):
         created = create_battle_session(
             payload=BattleSessionCreateIn(
                 title="带附件 Battle",
-                rounds=[self._round_payload(prompt="删除时清理附件", attachment_url="/media/files/2026/demo.txt")],
+                rounds=[
+                    self._round_payload(
+                        prompt="删除时清理附件",
+                        attachment_url=f"/media/battle/{self.user.id}/files/2026/demo.txt",
+                    )
+                ],
             ),
             db=self.db,
             current_user=self.user,
@@ -220,8 +227,26 @@ class BattleSessionCrudTests(unittest.TestCase):
                 current_user=self.user,
             )
 
-        remove_media_files.assert_called_once_with(["files/2026/demo.txt"])
+        remove_media_files.assert_called_once_with([f"battle/{self.user.id}/files/2026/demo.txt"])
         self.assertEqual(list_battle_sessions(db=self.db, current_user=self.user), [])
+
+    def test_create_battle_session_rejects_non_battle_media_path(self):
+        with self.assertRaises(HTTPException) as error:
+            create_battle_session(
+                payload=BattleSessionCreateIn(
+                    title="非法附件 Battle",
+                    rounds=[
+                        self._round_payload(
+                            prompt="不要接受普通媒体路径",
+                            attachment_url="/media/files/2026/demo.txt",
+                        )
+                    ],
+                ),
+                db=self.db,
+                current_user=self.user,
+            )
+
+        self.assertEqual(error.exception.status_code, 400)
 
     def test_battle_preferences_build_dataset_and_summary(self):
         create_battle_session(

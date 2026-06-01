@@ -5,9 +5,11 @@ from .chat import router as chat_router
 from .conversations import router as conversations_router
 from .images import router as images_router
 from .knowledge import router as knowledge_router
+from .media import router as media_router
 from .memories import router as memories_router
 from .models import router as models_router
 from .pet import router as pet_router
+from .projects import router as projects_router
 from .debate import router as debate_router
 
 __all__ = [
@@ -19,7 +21,9 @@ __all__ = [
     "debate_router",
     "images_router",
     "knowledge_router",
+    "media_router",
     "memories_router",
     "models_router",
     "pet_router",
+    "projects_router",
 ]

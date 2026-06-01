@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import hashlib
-from pathlib import Path
 
 from sqlalchemy.orm import Session
 
 from ..providers import resolve_model_profile
 from ..provider_transports.openai import upload_openai_file
-from ..storage.media import MEDIA_ROOT
+from ..storage.media import resolve_media_file_path
 from ..storage.models import MessageAttachment, ProviderFileRef
 
 
@@ -34,7 +33,7 @@ async def ensure_upstream_file_id(*, db: Session, model: str, attachment: Messag
     file_id = await upload_openai_file(
         filename=attachment.original_name,
         mime_type=attachment.mime_type,
-        file_path=MEDIA_ROOT / Path(attachment.relative_path),
+        file_path=resolve_media_file_path(attachment.relative_path),
         provider=profile.provider_name,  # type: ignore[arg-type]
         base_url_override=profile.file_base_url,
         api_key_override=profile.api_key,

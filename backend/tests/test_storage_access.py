@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.storage.access import list_conversation_messages_window, list_user_conversation_summaries
 from app.storage.database import Base
-from app.storage.models import Conversation, Message, MessageAttachment, Run, User
+from app.storage.models import Conversation, Message, MessageAttachment, Project, Run, User
 
 
 class ConversationSummaryAccessTests(unittest.TestCase):
@@ -75,6 +75,29 @@ class ConversationSummaryAccessTests(unittest.TestCase):
 
         self.assertEqual(len(summaries), 1)
         self.assertEqual(summaries[0].last_message_preview, "[Attachment]")
+
+    def test_list_user_conversation_summaries_filters_by_project(self):
+        user = User(username="project_filter_tester", password_hash="hash", is_active=True)
+        self.db.add(user)
+        self.db.commit()
+        self.db.refresh(user)
+
+        project_a = Project(user_id=user.id, name="Alpha")
+        project_b = Project(user_id=user.id, name="Beta")
+        self.db.add_all([project_a, project_b])
+        self.db.commit()
+        self.db.refresh(project_a)
+        self.db.refresh(project_b)
+
+        conversation_a = Conversation(user_id=user.id, project_id=project_a.id, title="Alpha chat", model="openai:test")
+        conversation_b = Conversation(user_id=user.id, project_id=project_b.id, title="Beta chat", model="openai:test")
+        self.db.add_all([conversation_a, conversation_b])
+        self.db.commit()
+
+        summaries = list_user_conversation_summaries(self.db, user_id=user.id, project_id=project_a.id)
+
+        self.assertEqual([summary.title for summary in summaries], ["Alpha chat"])
+        self.assertEqual(summaries[0].project_id, project_a.id)
 
     def test_list_conversation_messages_window_returns_recent_messages(self):
         user = User(username="window_tester", password_hash="hash", is_active=True)

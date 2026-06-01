@@ -22,6 +22,7 @@ import type {
   MemoryCandidateUpdatePayload,
   MemorySettings,
   ModelOption,
+  ProjectSummary,
   ReasoningProfileValue,
   ToolMode,
 } from "../../../types";
@@ -98,6 +99,7 @@ interface BuildChatAppViewModelOptions {
   activeConversationId: number | null;
   activeDebate: { topic?: string | null } | null;
   activeDebateId: number | null;
+  activeProjectId: number | null;
   activeReasoningRequest: string | null;
   activeSection: WorkspaceSection;
   activeSession: { reasoningStreaming?: boolean; stage?: StreamingStage | null } | null | undefined;
@@ -146,6 +148,9 @@ interface BuildChatAppViewModelOptions {
   petDraftActive: boolean;
   petSignal: PetSignal | null;
   petStreaming: boolean;
+  projectIsSaving: boolean;
+  projects: ProjectSummary[];
+  projectsLoaded: boolean;
   query: string;
   reasoningProfile: ReasoningProfileValue;
   selectedModel: string;
@@ -170,6 +175,7 @@ interface BuildChatAppViewModelOptions {
   onChangeQuery: (value: string) => void;
   onConfirmPendingMemory: (memoryId: number, payload?: MemoryCandidateUpdatePayload) => Promise<void> | void;
   onCreateDebate: ComponentProps<typeof DebateCreateView>["onCreate"];
+  onCreateProject: (name: string) => Promise<boolean> | boolean;
   onDeleteBattle: (sessionId: number) => void | Promise<void>;
   onDeleteConversation: (conversationId: number) => void | Promise<void>;
   onDeleteDebate: (sessionId: number) => void | Promise<void>;
@@ -194,6 +200,7 @@ interface BuildChatAppViewModelOptions {
   onSelectBattle: (sessionId: number) => void;
   onSelectConversation: (conversationId: number) => void;
   onSelectDebate: (sessionId: number) => void;
+  onSelectProject: (projectId: number | null) => void;
   onSelectSection: (section: WorkspaceSection) => void;
   onSend: () => Promise<void> | void;
   onSendBattle: () => Promise<void> | void;
@@ -217,6 +224,7 @@ export function buildChatAppViewModel(options: BuildChatAppViewModelOptions): Ch
     activeConversationId,
     activeDebate,
     activeDebateId,
+    activeProjectId,
     activeReasoningRequest,
     activeSection,
     activeSession,
@@ -264,6 +272,9 @@ export function buildChatAppViewModel(options: BuildChatAppViewModelOptions): Ch
     petDraftActive,
     petSignal,
     petStreaming,
+    projectIsSaving,
+    projects,
+    projectsLoaded,
     query,
     reasoningProfile,
     selectedModel,
@@ -288,6 +299,7 @@ export function buildChatAppViewModel(options: BuildChatAppViewModelOptions): Ch
     onChangeQuery,
     onConfirmPendingMemory,
     onCreateDebate,
+    onCreateProject,
     onDeleteBattle,
     onDeleteConversation,
     onDeleteDebate,
@@ -311,6 +323,7 @@ export function buildChatAppViewModel(options: BuildChatAppViewModelOptions): Ch
     onSelectBattle,
     onSelectConversation,
     onSelectDebate,
+    onSelectProject,
     onSelectSection,
     onSend,
     onSendBattle,
@@ -558,6 +571,7 @@ export function buildChatAppViewModel(options: BuildChatAppViewModelOptions): Ch
       activeConversationId,
       activeDebateId,
       activeBattleId,
+      activeProjectId,
       activity: conversationActivity,
       debateActivity,
       battlesLoaded: battleSessionsLoaded,
@@ -567,12 +581,16 @@ export function buildChatAppViewModel(options: BuildChatAppViewModelOptions): Ch
       items: filteredConversations,
       debateItems: filteredDebateSessions,
       battleItems: filteredBattleSessions,
+      projectIsSaving,
+      projects,
+      projectsLoaded,
       onSelectSection,
       onDelete: onDeleteConversation,
       onDeleteDebate,
       onDeleteBattle,
       onNewChat,
       onNewDebate,
+      onCreateProject,
       onQueryChange: onChangeQuery,
       onRename: onRenameConversation,
       onRenameDebate,
@@ -580,6 +598,7 @@ export function buildChatAppViewModel(options: BuildChatAppViewModelOptions): Ch
       onSelect: onSelectConversation,
       onSelectDebate,
       onSelectBattle,
+      onSelectProject,
       onToggleSidebar,
       open: sidebarOpen,
       query,

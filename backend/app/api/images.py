@@ -15,6 +15,7 @@ from ..application.chat_turns import resolve_chat_model
 from ..auth import require_current_user
 from ..chat.context import append_message_attachments, conversation_title
 from ..core.config import settings
+from ..projects import require_user_project
 from ..provider_transports.openai_images import generate_openai_image
 from ..runtime.streaming import ndjson_stream_response
 from ..schemas import ImageGenerateRequest, ImageGenerationJobOut
@@ -116,6 +117,7 @@ def _persist_image_generation_turn(
         raise HTTPException(status_code=400, detail="Image prompt is required.")
 
     conversation = None
+    project = require_user_project(db, user_id=current_user.id, project_id=payload.project_id)
     if payload.conversation_id is not None:
         conversation = get_user_conversation(
             db,
@@ -124,15 +126,22 @@ def _persist_image_generation_turn(
         )
         if conversation is None:
             raise HTTPException(status_code=404, detail="Conversation not found")
+        if payload.project_id is not None and conversation.project_id != payload.project_id:
+            raise HTTPException(status_code=400, detail="Conversation does not belong to the selected project")
 
     profile = resolve_chat_model(
-        requested_model=conversation.model if conversation else settings.default_model,
+        requested_model=(
+            conversation.model
+            if conversation is not None
+            else (project.default_model if project is not None and project.default_model else settings.default_model)
+        ),
         fallback_model=settings.default_model,
     )
 
     if conversation is None:
         conversation = Conversation(
             user_id=current_user.id,
+            project_id=payload.project_id,
             title=conversation_title(prompt, 0),
             model=profile.id,
         )

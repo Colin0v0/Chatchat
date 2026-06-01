@@ -35,12 +35,14 @@ def persist_chat_turn(
     profile: ModelProfile,
     content: str,
     uploaded_attachments: list[StoredAttachment],
+    project_id: int | None = None,
     temporary_chat: bool = False,
 ) -> PersistedChatTurn:
     try:
         if conversation is None:
             conversation = Conversation(
                 user_id=current_user.id,
+                project_id=project_id,
                 title=conversation_title(content, len(uploaded_attachments)),
                 model=profile.id,
                 temporary_chat=temporary_chat,

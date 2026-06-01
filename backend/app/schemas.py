@@ -30,6 +30,7 @@ DebateEndedReason = Literal["pro_timeout", "con_timeout", "both_timeout", "manua
 
 class ConversationSummary(BaseModel):
     id: int
+    project_id: Optional[int] = None
     title: str
     model: str
     temporary_chat: bool = False
@@ -43,6 +44,30 @@ class ConversationCreate(BaseModel):
     title: str = "New chat"
     model: Optional[str] = None
     temporary_chat: bool = False
+    project_id: Optional[int] = Field(default=None, ge=1)
+
+
+class ProjectCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    description: str = Field(default="", max_length=4000)
+    default_model: Optional[str] = Field(default=None, max_length=128)
+
+
+class ProjectUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    description: Optional[str] = Field(default=None, max_length=4000)
+    default_model: Optional[str] = Field(default=None, max_length=128)
+
+
+class ProjectOut(BaseModel):
+    id: int
+    name: str
+    description: str = ""
+    default_model: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class LoginRequest(BaseModel):
@@ -202,6 +227,7 @@ class BattleSessionRenameIn(BaseModel):
 
 class ImageGenerateRequest(BaseModel):
     conversation_id: Optional[int] = Field(default=None, ge=1)
+    project_id: Optional[int] = Field(default=None, ge=1)
     prompt: str = Field(min_length=1, max_length=8000)
     size: Optional[str] = None
     quality: Optional[str] = None
@@ -336,6 +362,7 @@ class ChatActiveRunOut(BaseModel):
 
 class ConversationDetail(BaseModel):
     id: int
+    project_id: Optional[int] = None
     title: str
     model: str
     temporary_chat: bool = False
@@ -504,6 +531,7 @@ class AudioSpeechOut(BaseModel):
 
 class KnowledgeDocumentOut(BaseModel):
     id: int
+    project_id: Optional[int] = None
     title: str
     folder: str = ""
     path: str = ""

@@ -1,5 +1,5 @@
 import type { WorkspaceSection } from "../../model/workspaceSections";
-import type { BattleSessionSummary, ConversationSummary, DebateSessionSummary } from "../../../../types";
+import type { BattleSessionSummary, ConversationSummary, DebateSessionSummary, ProjectSummary } from "../../../../types";
 
 export type { WorkspaceSection } from "../../model/workspaceSections";
 
@@ -13,9 +13,13 @@ export interface SidebarProps {
   activeConversationId: number | null;
   activeDebateId: number | null;
   activeBattleId: number | null;
+  activeProjectId: number | null;
   battlesLoaded: boolean;
   conversationsLoaded: boolean;
   debatesLoaded: boolean;
+  projects: ProjectSummary[];
+  projectsLoaded: boolean;
+  projectIsSaving: boolean;
   open: boolean;
   isDesktop: boolean;
   query: string;
@@ -26,6 +30,7 @@ export interface SidebarProps {
   onSelectSection: (section: WorkspaceSection) => void;
   onNewChat: () => void;
   onNewDebate: () => void;
+  onCreateProject: (name: string) => Promise<boolean> | boolean;
   onRename: (conversationId: number, title: string) => void | Promise<void>;
   onDelete: (conversationId: number) => void | Promise<void>;
   onRenameDebate: (sessionId: number, topic: string) => void | Promise<void>;
@@ -37,6 +42,7 @@ export interface SidebarProps {
   onSelect: (conversationId: number) => void;
   onSelectDebate: (sessionId: number) => void;
   onSelectBattle: (sessionId: number) => void;
+  onSelectProject: (projectId: number | null) => void;
   onToggleSidebar: () => void;
 }
 

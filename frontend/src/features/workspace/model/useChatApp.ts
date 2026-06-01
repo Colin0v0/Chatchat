@@ -16,6 +16,7 @@ import { useChatMessageActions } from "../../chats/model/useChatMessageActions";
 import { useChatConversationLifecycle } from "../../chats/model/useChatConversationLifecycle";
 import { useKnowledgeManager } from "../../knowledge/model/useKnowledgeManager";
 import { useMemoryManager } from "../../memories/model/useMemoryManager";
+import { useProjectManager } from "../../projects/model/useProjectManager";
 import type { GeneralPreferences } from "../../settings/model/useGeneralPreferences";
 import { useDebateMode } from "../../debates/model/useDebateMode";
 import { useBattleMode } from "../../battles/model/useBattleMode";
@@ -90,11 +91,6 @@ export function useChatApp({
   const [landingTitle] = useState(() => pickLandingTitle());
   const [error, setError] = useState<string | null>(null);
   const [petSignal, setPetSignal] = useState<PetSignal | null>(null);
-  const memoryManager = useMemoryManager({
-    activeConversationId: activeConversationId && activeConversationId > 0 ? activeConversationId : null,
-    enabled: activeSection === "memories" || memorySettingsOpen,
-  });
-  const knowledgeManager = useKnowledgeManager({ enabled: activeSection === "knowledge" || toolMode === "knowledge" });
   const { addAttachments, clearAttachments, draftAttachments, removeAttachment, replaceAttachments } =
     useComposerAttachments();
   const transientAttachmentUrlsRef = useRef<string[]>([]);
@@ -122,6 +118,21 @@ export function useChatApp({
     defaultModel: generalPreferences.defaultModel,
     onDefaultModelResolved: handleResolvedDefaultModel,
     setError,
+  });
+  const projectManager = useProjectManager({
+    defaultModel: selectedModel,
+    enabled: Boolean(userId),
+    onError: setError,
+    userId,
+  });
+  const activeProjectId = projectManager.activeProjectId;
+  const memoryManager = useMemoryManager({
+    activeConversationId: activeConversationId && activeConversationId > 0 ? activeConversationId : null,
+    enabled: activeSection === "memories" || memorySettingsOpen,
+  });
+  const knowledgeManager = useKnowledgeManager({
+    enabled: activeSection === "knowledge" || toolMode === "knowledge",
+    projectId: activeProjectId,
   });
   const activeKnowledgeFolders = useMemo(
     () => (toolMode === "knowledge" && knowledgeFolder ? [knowledgeFolder] : []),
@@ -252,6 +263,7 @@ export function useChatApp({
   } = useConversationStreams({
     activeConversation,
     activeConversationId,
+    projectId: activeProjectId,
     setActiveConversation,
     setActiveConversationId,
     setConversations,
@@ -294,6 +306,7 @@ export function useChatApp({
     deferredQuery,
     getSessionConversation,
     mergeConversationSummariesWithSessions,
+    projectId: activeProjectId,
     renameSession,
     runningSessions,
     setActiveConversation,
@@ -425,6 +438,58 @@ export function useChatApp({
     handleSelectSection("battle");
   }, [handleSelectSection]);
 
+  const resetProjectScopedView = useCallback(() => {
+    conversationLoadAbortRef.current?.abort();
+    earlierMessagesAbortRef.current?.abort();
+    clearAttachments();
+    setActiveConversationId(null);
+    setActiveConversation(null);
+    setCollapsedMessageIds(new Set());
+    setKnowledgeFolder("");
+    setDraft("");
+  }, [
+    clearAttachments,
+    conversationLoadAbortRef,
+    earlierMessagesAbortRef,
+    setActiveConversation,
+    setActiveConversationId,
+    setCollapsedMessageIds,
+    setDraft,
+  ]);
+
+  const handleSelectProject = useCallback(
+    (projectId: number | null) => {
+      projectManager.setActiveProjectId(projectId);
+      const project = projectManager.projects.find((item) => item.id === projectId);
+      if (project?.default_model) {
+        handleModelChange(project.default_model);
+      }
+      resetProjectScopedView();
+      if (!isDesktop) {
+        closeMobileSidebar();
+      }
+    },
+    [closeMobileSidebar, handleModelChange, isDesktop, projectManager, resetProjectScopedView],
+  );
+
+  const handleCreateProject = useCallback(
+    async (name: string) => {
+      const project = await projectManager.create(name);
+      if (!project) {
+        return false;
+      }
+      if (project.default_model) {
+        handleModelChange(project.default_model);
+      }
+      resetProjectScopedView();
+      if (!isDesktop) {
+        closeMobileSidebar();
+      }
+      return true;
+    },
+    [closeMobileSidebar, handleModelChange, isDesktop, projectManager, resetProjectScopedView],
+  );
+
   const handleExportItem = useCallback(
     async (itemId: number, kind: "chat" | "debate") => {
       try {
@@ -477,6 +542,7 @@ export function useChatApp({
     onModelLoveScoreChange: adjustModelLoveScore,
     onModelUsageCountChange: adjustModelUsageCount,
     onPetEvent: emitPetSignal,
+    projectId: activeProjectId,
     refreshConversations,
     replaceAttachments,
     restoreChatComposerMode,
@@ -539,6 +605,7 @@ export function useChatApp({
     activeConversationId,
     activeDebate,
     activeDebateId,
+    activeProjectId,
     activeReasoningRequest,
     activeSection,
     activeSession,
@@ -587,6 +654,9 @@ export function useChatApp({
     petDraftActive,
     petSignal,
     petStreaming,
+    projectIsSaving: projectManager.isSaving,
+    projects: projectManager.projects,
+    projectsLoaded: projectManager.loaded,
     query,
     reasoningProfile,
     selectedModel,
@@ -611,6 +681,7 @@ export function useChatApp({
     onChangeQuery: setQuery,
     onConfirmPendingMemory: handleConfirmPendingMemory,
     onCreateDebate: handleCreateDebate,
+    onCreateProject: handleCreateProject,
     onDeleteBattle: handleDeleteBattle,
     onDeleteConversation: handleDeleteConversation,
     onDeleteDebate: handleDeleteDebate,
@@ -642,6 +713,7 @@ export function useChatApp({
     onSelectBattle: handleSelectBattle,
     onSelectConversation: handleSelectConversation,
     onSelectDebate: handleSelectDebate,
+    onSelectProject: handleSelectProject,
     onSelectSection: handleSelectSection,
     onSend: handleSend,
     onSendBattle: handleSendBattle,

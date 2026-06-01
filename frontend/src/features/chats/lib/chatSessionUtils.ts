@@ -260,6 +260,7 @@ export function mergeConversationWithCache(
 export function toConversationSummary(conversation: ConversationDetail): ConversationSummary {
   return {
     id: conversation.id,
+    project_id: conversation.project_id ?? null,
     title: conversation.title,
     model: conversation.model,
     temporary_chat: conversation.temporary_chat,

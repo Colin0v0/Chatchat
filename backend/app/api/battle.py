@@ -33,7 +33,12 @@ from ..schemas import (
 )
 from ..providers import resolve_model_profile
 from ..storage.database import get_db
-from ..storage.media import media_url, persist_uploaded_attachments, remove_media_files
+from ..storage.media import (
+    media_relative_path_from_url,
+    media_url,
+    persist_uploaded_attachments,
+    remove_media_files,
+)
 from ..storage.models import BattleSession, Conversation, Message, User
 from ..tools import ToolContextBuildRequest, ToolPlanRequest, build_tool_policy
 
@@ -62,6 +67,14 @@ def _ensure_battle_title_present(title: str) -> str:
     if not normalized:
         raise HTTPException(status_code=400, detail="Battle title cannot be empty")
     return normalized
+
+
+def _battle_media_namespace(user_id: int) -> str:
+    return f"battle/{user_id}"
+
+
+def _is_user_battle_media_path(relative_path: str, *, user_id: int) -> bool:
+    return relative_path.startswith(f"{_battle_media_namespace(user_id)}/")
 
 
 def _ensure_uploads_supported_by_model(*, model: str, uploads: list[UploadFile]) -> None:
@@ -211,7 +224,16 @@ def _battle_preference_summary(rows: list[BattlePreferenceDatasetRowOut]) -> Bat
     )
 
 
-def _extract_battle_media_paths(rounds: list[dict[str, object]]) -> list[str]:
+def _battle_attachment_path_from_url(url: str, *, strict: bool) -> str | None:
+    try:
+        return media_relative_path_from_url(url)
+    except ValueError as exc:
+        if strict:
+            raise HTTPException(status_code=400, detail="Battle attachment URL is invalid.") from exc
+        return None
+
+
+def _extract_battle_media_paths(rounds: list[dict[str, object]], *, user_id: int) -> list[str]:
     paths: list[str] = []
     for round_item in rounds:
         attachments = round_item.get("attachments", [])
@@ -220,11 +242,46 @@ def _extract_battle_media_paths(rounds: list[dict[str, object]]) -> list[str]:
         for attachment in attachments:
             if not isinstance(attachment, dict):
                 continue
-            url = str(attachment.get("url", "")).strip()
-            if not url.startswith("/media/"):
+            path = _battle_attachment_path_from_url(str(attachment.get("url", "")), strict=False)
+            if path is None or not _is_user_battle_media_path(path, user_id=user_id):
                 continue
-            paths.append(url.removeprefix("/media/"))
+            paths.append(path)
     return paths
+
+
+def _extract_existing_media_paths(rounds: list[dict[str, object]]) -> set[str]:
+    paths: set[str] = set()
+    for round_item in rounds:
+        attachments = round_item.get("attachments", [])
+        if not isinstance(attachments, list):
+            continue
+        for attachment in attachments:
+            if not isinstance(attachment, dict):
+                continue
+            path = _battle_attachment_path_from_url(str(attachment.get("url", "")), strict=False)
+            if path is not None:
+                paths.add(path)
+    return paths
+
+
+def _validate_battle_attachment_paths(
+    *,
+    rounds: list[BattleRoundPayload],
+    user_id: int,
+    existing_paths: set[str] | None = None,
+) -> None:
+    allowed_existing_paths = existing_paths or set()
+    for round_item in rounds:
+        for attachment in round_item.attachments:
+            path = _battle_attachment_path_from_url(attachment.url, strict=True)
+            if path in allowed_existing_paths:
+                continue
+            if _is_user_battle_media_path(path, user_id=user_id):
+                continue
+            raise HTTPException(
+                status_code=400,
+                detail="Battle attachments must come from this user's Battle media namespace.",
+            )
 
 
 @router.get("/sessions", response_model=list[BattleSessionSummaryOut])
@@ -274,6 +331,7 @@ def create_battle_session(
     current_user: User = Depends(require_current_user),
 ):
     title = _ensure_battle_title_present(payload.title)
+    _validate_battle_attachment_paths(rounds=payload.rounds, user_id=current_user.id)
     session = BattleSession(
         user_id=current_user.id,
         title=title,
@@ -304,6 +362,11 @@ def update_battle_session(
 ):
     session = _load_battle_session_for_user(db=db, session_id=session_id, user_id=current_user.id)
     session.title = _ensure_battle_title_present(payload.title)
+    _validate_battle_attachment_paths(
+        rounds=payload.rounds,
+        user_id=current_user.id,
+        existing_paths=_extract_existing_media_paths(session.rounds),
+    )
     session.rounds_json = json.dumps([item.model_dump(mode="json") for item in payload.rounds], ensure_ascii=False)
     db.add(session)
     db.commit()
@@ -333,7 +396,7 @@ def delete_battle_session(
     current_user: User = Depends(require_current_user),
 ):
     session = _load_battle_session_for_user(db=db, session_id=session_id, user_id=current_user.id)
-    remove_media_files(_extract_battle_media_paths(session.rounds))
+    remove_media_files(_extract_battle_media_paths(session.rounds, user_id=current_user.id))
     db.delete(session)
     db.commit()
 
@@ -353,7 +416,10 @@ async def _prepare_battle_prompt(
     if profile is None:
         raise HTTPException(status_code=400, detail="Model is not enabled in catalog.")
 
-    saved_attachments = await persist_uploaded_attachments(uploads)
+    saved_attachments = await persist_uploaded_attachments(
+        uploads,
+        namespace=_battle_media_namespace(current_user.id),
+    )
     _ensure_battle_input_present(content=content, upload_count=len(saved_attachments))
 
     services = get_chat_services(request)
@@ -385,6 +451,7 @@ async def _prepare_battle_prompt(
             request=ToolContextBuildRequest(
                 db=db,
                 user_id=current_user.id,
+                project_id=None,
                 query=content,
                 plan=tool_plan,
                 retrieval_messages=prepared_retrieval_history.messages,
