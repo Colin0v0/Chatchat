@@ -6,7 +6,15 @@ from sqlalchemy import and_, case, desc, func, literal, or_, select, text
 from sqlalchemy.exc import DatabaseError
 
 from ..storage.models import MemoryItem
-from .store_utils import INJECTABLE_CONFIDENCE_STATES, MEMORY_STOPWORDS, TOKEN_PATTERN, memory_token_set, normalize_tags, utcnow
+from .store_utils import (
+    INJECTABLE_CONFIDENCE_STATES,
+    MEMORY_STOPWORDS,
+    TOKEN_PATTERN,
+    memory_token_set,
+    normalize_embedding_vector,
+    normalize_tags,
+    utcnow,
+)
 from .types import MemoryMatch
 
 
@@ -25,14 +33,11 @@ class MemoryRecallStoreMixin:
         self.expire_stale_working_memory(user_id=user_id)
 
         # Prefer vector search when embedding is available and we're on PostgreSQL.
-        if (
-            query_embedding
-            and len(query_embedding) > 0
-            and not self._uses_sqlite_memory_search()
-        ):
+        normalized_query_embedding = normalize_embedding_vector(query_embedding)
+        if normalized_query_embedding is not None and not self._uses_sqlite_memory_search():
             try:
                 return self._recall_with_vector_search(
-                    query_embedding=query_embedding,
+                    query_embedding=normalized_query_embedding,
                     query=query,
                     user_id=user_id,
                     conversation_id=conversation_id,

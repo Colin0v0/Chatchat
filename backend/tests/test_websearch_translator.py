@@ -10,7 +10,7 @@ from app.retrieval.websearch.translator import (
 
 class WebSearchTranslatorTests(unittest.IsolatedAsyncioTestCase):
     async def test_underspecified_translation_preserves_original_cjk_query(self):
-        settings = SimpleNamespace(web_search_translation_model="codex:gpt-5.2")
+        settings = SimpleNamespace(web_search_translation_model="codex:gpt-5.4")
 
         with patch("app.retrieval.websearch.translator.complete_model_response", return_value="today"):
             translated = await translate_query_for_search("今天是周几", settings)
@@ -18,7 +18,7 @@ class WebSearchTranslatorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(translated, "今天是周几")
 
     async def test_underspecified_translation_allows_single_latin_subject(self):
-        settings = SimpleNamespace(web_search_translation_model="codex:gpt-5.2")
+        settings = SimpleNamespace(web_search_translation_model="codex:gpt-5.4")
 
         with patch("app.retrieval.websearch.translator.complete_model_response", return_value="Tinker"):
             translated = await translate_query_for_search("你给我详细介绍一下Tinker", settings)
@@ -26,7 +26,7 @@ class WebSearchTranslatorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(translated, "Tinker")
 
     async def test_invalid_translation_still_raises(self):
-        settings = SimpleNamespace(web_search_translation_model="codex:gpt-5.2")
+        settings = SimpleNamespace(web_search_translation_model="codex:gpt-5.4")
 
         with patch(
             "app.retrieval.websearch.translator.complete_model_response",

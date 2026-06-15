@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -86,6 +87,14 @@ def normalize_tags(tags: list[str] | tuple[str, ...]) -> list[str]:
         if value and value not in normalized:
             normalized.append(value)
     return normalized[:6]
+
+
+def normalize_embedding_vector(embedding: Iterable[float] | None) -> list[float] | None:
+    if embedding is None:
+        return None
+    # 中文注释：pgvector / numpy 返回的向量不能直接放进 if 判断，先转成普通 list 再检查长度。
+    values = [float(value) for value in embedding]
+    return values if values else None
 
 
 def normalize_memory_text(value: str, *, max_length: int) -> str:

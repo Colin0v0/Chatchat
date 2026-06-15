@@ -12,6 +12,20 @@ from app.storage.database import Base
 from app.storage.models import ChatHistoryEntry, Conversation, MemoryDocument, MemoryItem, Message, User
 
 
+class _ArrayLikeEmbedding:
+    def __init__(self, *, value: float = 0.125, length: int = 1024):
+        self._values = [value] * length
+
+    def __iter__(self):
+        return iter(self._values)
+
+    def __len__(self):
+        return len(self._values)
+
+    def __bool__(self):
+        raise ValueError("The truth value of an array with more than one element is ambiguous. Use a.any() or a.all()")
+
+
 class MemoryStoreTests(unittest.TestCase):
     def setUp(self):
         self.engine = create_engine(
@@ -80,6 +94,57 @@ class MemoryStoreTests(unittest.TestCase):
         self.assertEqual(items[0].detail, "用户叫杜宇")
         self.assertIn("personal", items[0].tags)
 
+    def test_memory_embedding_accepts_array_like_values_without_boolean_coercion(self):
+        memory = self.store.create_manual_memory(
+            user_id=self.user.id,
+            scope="global",
+            kind="fact",
+            title="数组向量",
+            detail="embedding 可能来自 numpy 或 pgvector",
+            tags=[],
+            confidence=0.9,
+            pinned=False,
+            active=True,
+            conversation_id=None,
+            embedding=_ArrayLikeEmbedding(),  # type: ignore[arg-type]
+        )
+        self.db.commit()
+
+        self.assertIsNotNone(memory.embedding)
+        assert memory.embedding is not None
+        self.assertEqual(len(memory.embedding), 1024)
+        self.assertEqual(memory.embedding[0], 0.125)
+
+        updated = self.store.upsert_auto_memory(
+            candidate=MemoryCandidate(
+                scope="global",
+                kind="fact",
+                title="数组向量自动记忆",
+                detail="自动记忆写入也不能布尔判断 embedding",
+                tags=(),
+                confidence=0.9,
+            ),
+            user_id=self.user.id,
+            conversation_id=12,
+            status="active",
+            confidence_state="inferred",
+            source_type="auto",
+            modality="text",
+            write_policy="explicit",
+            pinned=False,
+            expires_at=None,
+            user_message_id=101,
+            assistant_message_id=102,
+            embedding=_ArrayLikeEmbedding(value=0.25),  # type: ignore[arg-type]
+        )
+        self.db.commit()
+
+        self.assertIsNotNone(updated)
+        assert updated is not None
+        self.assertIsNotNone(updated.embedding)
+        assert updated.embedding is not None
+        self.assertEqual(updated.embedding[0], 0.25)
+
     def test_merge_candidates_demotes_transient_global_memory_to_working(self):
         merged = self.store.merge_candidates(
             candidates=[
@@ -144,6 +209,32 @@ class MemoryStoreTests(unittest.TestCase):
         self.assertGreaterEqual(len(matches), 1)
         self.assertEqual(matches[0].memory_id, item.id)
         self.assertGreater(matches[0].score, 0.0)
+
+    def test_memory_recall_accepts_array_like_query_embedding_without_boolean_coercion(self):
+        item = self.store.create_manual_memory(
+            user_id=self.user.id,
+            scope="conversation",
+            kind="project",
+            title="数组查询",
+            detail="召回时 query embedding 不能直接放进 if",
+            tags=[],
+            confidence=0.9,
+            pinned=False,
+            active=True,
+            conversation_id=42,
+        )
+        self.db.commit()
+
+        matches = self.store.recall(
+            query="数组查询",
+            user_id=self.user.id,
+            conversation_id=42,
+            limit=3,
+            query_embedding=_ArrayLikeEmbedding(),  # type: ignore[arg-type]
+        )
+
+        self.assertGreaterEqual(len(matches), 1)
+        self.assertEqual(matches[0].memory_id, item.id)
 
     def test_update_manual_memory_rebuilds_previous_conversation_document(self):
         memory = self.store.create_manual_memory(
@@ -404,6 +495,47 @@ class MemoryStoreTests(unittest.TestCase):
         self.assertEqual(refs[0].conversation_id, source_conversation.id)
         self.assertEqual(refs[0].summary, "")
         self.assertIn("候选确认面板", refs[0].excerpt)
+
+    def test_past_chat_recall_accepts_array_like_embeddings_without_boolean_coercion(self):
+        source_conversation = Conversation(user_id=self.user.id, title="数组历史", model="test:model")
+        current_conversation = Conversation(user_id=self.user.id, title="当前问题", model="test:model")
+        self.db.add_all([source_conversation, current_conversation])
+        self.db.flush()
+        user_message = Message(
+            conversation_id=source_conversation.id,
+            role="user",
+            content="历史索引里保存数组向量",
+        )
+        assistant_message = Message(
+            conversation_id=source_conversation.id,
+            role="assistant",
+            content="后续召回不应该触发 numpy 布尔错误。",
+        )
+        self.db.add_all([user_message, assistant_message])
+        self.db.flush()
+
+        entry = ChatHistoryRecallStore(self.db).upsert_turn(
+            user_id=self.user.id,
+            conversation=source_conversation,
+            user_message=user_message,
+            assistant_message=assistant_message,
+            summary="数组向量历史索引。",
+            embedding=_ArrayLikeEmbedding(),  # type: ignore[arg-type]
+        )
+        self.db.commit()
+
+        self.assertIsNotNone(entry)
+        assert entry is not None
+        refs = ChatHistoryRecallStore(self.db).recall(
+            user_id=self.user.id,
+            conversation_id=current_conversation.id,
+            query="数组 向量",
+            limit=3,
+            query_embedding=_ArrayLikeEmbedding(),  # type: ignore[arg-type]
+        )
+
+        self.assertEqual(len(refs), 1)
+        self.assertEqual(refs[0].conversation_id, source_conversation.id)
 
     def test_memory_settings_and_clear_policies_are_persisted(self):
         source_conversation = Conversation(user_id=self.user.id, title="历史对话", model="test:model")

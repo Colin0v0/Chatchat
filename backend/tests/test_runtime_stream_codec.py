@@ -5,7 +5,7 @@ from app.runtime.stream_codec import encode_ndjson_event
 
 
 def test_encode_meta_event_to_legacy_ndjson():
-    encoded = encode_ndjson_event(meta_event(conversation_id=1, message_id=2, model="codex:gpt-5.2", run_id=3))
+    encoded = encode_ndjson_event(meta_event(conversation_id=1, message_id=2, model="codex:gpt-5.4", run_id=3))
 
     assert encoded is not None
     payload = json.loads(encoded)

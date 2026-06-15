@@ -1,4 +1,4 @@
-import { FolderKanban, LoaderCircle, MessageSquare, MoreHorizontal, Pencil, Plus, Scale, Swords, Trash2 } from "lucide-react";
+import { LoaderCircle, MessageSquare, MoreHorizontal, Pencil, Scale, Swords, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -48,13 +48,9 @@ export function SidebarContent({
   activeConversationId,
   activeDebateId,
   activeBattleId,
-  activeProjectId,
   battlesLoaded,
   conversationsLoaded,
   debatesLoaded,
-  projectIsSaving,
-  projects,
-  projectsLoaded,
   query,
   onRename,
   onDelete,
@@ -66,16 +62,12 @@ export function SidebarContent({
   onSelect,
   onSelectDebate,
   onSelectBattle,
-  onSelectProject,
-  onCreateProject,
   onSelectSection,
   mode,
   open = true,
 }: SidebarContentProps) {
   const [menuItemKey, setMenuItemKey] = useState<string | null>(null);
   const [dialogState, setDialogState] = useState<SidebarDialogState>(null);
-  const [projectCreateOpen, setProjectCreateOpen] = useState(false);
-  const [projectName, setProjectName] = useState("");
   const [collapsedPrimaryNavReady, setCollapsedPrimaryNavReady] = useState(mode === "desktop" && !open);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const isDesktop = mode === "desktop";
@@ -162,58 +154,6 @@ export function SidebarContent({
     <>
       <div className="flex h-full min-h-0 flex-col bg-app-sidebar">
         <div className={cn("flex shrink-0 flex-col gap-2", isDesktop ? "pt-3" : "pt-1")}>
-          <div className={`flex flex-col gap-1 ${sectionPadding}`}>
-            {showDesktopText ? (
-              <div className="flex items-center gap-2 rounded-[8px] border border-app-border bg-app-panel-strong px-2.5 py-2">
-                <FolderKanban className="size-4 shrink-0 text-app-muted" />
-                <select
-                  aria-label="Project space"
-                  className="min-w-0 flex-1 bg-transparent text-[14px] font-semibold text-app-text outline-none"
-                  disabled={!projectsLoaded}
-                  onChange={(event) => {
-                    const nextProjectId = event.target.value ? Number(event.target.value) : null;
-                    onSelectProject(nextProjectId);
-                  }}
-                  value={activeProjectId ?? ""}
-                >
-                  <option value="">全部项目</option>
-                  {projects.map((project) => (
-                    <option key={project.id} value={project.id}>
-                      {project.name}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  aria-label="新建项目"
-                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[8px] text-app-muted transition hover:bg-app-panel-soft hover:text-app-text"
-                  disabled={projectIsSaving}
-                  onClick={() => {
-                    setProjectName("");
-                    setProjectCreateOpen(true);
-                  }}
-                  type="button"
-                >
-                  {projectIsSaving ? <LoaderCircle className="size-3.5 animate-spin" /> : <Plus className="size-4" />}
-                </button>
-              </div>
-            ) : (
-              <div className="group relative">
-                <button
-                  aria-label="项目空间"
-                  className="flex min-h-[38.5px] w-full items-center justify-center rounded-[8px] text-app-muted transition hover:bg-app-panel-soft hover:text-app-text"
-                  onClick={() => {
-                    setProjectName("");
-                    setProjectCreateOpen(true);
-                  }}
-                  type="button"
-                >
-                  <FolderKanban className="size-4" />
-                </button>
-                {useCollapsedPrimaryNavLayout ? <SidebarTooltip label="项目空间" /> : null}
-              </div>
-            )}
-          </div>
-
           <div className={`flex flex-col gap-1 ${sectionPadding}`}>
             {SIDEBAR_PRIMARY_ITEMS.map((item) => {
               const isActive = item.kind === "section" && item.section === activeSection;
@@ -426,56 +366,6 @@ export function SidebarContent({
           </>
         ) : null}
       </div>
-
-      {projectCreateOpen ? (
-        <div
-          className="fixed inset-0 z-40 flex items-center justify-center bg-[rgba(22,19,16,0.18)] px-4"
-          onClick={() => setProjectCreateOpen(false)}
-        >
-          <form
-            className="w-full max-w-[420px] rounded-[18px] border border-app-border bg-app-panel px-6 py-6 shadow-[0_24px_80px_rgba(34,24,16,0.18)]"
-            onClick={(event) => event.stopPropagation()}
-            onSubmit={async (event) => {
-              event.preventDefault();
-              const nextName = projectName.trim();
-              if (!nextName) {
-                return;
-              }
-              const created = await onCreateProject(nextName);
-              if (created) {
-                setProjectCreateOpen(false);
-                setProjectName("");
-              }
-            }}
-          >
-            <div className="text-[24px] font-semibold text-app-text">新建项目</div>
-            <input
-              autoFocus
-              className="mt-5 w-full rounded-[10px] border border-app-border bg-app-panel-strong px-3 py-2.5 text-[15px] text-app-text outline-none transition focus:border-app-border-strong"
-              onChange={(event) => setProjectName(event.target.value)}
-              placeholder="项目名称"
-              value={projectName}
-            />
-            <div className="mt-6 flex justify-end gap-2">
-              <button
-                className="rounded-[8px] px-4 py-2 text-[14px] font-medium text-app-muted transition hover:bg-app-panel-soft hover:text-app-text"
-                onClick={() => setProjectCreateOpen(false)}
-                type="button"
-              >
-                取消
-              </button>
-              <button
-                className="inline-flex items-center gap-2 rounded-[8px] bg-app-accent-soft px-4 py-2 text-[14px] font-semibold text-app-accent-strong transition hover:bg-app-panel-soft disabled:opacity-60"
-                disabled={projectIsSaving || !projectName.trim()}
-                type="submit"
-              >
-                {projectIsSaving ? <LoaderCircle className="size-4 animate-spin" /> : <Plus className="size-4" />}
-                <span>创建</span>
-              </button>
-            </div>
-          </form>
-        </div>
-      ) : null}
 
       <SidebarDialog
         onCancel={() => setDialogState(null)}

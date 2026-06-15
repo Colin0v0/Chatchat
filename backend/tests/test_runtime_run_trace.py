@@ -35,13 +35,13 @@ def test_run_trace_recorder_creates_run_and_buffers_events_in_sequence():
         user_id=3,
         request_message_id=11,
         mode="chat",
-        model_id="codex:gpt-5.2",
+        model_id="codex:gpt-5.4",
         provider_family="openai",
         reasoning_profile="high",
         metadata={"tool_mode": "knowledge"},
     )
 
-    meta_line = trace.emit(meta_event(conversation_id=7, message_id=11, model="codex:gpt-5.2", run_id=trace.run_id))
+    meta_line = trace.emit(meta_event(conversation_id=7, message_id=11, model="codex:gpt-5.4", run_id=trace.run_id))
     trace.emit(status_event(["Reading notes"]))
     done_lines = trace.persist_completion(
         response_message_id=19,

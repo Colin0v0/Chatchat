@@ -6,19 +6,19 @@ from app.providers.catalog import build_model_options, resolve_model_profile, re
 
 
 def test_catalog_resolves_known_model_profile():
-    profile = resolve_model_profile("codex:gpt-5.2")
+    profile = resolve_model_profile("codex:gpt-5.4")
 
     assert profile is not None
-    assert profile.id == "codex:gpt-5.2"
+    assert profile.id == "codex:gpt-5.4"
     assert profile.provider_family == "openai"
-    assert profile.upstream_model == "gpt-5.2"
+    assert profile.upstream_model == "gpt-5.4"
 
 
 def test_catalog_builds_frontend_model_options():
     options = build_model_options()
 
     assert options
-    codex_option = next(option for option in options if option["id"] == "codex:gpt-5.2")
+    codex_option = next(option for option in options if option["id"] == "codex:gpt-5.4")
     assert codex_option["reasoning_control"] == "effort"
     assert codex_option["default_reasoning_profile"] == "medium"
     assert codex_option["capabilities"]["input"]["pdf"] is True
@@ -34,14 +34,14 @@ def test_catalog_builds_frontend_model_options():
 
 
 def test_reasoning_profile_force_off_maps_to_off():
-    profile = resolve_reasoning_profile("codex:gpt-5.2", False)
+    profile = resolve_reasoning_profile("codex:gpt-5.4", False)
 
     assert profile == "medium"
 
 
 def test_reasoning_profile_explicit_request_wins_over_boolean_toggle():
     profile = resolve_reasoning_profile(
-        "codex:gpt-5.2",
+        "codex:gpt-5.4",
         False,
         requested_profile="high",
     )
@@ -69,7 +69,7 @@ def test_deepseek_models_do_not_expose_reasoning_selection():
 
 def test_reasoning_profile_rejects_unsupported_off_profile_by_falling_back_to_default():
     profile = resolve_reasoning_profile(
-        "gemini:gemini-3.1-pro-high",
+        "gemini:gemini-3.1-pro-preview",
         None,
         requested_profile="off",
     )
@@ -94,8 +94,8 @@ def test_model_catalog_profiles_are_cached_by_file_fingerprint(tmp_path, monkeyp
     monkeypatch.setattr(catalog.settings, "model_catalog_path", str(catalog_path))
     monkeypatch.setattr(Path, "read_text", counting_read_text)
 
-    assert catalog.resolve_model_profile("codex:gpt-5.2") is not None
-    assert catalog.resolve_model_profile("codex:gpt-5.2") is not None
+    assert catalog.resolve_model_profile("codex:gpt-5.4") is not None
+    assert catalog.resolve_model_profile("codex:gpt-5.4") is not None
     assert read_count == 1
 
     catalog.clear_model_catalog_cache()

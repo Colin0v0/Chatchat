@@ -155,7 +155,7 @@ class Settings(BaseSettings):
     memory_auto_promote_min_confidence: float = 0.60
     retrieval_context_top_k: int = 6
     rag_query_rewrite_enabled: bool = True
-    rag_query_rewrite_model: str = "codex:gpt-5.2"
+    rag_query_rewrite_model: str = "codex:gpt-5.4"
     rag_query_rewrite_history_messages: int = 6
     file_retrieval_top_k: int = 3
     file_retrieval_chunk_token_limit: int = 220
@@ -198,7 +198,7 @@ class Settings(BaseSettings):
     web_search_top_k: int = 4
     web_search_min_score: float = 0.35
     web_search_content_max_chars: int = 1600
-    web_search_translation_model: str = "codex:gpt-5.2"
+    web_search_translation_model: str = "codex:gpt-5.4"
     conversation_title_max_length: int = 40
 
     model_config = SettingsConfigDict(

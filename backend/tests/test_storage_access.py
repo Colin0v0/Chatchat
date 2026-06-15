@@ -188,7 +188,7 @@ class ConversationSummaryAccessTests(unittest.TestCase):
                 request_message_id=user_message.id,
                 response_message_id=assistant_message.id,
                 mode="chat",
-                model_id="gemini:gemini-3.1-pro-high",
+                model_id="gemini:gemini-3.1-pro-preview",
                 provider_family="gemini",
                 reasoning_profile="medium",
                 status="completed",
@@ -203,7 +203,7 @@ class ConversationSummaryAccessTests(unittest.TestCase):
         )
 
         self.assertEqual(window.messages[0].model, None)
-        self.assertEqual(window.messages[1].model, "gemini:gemini-3.1-pro-high")
+        self.assertEqual(window.messages[1].model, "gemini:gemini-3.1-pro-preview")
 
 
 if __name__ == "__main__":

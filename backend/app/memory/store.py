@@ -20,6 +20,7 @@ from .store_utils import (
     MemoryCollection,
     memory_token_set,
     memory_similarity,
+    normalize_embedding_vector,
     normalize_memory_key,
     normalize_memory_text,
     serialize_evidence,
@@ -107,7 +108,7 @@ class MemoryStore(PendingMemoryStoreMixin, MemoryDocumentStoreMixin, MemoryRecal
             pinned=bool(pinned),
             active=bool(active),
             conversation_id=conversation_id if scope in {"conversation", "working"} else None,
-            embedding=embedding if embedding else None,
+            embedding=normalize_embedding_vector(embedding),
             last_confirmed_at=utcnow(),
         )
         self._db.add(memory)
@@ -196,7 +197,7 @@ class MemoryStore(PendingMemoryStoreMixin, MemoryDocumentStoreMixin, MemoryRecal
         memory.last_confirmed_at = utcnow()
         memory.updated_at = utcnow()
         if embedding is not None:
-            memory.embedding = embedding
+            memory.embedding = normalize_embedding_vector(embedding)
         self._db.add(memory)
         self._db.flush()
         self.reindex_memory(memory)
@@ -322,7 +323,7 @@ class MemoryStore(PendingMemoryStoreMixin, MemoryDocumentStoreMixin, MemoryRecal
                 conversation_id=scoped_conversation_id,
                 source_user_message_id=user_message_id,
                 source_assistant_message_id=assistant_message_id,
-                embedding=embedding if embedding else None,
+                embedding=normalize_embedding_vector(embedding),
                 expires_at=expires_at,
                 last_confirmed_at=utcnow() if resolved_state == "confirmed" and status == "active" else None,
             )
@@ -367,7 +368,7 @@ class MemoryStore(PendingMemoryStoreMixin, MemoryDocumentStoreMixin, MemoryRecal
         existing.source_user_message_id = user_message_id
         existing.source_assistant_message_id = assistant_message_id
         if embedding is not None:
-            existing.embedding = embedding
+            existing.embedding = normalize_embedding_vector(embedding)
         if status == "active" and existing.confidence_state == "confirmed":
             existing.last_confirmed_at = utcnow()
         existing.updated_at = utcnow()

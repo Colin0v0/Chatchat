@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from ..chat.token_budget import truncate_text_to_token_budget
 from ..storage.models import ChatHistoryEntry, Conversation, Message
-from .store_utils import TOKEN_PATTERN, memory_token_set, utcnow
+from .store_utils import TOKEN_PATTERN, memory_token_set, normalize_embedding_vector, utcnow
 from .types import PastChatReference
 
 
@@ -53,7 +53,7 @@ class ChatHistoryRecallStore:
         existing.user_text = _compact_history_text(user_message.content, token_limit=180)
         existing.assistant_text = _compact_history_text(assistant_message.content, token_limit=240)
         existing.summary = _compact_history_text(summary, token_limit=160)
-        existing.embedding = embedding if embedding else None
+        existing.embedding = normalize_embedding_vector(embedding)
         existing.active = True
         existing.updated_at = utcnow()
         self._db.add(existing)
@@ -88,13 +88,14 @@ class ChatHistoryRecallStore:
     ) -> list[PastChatReference]:
         if user_id <= 0 or not query.strip():
             return []
-        if query_embedding and self._dialect_name == "postgresql":
+        normalized_query_embedding = normalize_embedding_vector(query_embedding)
+        if normalized_query_embedding is not None and self._dialect_name == "postgresql":
             try:
                 return self._recall_with_vector(
                     user_id=user_id,
                     conversation_id=conversation_id,
                     query=query,
-                    query_embedding=query_embedding,
+                    query_embedding=normalized_query_embedding,
                     limit=limit,
                     vector_weight=vector_weight,
                     keyword_weight=keyword_weight,

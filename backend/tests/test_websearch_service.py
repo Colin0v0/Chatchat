@@ -26,7 +26,7 @@ def make_settings():
         web_search_enable_citation=True,
         web_search_citation_format="[ref_<number>]",
         web_search_max_results=5,
-        web_search_translation_model="codex:gpt-5.2",
+        web_search_translation_model="codex:gpt-5.4",
         dashscope_api_key="",
     )
 

@@ -125,7 +125,8 @@ export function useChatApp({
     onError: setError,
     userId,
   });
-  const activeProjectId = projectManager.activeProjectId;
+  // 中文注释：侧栏已移除项目入口，主工作区固定展示全局会话和知识库。
+  const activeProjectId = null;
   const memoryManager = useMemoryManager({
     activeConversationId: activeConversationId && activeConversationId > 0 ? activeConversationId : null,
     enabled: activeSection === "memories" || memorySettingsOpen,
